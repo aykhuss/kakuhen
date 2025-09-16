@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if (NOT TARGET kakuhen::kakuhen)
+  include(${CMAKE_CURRENT_LIST_DIR}/kakuhenTargets.cmake)
+endif ()

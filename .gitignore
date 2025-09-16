@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+
+# Cache
+.cache
+
+# Build & Install
+build
+install
+
+# Playgrounds
+playground
+v2
+just_vegas

@@ -1,0 +1,40 @@
+BasedOnStyle: Google
+
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 100
+
+PointerAlignment: Left          # `int* ptr` not `int *ptr`
+DerivePointerAlignment: false
+
+AllowShortFunctionsOnASingleLine: Empty     # Only allow truly empty on one line
+# AllowShortFunctionsOnASingleLine: All
+# AllowShortIfStatementsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+# AllowShortBlocksOnASingleLine: Always
+
+BreakBeforeBraces: Attach       # `void Foo() {` on same line
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+
+SpaceBeforeParens: ControlStatements  # `if (` but `void foo()`
+
+ReflowComments: true            # Re-wrap comments to match column limit
+SortIncludes: true              # Ensures include order is consistent
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex:           '^<.*\.h>'
+    Priority:        1
+    SortPriority:    0
+  - Regex:           '^".*\.h"'
+    Priority:        2
+    SortPriority:    1
+
+Cpp11BracedListStyle: true
+#Standard: c++17                 # Or c++20 if used internally
+Standard: c++20
+
+SpacesInAngles: false
+SpaceBeforeCpp11BracedList: false
