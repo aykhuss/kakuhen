@@ -98,6 +98,34 @@ class NDView {
                         static_cast<S>(shape.size()));
   }
 
+  NDView<T, S> diagonal(S dim1, S dim2) const {
+    assert(dim1 >= 0 && dim1 < ndim_ && dim2 >= 0 && dim2 < ndim_);
+    assert(shape_[dim1] == shape_[dim2]);  // must be square along those axes
+
+    auto new_ndim = ndim_ - 1;
+    auto new_shape = std::make_unique<S[]>(new_ndim);
+    auto new_strides = std::make_unique<S[]>(new_ndim);
+
+    // Fill new shape/strides
+    S idx = 0;
+    for (S i = 0; i < ndim_; ++i) {
+      if (i == dim1) {
+        // collapse dim1 and dim2 into one
+        new_shape[idx] = shape_[dim1];  // same size as either one
+        new_strides[idx] = strides_[dim1] + strides_[dim2];
+        ++idx;
+      } else if (i == dim2) {
+        continue;  // skip the second diagonal dim
+      } else {
+        new_shape[idx] = shape_[i];
+        new_strides[idx] = strides_[i];
+        ++idx;
+      }
+    }
+
+    return NDView<T, S>(data_, std::move(new_shape), std::move(new_strides), new_ndim);
+  }
+
  private:
   T* data_;
   std::unique_ptr<S[]> shape_;

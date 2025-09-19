@@ -229,7 +229,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   REQUIRE(arr(3, 2, 28) == Catch::Approx(-1.11));
 }
 
-TEST_CASE("NDView reshape", "[ndarray]") {
+TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   using kakuhen::ndarray::_;
 
   kakuhen::ndarray::NDArray<int> arr({3, 3, 2});
@@ -260,6 +260,19 @@ TEST_CASE("NDView reshape", "[ndarray]") {
       REQUIRE(view2d(i0, i1) == i0*100+(i1/2)*10+(i1%2));
     }
   }
+
+  auto viewd = view.diagonal(0,1);
+  using viewd_size_type = decltype(viewd)::size_type;
+  STATIC_REQUIRE(std::is_same_v<viewd_size_type, size_type>);
+  REQUIRE(viewd.ndim() == 2);
+  REQUIRE_THAT(viewd.shape(), RangeEquals(std::initializer_list{3, 2}));
+  std::vector<size_type> shaped = viewd.shape();
+  for (auto i0 = 0; i0 < shaped[0]; ++i0) {
+    for (auto i1 = 0; i1 < shaped[1]; ++i1) {
+      REQUIRE(viewd(i0, i1) == view(i0, i0, i1));
+    }
+  }
+
 }
 
 TEST_CASE("NDArray serialization", "[ndarray]") {
