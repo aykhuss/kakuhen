@@ -94,8 +94,7 @@ TEST_CASE("NDView slice and access", "[ndarray]") {
         for (auto i3 = 0; i3 < vshape[3]; ++i3) {
           for (auto i4 = 0; i4 < vshape[4]; ++i4) {
             REQUIRE(view(i0, i1, i2, i3, i4) == 1);
-            view(i0, i1, i2, i3, i4) =
-                i0 + i1 * 10 + i2 * 100 + i3 * 1000 + i4 * 10000;
+            view(i0, i1, i2, i3, i4) = i0 + i1 * 10 + i2 * 100 + i3 * 1000 + i4 * 10000;
           }
         }
       }
@@ -120,8 +119,7 @@ TEST_CASE("NDView slice and access", "[ndarray]") {
                     {1, _, 3},     // [7]
                     {1, 11, 3}});  // [8]
   vshape = view.shape();
-  REQUIRE_THAT(vshape,
-               RangeEquals(std::initializer_list{3, 2, 3, 3, 3, 3, 3, 3, 4}));
+  REQUIRE_THAT(vshape, RangeEquals(std::initializer_list{3, 2, 3, 3, 3, 3, 3, 3, 4}));
   view(1, 1, 1, 1, 1, 1, 1, 1, 1) = 1337;
 
   // for (auto idx = 0; idx < arr.size(); ++idx) {
@@ -231,6 +229,39 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   REQUIRE(arr(3, 2, 28) == Catch::Approx(-1.11));
 }
 
+TEST_CASE("NDView reshape", "[ndarray]") {
+  using kakuhen::ndarray::_;
+
+  kakuhen::ndarray::NDArray<int> arr({3, 3, 2});
+  using size_type = decltype(arr)::size_type;
+  std::vector<size_type> shape = arr.shape();
+  arr.fill(1);
+
+  auto view = arr.slice({{}, {}, {}});
+  REQUIRE(view.ndim() == 3);
+  REQUIRE_THAT(view.shape(), RangeEquals(std::initializer_list{3, 3, 2}));
+  std::vector<size_type> vshape = view.shape();
+  for (auto i0 = 0; i0 < vshape[0]; ++i0) {
+    for (auto i1 = 0; i1 < vshape[1]; ++i1) {
+      for (auto i2 = 0; i2 < vshape[2]; ++i2) {
+        view(i0, i1, i2) = i0 * 100 + i1 * 10 + i2;
+      }
+    }
+  }
+
+  auto view2d = view.reshape({3,6});
+  using view2d_size_type = decltype(view2d)::size_type;
+  STATIC_REQUIRE(std::is_same_v<view2d_size_type, size_type>);
+  REQUIRE(view2d.ndim() == 2);
+  REQUIRE_THAT(view2d.shape(), RangeEquals(std::initializer_list{3, 6}));
+  std::vector<size_type> shape2d = view2d.shape();
+  for (auto i0 = 0; i0 < shape2d[0]; ++i0) {
+    for (auto i1 = 0; i1 < shape2d[1]; ++i1) {
+      REQUIRE(view2d(i0, i1) == i0*100+(i1/2)*10+(i1%2));
+    }
+  }
+}
+
 TEST_CASE("NDArray serialization", "[ndarray]") {
   std::stringstream ss;
 
@@ -247,14 +278,13 @@ TEST_CASE("NDArray serialization", "[ndarray]") {
 
   /// test type mismatch
   ss.str("");
-  arr.serialize(ss, true); // add type info
+  arr.serialize(ss, true);  // add type info
   kakuhen::ndarray::NDArray<double> arr_mismatch;
   REQUIRE_THROWS_MATCHES(arr_mismatch.deserialize(ss, true), std::runtime_error,
                          Message("type or size mismatch for typename T"));
   ss.str("");
-  arr.serialize(ss, true); // add type info
+  arr.serialize(ss, true);  // add type info
   kakuhen::ndarray::NDArray<float, int> arr_mismatch2;
-  REQUIRE_THROWS_MATCHES(arr_mismatch2.deserialize(ss, true),
-                         std::runtime_error,
+  REQUIRE_THROWS_MATCHES(arr_mismatch2.deserialize(ss, true), std::runtime_error,
                          Message("type or size mismatch for typename S"));
 }

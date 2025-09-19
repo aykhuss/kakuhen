@@ -14,12 +14,8 @@ class NDView {
   using value_type = T;
   using size_type = S;
 
-  NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides,
-         S ndim)
-      : data_(data),
-        shape_(std::move(shape)),
-        strides_(std::move(strides)),
-        ndim_(ndim) {}
+  NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides, S ndim)
+      : data_(data), shape_(std::move(shape)), strides_(std::move(strides)), ndim_(ndim) {}
 
   inline S ndim() const noexcept {
     return ndim_;
@@ -36,24 +32,20 @@ class NDView {
 
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
-    static_assert((std::is_integral_v<Indices> && ...),
-                  "All indices must be integral types");
+    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(),
-                                       ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
-    static_assert((std::is_integral_v<Indices> && ...),
-                  "All indices must be integral types");
+    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(),
-                                       ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
   NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
@@ -77,8 +69,33 @@ class NDView {
       base_offset += begin * strides_[i];
     }
 
-    return NDView<T, S>(data_ + base_offset, std::move(new_shape),
-                        std::move(new_strides), ndim_);
+    return NDView<T, S>(data_ + base_offset, std::move(new_shape), std::move(new_strides), ndim_);
+  }
+
+  NDView<T, S> reshape(const std::vector<S>& shape) const {
+    S old_size = 1;
+    for (S i = 0; i < ndim_; ++i)
+      old_size *= shape_[i];
+
+    S new_size = 1;
+    for (auto s : shape)
+      new_size *= s;
+
+    assert(old_size == new_size);
+
+    auto new_shape = std::make_unique<S[]>(shape.size());
+    auto new_strides = std::make_unique<S[]>(shape.size());
+
+    // Compute row-major strides for the new shape
+    S stride = 1;
+    for (S i = shape.size(); i-- > 0;) {
+      new_shape[i] = shape[i];
+      new_strides[i] = stride;
+      stride *= shape[i];
+    }
+
+    return NDView<T, S>(data_, std::move(new_shape), std::move(new_strides),
+                        static_cast<S>(shape.size()));
   }
 
  private:

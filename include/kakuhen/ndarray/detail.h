@@ -1,4 +1,5 @@
 #pragma once
+
 #include <cassert>
 #include <cstddef>
 
@@ -9,7 +10,8 @@ inline S flat_index(const S* idx, const S* strides, const S* shape,
                     S ndim) noexcept {
   S offset = 0;
   for (S i = 0; i < ndim; ++i) {
-    assert(idx[i] >= 0 && idx[i] < shape[i]);
+    assert(idx[i] >= 0);
+    assert(idx[i] < shape[i]);
     offset += idx[i] * strides[i];
   }
   return offset;
