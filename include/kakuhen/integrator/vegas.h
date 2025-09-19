@@ -39,14 +39,12 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::ndim_;
   using Base::opts_;
 
-  explicit Vegas(size_type ndim, size_type ndiv = 256)
+  explicit Vegas(size_type ndim, size_type ndiv = 512)
       : Base(ndim),
-        alpha_{1.2},
-        nmax_smooth_{3},
         ndiv_{ndiv},
         grid_({ndim, ndiv}),
         accumulator_({ndim, ndiv}) {
-    assert(ndim > 0 && ndiv > 0);
+    assert(ndim > 0 && ndiv > 2);
     reset();
   };
 
@@ -58,14 +56,14 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     assert(alpha >= value_type(0));
     alpha_ = alpha;
   }
-  value_type alpha() const noexcept {
+  inline value_type alpha() const noexcept {
     return alpha_;
   }
 
   inline void set_nmax_smooth(size_type nmax_smooth) noexcept {
     nmax_smooth_ = nmax_smooth;
   }
-  size_type nmax_smooth() const noexcept {
+  inline size_type nmax_smooth() const noexcept {
     return nmax_smooth_;
   }
 
@@ -121,13 +119,11 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       std::vector<value_type> dval(ndiv_);
       value_type dsum = value_type(0);
       for (auto ig = 0; ig < ndiv_; ++ig) {
-        /// Eq.(17) of https://arxiv.org/pdf/2009.05112
         if (accumulator_(idim, ig).count() == 0) {
           dval[ig] = value_type(0);
           continue;
         }
-        dval[ig] =
-            value_type(accumulator_(idim, ig).value()) / value_type(accumulator_(idim, ig).count());
+        dval[ig] = accumulator_(idim, ig).value() / value_type(accumulator_(idim, ig).count());
         dsum += dval[ig];
       }
 
@@ -137,19 +133,18 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// smoothen out
-      count_type nzero = 0;
-      /// keep smoothing until zero-hit accumulators also have non-vanishing
-      /// value
+      size_type nzero = 0;
+      /// keep smoothing until zero-hit accumulators also have non-vanishing value
       for (size_type it = 0; it < nmax_smooth_; ++it) {
         dsum = value_type(0);
         nzero = 0;
         for (auto ig = 0; ig < ndiv_; ++ig) {
           if (ig == 0) {
-            d[ig] = (7 * dval[ig] + dval[ig + 1]) / 8;
+            d[ig] = (7 * dval[ig] + dval[ig + 1]) / value_type(8);
           } else if (ig == ndiv_ - 1) {
-            d[ig] = (dval[ig - 1] + 7 * dval[ig]) / 8;
+            d[ig] = (dval[ig - 1] + 7 * dval[ig]) / value_type(8);
           } else {
-            d[ig] = (dval[ig - 1] + 6 * dval[ig] + dval[ig + 1]) / 8;
+            d[ig] = (dval[ig - 1] + 6 * dval[ig] + dval[ig + 1]) / value_type(8);
           }
           /// accumulate & keep track of zero values
           dsum += d[ig];
@@ -169,19 +164,21 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       /// normalize
       for (auto ig = 0; ig < ndiv_; ++ig) {
         d[ig] = dval[ig] / dsum;
+        // std::cout << ig << ": check = " << ndiv_ * d[ig] << "\n";  // should converge towards ->
+        // 1
       }
 
       /// dampen
       dsum = value_type(0);
       for (auto ig = 0; ig < ndiv_; ++ig) {
         if (d[ig] > value_type(0)) {
-          d[ig] = std::pow((value_type(1) - d[ig]) / std::log(value_type(1) / d[ig]), alpha_);
+          d[ig] = std::pow(-(value_type(1) - d[ig]) / std::log(d[ig]), alpha_);
         }
         dsum += d[ig];
       }
 
       /// refine the grid using `d`
-      value_type davg = dsum / ndiv_;
+      value_type davg = dsum / value_type(ndiv_);
       // std::cout << idim << ": " << dsum << "; <.> = " << davg << "\n";
       value_type dacc = 0.;
       size_type ig_new = 0;
@@ -346,8 +343,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
  private:
   /// parameters that controls the grid refinement
-  value_type alpha_ = value_type(1.2);
-  size_type nmax_smooth_ = size_type(3);
+  value_type alpha_{0.75};
+  size_type nmax_smooth_{3};
 
   size_type ndiv_;  // number of divisions of the grid along each dimension
   ndarray::NDArray<value_type, size_type> grid_;
