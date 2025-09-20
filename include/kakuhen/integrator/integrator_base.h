@@ -79,6 +79,10 @@ class IntegratorBase {
 
   explicit IntegratorBase(size_type ndim = 0, const Options& opts = {})
       : ndim_{ndim}, random_generator_{}, uniform_distribution_{0, 1}, opts_{opts} {
+    /// if the integrator supports adation, set default to true
+    if constexpr (Derived::has_feature(IntegratorFeature::ADAPT)) {
+      if (!opts_.adapt) opts_.adapt = true;
+    }
     //@todo:  do static asserts here?
   }
 

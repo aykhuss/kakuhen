@@ -99,6 +99,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   void reset() {
+    grid_.fill(value_type(0));
     std::vector<value_type> flat(ndiv_);
     for (size_type ig = 0; ig < ndiv_; ++ig) {
       flat[ig] = value_type(ig + 1) / value_type(ndiv_);
@@ -269,7 +270,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     if (accumulator_.shape() != grid_.shape()) {
       accumulator_ = ndarray::NDArray<grid_acc_type, size_type>({ndim_, ndiv_});
     }
-    // reset the result & accumulator
+    // clear the result & accumulator
     clear_data();
   }
 
