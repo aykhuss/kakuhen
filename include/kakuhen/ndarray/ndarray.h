@@ -22,8 +22,7 @@ class NDArray {
 
   NDArray() : NDArray(0, {}) {}
 
-  NDArray(S ndim, const S* shape)
-      : ndim_(ndim), shape_(new S[ndim]), strides_(new S[ndim]) {
+  NDArray(S ndim, const S* shape) : ndim_(ndim), shape_(new S[ndim]), strides_(new S[ndim]) {
     for (S i = 0; i < ndim; ++i) {
       shape_[i] = shape[i];
     }
@@ -76,56 +75,46 @@ class NDArray {
 
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
-    static_assert((std::is_integral_v<Indices> && ...),
-                  "All indices must be integral types");
+    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(),
-                                       ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
-    static_assert((std::is_integral_v<Indices> && ...),
-                  "All indices must be integral types");
+    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(),
-                                       ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
   void fill(const T& value) {
     std::fill(data_.get(), data_.get() + total_size_, value);
   }
 
-  NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
-    assert(slices.size() == static_cast<size_t>(ndim_));
+  inline NDView<T, S> view() const {
+    auto shape_copy = std::make_unique<S[]>(ndim_);
+    auto strides_copy = std::make_unique<S[]>(ndim_);
 
-    auto new_shape = std::make_unique<S[]>(ndim_);
-    auto new_strides = std::make_unique<S[]>(ndim_);
+    std::copy_n(shape_.get(), ndim_, shape_copy.get());
+    std::copy_n(strides_.get(), ndim_, strides_copy.get());
 
-    S base_offset = 0;
+    return NDView<T, S>(data_.get(), std::move(shape_copy), std::move(strides_copy), ndim_);
+  }
 
-    for (S i = 0; i < ndim_; ++i) {
-      const auto& s = slices[i];
+  inline NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
+    return view().slice(slices);
+  }
 
-      S begin = s.start.value_or(0);
-      S end = s.stop.value_or(shape_[i]);
-      S step = s.step.value_or(1);
+  inline NDView<T, S> reshape(const std::vector<S>& shape) const {
+    return view().reshape(shape);
+  }
 
-      assert(begin >= 0 && begin < end && end <= shape_[i] && step > 0);
-
-      S len = (end - begin + step - 1) / step;
-      new_shape[i] = len;
-
-      new_strides[i] = strides_[i] * step;
-      base_offset += begin * strides_[i];
-    }
-
-    return NDView<T, S>(data_.get() + base_offset, std::move(new_shape),
-                        std::move(new_strides), ndim_);
+  inline NDView<T, S> diagonal(S dim1, S dim2) const {
+    return view().diagonal(dim1, dim2);
   }
 
   void serialize(std::ostream& out, bool with_type = false) const noexcept {
@@ -162,8 +151,7 @@ class NDArray {
     S total_size_in;
     kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
     assert(total_size_in == total_size_);
-    kakuhen::util::serialize::deserialize_array<T>(in, data_.get(),
-                                                   total_size_);
+    kakuhen::util::serialize::deserialize_array<T>(in, data_.get(), total_size_);
   }
 
  private:
