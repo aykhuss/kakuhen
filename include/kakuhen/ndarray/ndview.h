@@ -14,8 +14,18 @@ class NDView {
   using value_type = T;
   using size_type = S;
 
+  NDView() : data_(nullptr), shape_(nullptr), strides_(nullptr), ndim_(0) {}
+
   NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides, S ndim)
       : data_(data), shape_(std::move(shape)), strides_(std::move(strides)), ndim_(ndim) {}
+
+  /// move
+  NDView(NDView&&) noexcept = default;
+  NDView& operator=(NDView&&) noexcept = default;
+
+  /// no copy
+  NDView(const NDView&) = delete;
+  NDView& operator=(const NDView&) = delete;
 
   inline S ndim() const noexcept {
     return ndim_;
@@ -28,6 +38,10 @@ class NDView {
   // }
   // inline const S* strides() const noexcept {
   //   return strides_.get();
+  // }
+
+  // inline const T* data() const noexcept {
+  //   return data_;
   // }
 
   template <typename... Indices>
