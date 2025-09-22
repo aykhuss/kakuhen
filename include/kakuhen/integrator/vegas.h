@@ -60,13 +60,6 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     return alpha_;
   }
 
-  inline void set_nmax_smooth(size_type nmax_smooth) noexcept {
-    nmax_smooth_ = nmax_smooth;
-  }
-  inline size_type nmax_smooth() const noexcept {
-    return nmax_smooth_;
-  }
-
   inline kakuhen::util::Hash hash() const {
     return kakuhen::util::Hash().add(ndim_).add(ndiv_).add(grid_.data(), grid_.size());
   }
@@ -134,39 +127,21 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// smoothen out
-      size_type nzero = 0;
-      /// keep smoothing until zero-hit accumulators also have non-vanishing value
-      for (size_type it = 0; it < nmax_smooth_; ++it) {
-        dsum = value_type(0);
-        nzero = 0;
-        for (auto ig = 0; ig < ndiv_; ++ig) {
-          if (ig == 0) {
-            d[ig] = (7 * dval[ig] + dval[ig + 1]) / value_type(8);
-          } else if (ig == ndiv_ - 1) {
-            d[ig] = (dval[ig - 1] + 7 * dval[ig]) / value_type(8);
-          } else {
-            d[ig] = (dval[ig - 1] + 6 * dval[ig] + dval[ig + 1]) / value_type(8);
-          }
-          /// accumulate & keep track of zero values
-          dsum += d[ig];
-          if ((accumulator_(idim, ig).count() == 0) && (d[ig] == value_type(0))) {
-            nzero++;
-          }
-          // std::cout << idim << "[" << accumulator_(idim, ig).count() << "] " << d[ig] << "\n";
-        }  // for ig
-        /// copy back to dval for next smoothing iteration
-        std::copy(d.begin(), d.end(), dval.begin());
-        // std::cout << "smooth[" << it << "]:  # zero's = " << nzero << std::endl;
-        if (nzero == 0) {
-          break;
+      dsum = value_type(0);
+      for (auto ig = 0; ig < ndiv_; ++ig) {
+        if (ig == 0) {
+          d[ig] = (7 * dval[ig] + dval[ig + 1]) / value_type(8);
+        } else if (ig == ndiv_ - 1) {
+          d[ig] = (dval[ig - 1] + 7 * dval[ig]) / value_type(8);
+        } else {
+          d[ig] = (dval[ig - 1] + 6 * dval[ig] + dval[ig + 1]) / value_type(8);
         }
-      }  // for it
+        dsum += d[ig];
+      }  // for ig
 
       /// normalize
       for (auto ig = 0; ig < ndiv_; ++ig) {
-        d[ig] = dval[ig] / dsum;
-        // std::cout << ig << ": check = " << ndiv_ * d[ig] << "\n";  // should converge towards ->
-        // 1
+        d[ig] = d[ig] / dsum;
       }
 
       /// dampen
@@ -190,8 +165,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         while (dacc >= davg) {
           dacc -= davg;
           value_type rat = dacc / d[ig];
-          assert(rat >= 0.);
-          assert(rat <= 1.);
+          assert(rat >= 0. && rat <= 1.);
           value_type x_low = ig > 0 ? grid_(idim, ig - 1) : 0.;
           value_type x_upp = grid_(idim, ig);
           g_new[ig_new] = x_low * rat + x_upp * (1. - rat);
@@ -345,7 +319,6 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   /// parameters that controls the grid refinement
   value_type alpha_{0.75};
-  size_type nmax_smooth_{3};
 
   size_type ndiv_;  // number of divisions of the grid along each dimension
   ndarray::NDArray<value_type, size_type> grid_;
