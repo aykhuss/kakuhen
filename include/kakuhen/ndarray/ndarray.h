@@ -33,8 +33,10 @@ class NDArray {
   NDArray(const std::vector<S>& shape) : NDArray(shape.size(), shape.data()) {}
   NDArray(std::initializer_list<S> shape) : NDArray(std::vector<S>(shape)) {}
 
+  //> move
   NDArray(NDArray&&) noexcept = default;
   NDArray& operator=(NDArray&&) noexcept = default;
+
   //> single ownership of the data
   NDArray(const NDArray&) = delete;
   NDArray& operator=(const NDArray&) = delete;
@@ -155,6 +157,12 @@ class NDArray {
   }
 
  private:
+  S ndim_;
+  S total_size_;
+  std::unique_ptr<S[]> shape_;
+  std::unique_ptr<S[]> strides_;
+  std::unique_ptr<T[]> data_;
+
   void compute_strides() {
     //> row-major layout
     S stride = 1;
@@ -167,11 +175,6 @@ class NDArray {
     total_size_ = stride;
   }
 
-  S ndim_;
-  std::unique_ptr<S[]> shape_;
-  std::unique_ptr<S[]> strides_;
-  S total_size_;
-  std::unique_ptr<T[]> data_;
 };  // class NDArray
 
 }  // namespace kakuhen::ndarray

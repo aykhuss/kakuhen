@@ -14,10 +14,19 @@ class NDView {
   using value_type = T;
   using size_type = S;
 
-  NDView() : data_(nullptr), shape_(nullptr), strides_(nullptr), ndim_(0) {}
+  NDView() : ndim_(0), total_size_(0), shape_(nullptr), strides_(nullptr), data_(nullptr) {}
 
   NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides, S ndim)
-      : data_(data), shape_(std::move(shape)), strides_(std::move(strides)), ndim_(ndim) {}
+      : ndim_(ndim),
+        total_size_(1),
+        shape_(std::move(shape)),
+        strides_(std::move(strides)),
+        data_(data) {
+    total_size_ = 1;
+    for (S i = ndim_; i-- > 0;) {
+      total_size_ *= shape_[i];
+    }
+  }
 
   /// move
   NDView(NDView&&) noexcept = default;
@@ -39,10 +48,16 @@ class NDView {
   // inline const S* strides() const noexcept {
   //   return strides_.get();
   // }
+  inline S size() const noexcept {
+    return total_size_;
+  }
 
-  // inline const T* data() const noexcept {
-  //   return data_;
-  // }
+  inline T* data() noexcept {
+    return data_;
+  }
+  inline const T* data() const noexcept {
+    return data_;
+  }
 
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
@@ -60,6 +75,10 @@ class NDView {
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
     return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
+  }
+
+  void fill(const T& value) {
+    std::fill(data_, data_ + total_size_, value);
   }
 
   NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
@@ -141,10 +160,12 @@ class NDView {
   }
 
  private:
-  T* data_;
+  S ndim_;
+  S total_size_;
   std::unique_ptr<S[]> shape_;
   std::unique_ptr<S[]> strides_;
-  S ndim_;
+  T* data_;
+
 };  // class NDView
 
 }  // namespace kakuhen::ndarray
