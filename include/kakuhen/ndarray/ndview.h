@@ -129,6 +129,7 @@ class NDView {
     bool contiguous = true;
     S expected_stride = 1;
     for (S i = ndim_; i-- > 0;) {
+      if (shape_[i] == 1) continue;  // skip size-1 dimensions
       if (strides_[i] != expected_stride) {
         contiguous = false;
         break;
