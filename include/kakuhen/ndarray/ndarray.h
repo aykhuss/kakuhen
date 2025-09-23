@@ -19,6 +19,9 @@ class NDArray {
  public:
   using value_type = T;
   using size_type = S;
+  //> iterators
+  using iterator = T*;
+  using const_iterator = const T*;
 
   NDArray() : NDArray(0, {}) {}
 
@@ -56,12 +59,35 @@ class NDArray {
   inline S size() const noexcept {
     return total_size_;
   }
+  inline bool empty() const noexcept {
+    return total_size_ == 0;
+  }
 
   inline T* data() noexcept {
     return data_.get();
   }
   inline const T* data() const noexcept {
     return data_.get();
+  }
+
+  /// Iterators
+  inline T* begin() noexcept {
+    return data_.get();
+  }
+  inline const T* begin() const noexcept {
+    return data_.get();
+  }
+  inline const T* cbegin() const noexcept {
+    return data_.get();
+  }
+  inline T* end() noexcept {
+    return data_.get() + total_size_;
+  }
+  inline const T* end() const noexcept {
+    return data_.get() + total_size_;
+  }
+  inline const T* cend() const noexcept {
+    return data_.get() + total_size_;
   }
 
   /// Flat (linear) element access

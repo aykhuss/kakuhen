@@ -57,6 +57,9 @@ class NDView {
   inline S size() const noexcept {
     return total_size_;
   }
+  inline bool empty() const noexcept {
+    return total_size_ == 0;
+  }
 
   inline T* data() noexcept {
     return data_;
