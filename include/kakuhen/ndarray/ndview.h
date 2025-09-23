@@ -9,6 +9,9 @@
 namespace kakuhen::ndarray {
 
 template <typename T, typename S>
+class NDArray;  // forward declaration
+
+template <typename T, typename S>
 class NDView {
  public:
   using value_type = T;
@@ -27,6 +30,9 @@ class NDView {
       total_size_ *= shape_[i];
     }
   }
+
+  /// implicit conversion constructor
+  NDView(NDArray<T, S>& arr);  // only declaration; definition after NDArray
 
   /// move
   NDView(NDView&&) noexcept = default;
@@ -115,6 +121,18 @@ class NDView {
       new_size *= s;
 
     assert(old_size == new_size);
+
+    //> check if view is contiguous (row-major layout)
+    bool contiguous = true;
+    S expected_stride = 1;
+    for (S i = ndim_; i-- > 0;) {
+      if (strides_[i] != expected_stride) {
+        contiguous = false;
+        break;
+      }
+      expected_stride *= shape_[i];
+    }
+    assert(contiguous && "reshape only works on contiguous views");
 
     auto new_shape = std::make_unique<S[]>(shape.size());
     auto new_strides = std::make_unique<S[]>(shape.size());

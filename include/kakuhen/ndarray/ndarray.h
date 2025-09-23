@@ -177,4 +177,7 @@ class NDArray {
 
 };  // class NDArray
 
+template <typename T, typename S>
+NDView<T, S>::NDView(NDArray<T, S>& arr) : NDView(arr.view()) {}
+
 }  // namespace kakuhen::ndarray
