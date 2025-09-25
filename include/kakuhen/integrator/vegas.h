@@ -34,16 +34,17 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::size_type;
   using typename Base::value_type;
   // using typename Base::result_type;
-  using grid_acc_type = GridAccumulator<value_type, count_type>;
+  //> some shorthands to save typing
+  using S = typename Base::size_type;
+  using T = typename Base::value_type;
+  using U = typename Base::count_type;
+  using grid_acc_type = GridAccumulator<T, U>;
   //  member variables
   using Base::ndim_;
   using Base::opts_;
 
-  explicit Vegas(size_type ndim, size_type ndiv = 512)
-      : Base(ndim),
-        ndiv_{ndiv},
-        grid_({ndim, ndiv}),
-        accumulator_({ndim, ndiv}) {
+  explicit Vegas(S ndim, S ndiv = 512)
+      : Base(ndim), ndiv_{ndiv}, grid_({ndim, ndiv}), accumulator_({ndim, ndiv}) {
     assert(ndim > 0 && ndiv > 2);
     reset();
   };
@@ -52,11 +53,11 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     Base::load(filepath);
   }
 
-  inline void set_alpha(value_type alpha) noexcept {
-    assert(alpha >= value_type(0));
+  inline void set_alpha(T alpha) noexcept {
+    assert(alpha >= T(0));
     alpha_ = alpha;
   }
-  inline value_type alpha() const noexcept {
+  inline T alpha() const noexcept {
     return alpha_;
   }
 
@@ -71,20 +72,23 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   template <typename I>
-  int_acc_type integrate_impl(I&& integrand, count_type neval) {
+  int_acc_type integrate_impl(I&& integrand, U neval) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
 
-    std::vector<size_type> grid_vec(ndim_);
+    std::vector<S> grid_vec(ndim_);
 
-    for (count_type i = 0; i < neval; ++i) {
+    for (U i = 0; i < neval; ++i) {
       generate_point(point, grid_vec, i);
-      const value_type func = point.weight * integrand(point);
-      const value_type func2 = func * func;
+      const T func = point.weight * integrand(point);
+      const T func2 = func * func;
+      const T abs_func = std::abs(func);
       result_.accumulate(func, func2);
-      for (size_type idim = 0; idim < ndim_; ++idim) {
-        accumulator_(idim, grid_vec[idim]).accumulate(func2);
+      for (S idim = 0; idim < ndim_; ++idim) {
+        ///broken w/o damping:  accumulator_(idim, grid_vec[idim]).accumulate(func2);
+        ///works: accumulator_(idim, grid_vec[idim]).accumulate(func2/point.weight);
+        accumulator_(idim, grid_vec[idim]).accumulate(abs_func);
       }
     }
 
@@ -92,13 +96,13 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   void reset() {
-    grid_.fill(value_type(0));
-    std::vector<value_type> flat(ndiv_);
-    for (size_type ig = 0; ig < ndiv_; ++ig) {
-      flat[ig] = value_type(ig + 1) / value_type(ndiv_);
+    grid_.fill(T(0));
+    std::vector<T> flat(ndiv_);
+    for (S ig = 0; ig < ndiv_; ++ig) {
+      flat[ig] = T(ig + 1) / T(ndiv_);
     }
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      for (size_type ig = 0; ig < ndiv_; ++ig) {
+    for (S idim = 0; idim < ndim_; ++idim) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         grid_(idim, ig) = flat[ig];
       }
     }
@@ -106,91 +110,101 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   void adapt() {
+    // using kakuhen::ndarray::_;
+    using kakuhen::ndarray::NDArray;
+    using kakuhen::ndarray::NDView;
+
     std::cout << "Adapting the grid on " << result_.count() << " collected samples.\n";
-    for (auto idim = 0; idim < ndim_; ++idim) {
-      /// initial values
-      std::vector<value_type> d(ndiv_);
-      std::vector<value_type> dval(ndiv_);
-      value_type dsum = value_type(0);
-      for (auto ig = 0; ig < ndiv_; ++ig) {
+
+    //> pre-allocate data structures
+    NDArray<T, S> dval({ndiv_});
+    NDArray<T, S> d({ndiv_});
+    NDArray<T, S> grid_new({ndiv_});
+    T dsum, davg, dacc;
+
+    for (S idim = 0; idim < ndim_; ++idim) {
+      /// initialize
+      dval.fill(T(0));
+      dsum = T(0);
+      for (S ig = 0; ig < ndiv_; ++ig) {
         if (accumulator_(idim, ig).count() == 0) {
-          dval[ig] = value_type(0);
+          dval(ig) = T(0);
           continue;
         }
-        dval[ig] = accumulator_(idim, ig).value() / value_type(accumulator_(idim, ig).count());
-        dsum += dval[ig];
+        dval(ig) = accumulator_(idim, ig).value() / T(accumulator_(idim, ig).count());
+        dsum += dval(ig);
       }
 
-      if (dsum <= value_type(0)) {
+      if (dsum <= T(0)) {
         std::cout << "no data collected to adapt the grid" << std::endl;
         return;
       }
 
       /// smoothen out
-      dsum = value_type(0);
+      d.fill(T(0));
+      dsum = T(0);
       for (auto ig = 0; ig < ndiv_; ++ig) {
         if (ig == 0) {
-          d[ig] = (7 * dval[ig] + dval[ig + 1]) / value_type(8);
+          d(ig) = (7 * dval(ig) + dval(ig + 1)) / T(8);
         } else if (ig == ndiv_ - 1) {
-          d[ig] = (dval[ig - 1] + 7 * dval[ig]) / value_type(8);
+          d(ig) = (dval(ig - 1) + 7 * dval(ig)) / T(8);
         } else {
-          d[ig] = (dval[ig - 1] + 6 * dval[ig] + dval[ig + 1]) / value_type(8);
+          d(ig) = (dval(ig - 1) + 6 * dval(ig) + dval(ig + 1)) / T(8);
         }
-        dsum += d[ig];
+        dsum += d(ig);
       }  // for ig
 
       /// normalize
       for (auto ig = 0; ig < ndiv_; ++ig) {
-        d[ig] = d[ig] / dsum;
+        d(ig) = d(ig) / dsum;
       }
 
       /// dampen
-      dsum = value_type(0);
+      dsum = T(0);
       for (auto ig = 0; ig < ndiv_; ++ig) {
-        if (d[ig] > value_type(0)) {
-          d[ig] = std::pow(-(value_type(1) - d[ig]) / std::log(d[ig]), alpha_);
+        if (d(ig) > T(0)) {
+          d(ig) = std::pow(-(T(1) - d(ig)) / std::log(d(ig)), alpha_);
         }
-        dsum += d[ig];
+        dsum += d(ig);
       }
 
       /// refine the grid using `d`
-      value_type davg = dsum / value_type(ndiv_);
+      davg = dsum / T(ndiv_);
       // std::cout << idim << ": " << dsum << "; <.> = " << davg << "\n";
-      value_type dacc = 0.;
-      size_type ig_new = 0;
-      std::vector<value_type> g_new(ndiv_);
-      for (auto ig = 0; ig < ndiv_; ++ig) {
-        dacc += d[ig];
+      dacc = T(0);
+      S ig_new = S(0);
+      for (S ig = 0; ig < ndiv_; ++ig) {
+        dacc += d(ig);
         // std::cout << "=- " << ig << ": " << dacc << " / " << davg << " -=\n";
         while (dacc >= davg) {
           dacc -= davg;
-          value_type rat = dacc / d[ig];
+          const T rat = dacc / d(ig);
           assert(rat >= 0. && rat <= 1.);
-          value_type x_low = ig > 0 ? grid_(idim, ig - 1) : 0.;
-          value_type x_upp = grid_(idim, ig);
-          g_new[ig_new] = x_low * rat + x_upp * (1. - rat);
-          // std::cout << "  > " << ig_new << ": " << g_new[ig_new] << "\n";
+          const T x_low = ig > 0 ? grid_(idim, ig - 1) : 0.;
+          const T x_upp = grid_(idim, ig);
+          grid_new(ig_new) = x_low * rat + x_upp * (1. - rat);
+          // std::cout << "  > " << ig_new << ": " << grid_new(ig_new) << "\n";
           ig_new++;
         }
       }
-      g_new[ndiv_ - 1] = 1.;
+      grid_new(ndiv_ - 1) = T(1);
 
       ///--- check
       // std::cout << "CHK: ";
-      for (auto ig = 0; ig < ndiv_; ++ig) {
-        value_type x_new_low = ig > 0 ? g_new[ig - 1] : 0.;
-        value_type x_new_upp = g_new[ig];
-        value_type acc = 0.;
-        for (auto jg = 0; jg < ndiv_; ++jg) {
-          value_type x_old_low = jg > 0 ? grid_(idim, jg - 1) : 0.;
-          value_type x_old_upp = grid_(idim, jg);
+      for (S ig = 0; ig < ndiv_; ++ig) {
+        T x_new_low = ig > 0 ? grid_new[ig - 1] : 0.;
+        T x_new_upp = grid_new[ig];
+        T acc = T(0);
+        for (S jg = 0; jg < ndiv_; ++jg) {
+          T x_old_low = jg > 0 ? grid_(idim, jg - 1) : 0.;
+          T x_old_upp = grid_(idim, jg);
           if (x_old_upp < x_new_low) continue;
           if (x_old_low > x_new_upp) continue;
-          value_type rat = (std::min(x_new_upp, x_old_upp) - std::max(x_new_low, x_old_low)) /
-                           (x_old_upp - x_old_low);
+          T rat = (std::min(x_new_upp, x_old_upp) - std::max(x_new_low, x_old_low)) /
+                  (x_old_upp - x_old_low);
           // std::cout << " + [" << x_old_low << "," << x_old_upp << "] " << rat << "\n";
           if (rat <= 0.) continue;
-          acc += rat * d[jg];
+          acc += rat * d(jg);
         }
         // std::cout << "[" << x_new_low << "," << x_new_upp << "] " << acc << "\n";
         // std::cout << " " << acc;
@@ -198,8 +212,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       // std::cout << std::endl;
       ///---
 
-      for (size_type ig = 0; ig < ndiv_; ++ig) {
-        grid_(idim, ig) = g_new[ig];
+      for (S ig = 0; ig < ndiv_; ++ig) {
+        grid_(idim, ig) = grid_new[ig];
       }
     }  // for idim
     // print_grid();
@@ -208,11 +222,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   void clear_data() {
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      for (size_type ig = 0; ig < ndiv_; ++ig) {
-        accumulator_(idim, ig).reset();
-      }
-    }
+    std::for_each(accumulator_.begin(), accumulator_.end(), [](auto& acc) { acc.reset(); });
     result_.reset();
   }
 
@@ -229,20 +239,20 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   void write_state_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
-    serialize_one<size_type>(out, ndim_);
-    serialize_one<size_type>(out, ndiv_);
+    serialize_one<S>(out, ndim_);
+    serialize_one<S>(out, ndiv_);
     grid_.serialize(out);
   }
 
   void read_state_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
-    deserialize_one<size_type>(in, ndim_);
-    deserialize_one<size_type>(in, ndiv_);
-    grid_ = ndarray::NDArray<value_type, size_type>({ndim_, ndiv_});
+    deserialize_one<S>(in, ndim_);
+    deserialize_one<S>(in, ndiv_);
+    grid_ = ndarray::NDArray<T, S>({ndim_, ndiv_});
     grid_.deserialize(in);
     if (accumulator_.shape() != grid_.shape()) {
-      accumulator_ = ndarray::NDArray<grid_acc_type, size_type>({ndim_, ndiv_});
+      accumulator_ = ndarray::NDArray<grid_acc_type, S>({ndim_, ndiv_});
     }
     // clear the result & accumulator
     clear_data();
@@ -251,8 +261,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   void write_data_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
-    serialize_one<size_type>(out, ndim_);
-    serialize_one<size_type>(out, ndiv_);
+    serialize_one<S>(out, ndim_);
+    serialize_one<S>(out, ndiv_);
     serialize_one<kakuhen::util::HashValue_t>(out, hash().value());
     result_.serialize(out);
     accumulator_.serialize(out);
@@ -265,8 +275,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     if (result_.count() != 0) {
       throw std::runtime_error("result already has data");
     }
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      for (size_type ig = 0; ig < ndiv_; ++ig) {
+    for (S idim = 0; idim < ndim_; ++idim) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         if (accumulator_(idim, ig).count() != 0) {
           throw std::runtime_error("accumulator already has data");
         }
@@ -281,20 +291,20 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
     //> read & check for compatibility
-    size_type ndim_chk;
-    deserialize_one<size_type>(in, ndim_chk);
+    S ndim_chk;
+    deserialize_one<S>(in, ndim_chk);
     if (ndim_chk != ndim_) {
       throw std::runtime_error("ndim mismatch");
     }
-    size_type ndiv_chk;
-    deserialize_one<size_type>(in, ndiv_chk);
+    S ndiv_chk;
+    deserialize_one<S>(in, ndiv_chk);
     if (ndiv_chk != ndiv_) {
       throw std::runtime_error("ndiv mismatch");
     }
-    if (grid_.shape() != std::vector<size_type>({ndim_, ndiv_})) {
+    if (grid_.shape() != std::vector<S>({ndim_, ndiv_})) {
       throw std::runtime_error("grid shape mismatch");
     }
-    if (accumulator_.shape() != std::vector<size_type>({ndim_, ndiv_})) {
+    if (accumulator_.shape() != std::vector<S>({ndim_, ndiv_})) {
       throw std::runtime_error("accumulator shape mismatch");
     }
     kakuhen::util::HashValue_t hash_val;
@@ -307,10 +317,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     result_in.deserialize(in);
     result_.accumulate(result_in);
     //> accumulate grid data
-    ndarray::NDArray<grid_acc_type, size_type> accumulator_in({ndim_, ndiv_});
+    ndarray::NDArray<grid_acc_type, S> accumulator_in({ndim_, ndiv_});
     accumulator_in.deserialize(in);
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      for (size_type ig = 0; ig < ndiv_; ++ig) {
+    for (S idim = 0; idim < ndim_; ++idim) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         accumulator_(idim, ig).accumulate(accumulator_in(idim, ig));
       }
     }
@@ -318,28 +328,28 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
  private:
   /// parameters that controls the grid refinement
-  value_type alpha_{0.75};
+  T alpha_{0.75};
 
-  size_type ndiv_;  // number of divisions of the grid along each dimension
-  ndarray::NDArray<value_type, size_type> grid_;
+  S ndiv_;  // number of divisions of the grid along each dimension
+  ndarray::NDArray<T, S> grid_;
   int_acc_type result_;
-  ndarray::NDArray<grid_acc_type, size_type> accumulator_;
+  ndarray::NDArray<grid_acc_type, S> accumulator_;
 
-  inline void generate_point(Point<num_traits>& point, std::vector<size_type>& grid_vec,
-                             count_type sample_index = count_type(0)) {
+  inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
+                             U sample_index = U(0)) {
     point.sample_index = sample_index;
-    point.weight = value_type(1);
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      value_type rand = Base::ran();
+    point.weight = T(1);
+    for (S idim = 0; idim < ndim_; ++idim) {
+      T rand = Base::ran();
       //> intervals rand in [ i/ndiv_ , (i+1)/ndiv_ ] mapped to i
-      size_type ig = rand * ndiv_;  // 0 .. (ndiv_-1)
+      const S ig = S(rand * ndiv_);  // 0 .. (ndiv_-1)
       assert(ig >= 0 && ig < ndiv_);
-      assert(rand * ndiv_ >= value_type(ig) && rand * ndiv_ <= value_type(ig + 1));
+      assert(rand * ndiv_ >= T(ig) && rand * ndiv_ <= T(ig + 1));
       //> map rand back to [ 0, 1 ]
-      rand = rand * ndiv_ - value_type(ig);
-      assert(rand >= value_type(0) && rand <= value_type(1));
-      value_type x_low = ig > 0 ? grid_(idim, ig - 1) : value_type(0);
-      value_type x_upp = grid_(idim, ig);
+      rand = rand * ndiv_ - T(ig);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig > 0 ? grid_(idim, ig - 1) : T(0);
+      const T x_upp = grid_(idim, ig);
       point.x[idim] = x_low + rand * (x_upp - x_low);
       // point.x[idim] = x_low * (T(1) - rand) + x_upp * rand;
       grid_vec[idim] = ig;
