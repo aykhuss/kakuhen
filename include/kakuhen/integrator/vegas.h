@@ -8,6 +8,7 @@
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/serialize.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -45,7 +46,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
   explicit Vegas(S ndim, S ndiv = 512)
       : Base(ndim), ndiv_{ndiv}, grid_({ndim, ndiv}), accumulator_({ndim, ndiv}) {
-    assert(ndim > 0 && ndiv > 2);
+    assert(ndim > 0 && ndiv > 1);
     reset();
   };
 
@@ -53,7 +54,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     Base::load(filepath);
   }
 
-  inline void set_alpha(T alpha) noexcept {
+  inline void set_alpha(const T& alpha) noexcept {
     assert(alpha >= T(0));
     alpha_ = alpha;
   }
@@ -83,12 +84,11 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       generate_point(point, grid_vec, i);
       const T func = point.weight * integrand(point);
       const T func2 = func * func;
-      const T abs_func = std::abs(func);
       result_.accumulate(func, func2);
+      /// accumulator for the grid
+      const T acc = std::abs(func);  // func2: wrong; func2/point.weight: ok
       for (S idim = 0; idim < ndim_; ++idim) {
-        ///broken w/o damping:  accumulator_(idim, grid_vec[idim]).accumulate(func2);
-        ///works: accumulator_(idim, grid_vec[idim]).accumulate(func2/point.weight);
-        accumulator_(idim, grid_vec[idim]).accumulate(abs_func);
+        accumulator_(idim, grid_vec[idim]).accumulate(acc);
       }
     }
 
@@ -102,9 +102,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       flat[ig] = T(ig + 1) / T(ndiv_);
     }
     for (S idim = 0; idim < ndim_; ++idim) {
-      for (S ig = 0; ig < ndiv_; ++ig) {
-        grid_(idim, ig) = flat[ig];
-      }
+      std::copy_n(flat.begin(), ndiv_, &grid_(idim, 0));
     }
     clear_data();
   }
@@ -131,7 +129,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
           dval(ig) = T(0);
           continue;
         }
-        dval(ig) = accumulator_(idim, ig).value() / T(accumulator_(idim, ig).count());
+        // dval(ig) = accumulator_(idim, ig).value() / T(accumulator_(idim, ig).count());
+        dval(ig) = accumulator_(idim, ig).value();
         dsum += dval(ig);
       }
 
@@ -143,7 +142,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       /// smoothen out
       d.fill(T(0));
       dsum = T(0);
-      for (auto ig = 0; ig < ndiv_; ++ig) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         if (ig == 0) {
           d(ig) = (7 * dval(ig) + dval(ig + 1)) / T(8);
         } else if (ig == ndiv_ - 1) {
@@ -155,13 +154,13 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }  // for ig
 
       /// normalize
-      for (auto ig = 0; ig < ndiv_; ++ig) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         d(ig) = d(ig) / dsum;
       }
 
       /// dampen
       dsum = T(0);
-      for (auto ig = 0; ig < ndiv_; ++ig) {
+      for (S ig = 0; ig < ndiv_; ++ig) {
         if (d(ig) > T(0)) {
           d(ig) = std::pow(-(T(1) - d(ig)) / std::log(d(ig)), alpha_);
         }
@@ -169,10 +168,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// refine the grid using `d`
+      grid_new.fill(T(0));
       davg = dsum / T(ndiv_);
-      // std::cout << idim << ": " << dsum << "; <.> = " << davg << "\n";
       dacc = T(0);
-      S ig_new = S(0);
+      S ig_new = 0;
       for (S ig = 0; ig < ndiv_; ++ig) {
         dacc += d(ig);
         // std::cout << "=- " << ig << ": " << dacc << " / " << davg << " -=\n";
@@ -180,7 +179,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
           dacc -= davg;
           const T rat = dacc / d(ig);
           assert(rat >= 0. && rat <= 1.);
-          const T x_low = ig > 0 ? grid_(idim, ig - 1) : 0.;
+          const T x_low = ig > 0 ? grid_(idim, ig - 1) : T(0);
           const T x_upp = grid_(idim, ig);
           grid_new(ig_new) = x_low * rat + x_upp * (1. - rat);
           // std::cout << "  > " << ig_new << ": " << grid_new(ig_new) << "\n";

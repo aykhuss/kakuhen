@@ -1,6 +1,6 @@
 #pragma once
 
-#include "numeric_traits.h"
+#include "kakuhen/integrator/numeric_traits.h"
 #include <type_traits>
 
 namespace kakuhen::integrator::detail {
@@ -29,7 +29,7 @@ using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
 // ----- Helper alias -----
 template <typename F>
-using num_traits_arg_t = num_traits_t<remove_cvref_t<
-    typename function_traits<decltype(&F::operator())>::argument_type>>;
+using num_traits_arg_t =
+    num_traits_t<remove_cvref_t<typename function_traits<decltype(&F::operator())>::argument_type>>;
 
 }  // namespace kakuhen::integrator::detail
