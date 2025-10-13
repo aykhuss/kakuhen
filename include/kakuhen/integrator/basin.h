@@ -520,8 +520,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                                       grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
         }
         scores(idim1, idim2) /= T(ndiv1_);
-        // std::cout << std::format("score[{},{}] = {:6.1f}%\n", idim1, idim2,
-        //                          scores(idim1, idim2) * 100.);
+        std::cout << std::format("score[{},{}] = {:6.1f}%\n", idim1, idim2,
+                                 scores(idim1, idim2) * 100.);
       }  // for idim2
     }  // for idim1
 
@@ -531,7 +531,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       S max_idim1 = 0;
       S max_idim2 = 0;
 
-      /// find minimum avg score
+      /// find highest avg score
       for (S idim1 = 0; idim1 < ndim_; ++idim1) {
         if (scores(idim1, idim1) <= 0) continue;  // already selected
         T avg_score = T(0);
@@ -548,11 +548,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           max_idim1 = idim1;
           max_idim2 = idim1;
         }
-      }
+      }  // for idim1
 
       /// find highest score w.r.t. already sampled dimensions
       for (S ichk = 0; ichk < iord; ++ichk) {
-        const S idim1 = order_(ichk, 0);
+        const S idim1 = order_(ichk, 1);  // idim1 is an idim2 of a previous step
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
           if (scores(idim1, idim2) > max_score) {
@@ -568,9 +568,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                                max_idim2, max_score * 100);
       order_(iord, 0) = max_idim1;
       order_(iord, 1) = max_idim2;
+      scores(max_idim2, max_idim2) = T(-1);
       for (S idim = 0; idim < ndim_; ++idim) {
-        scores(idim, max_idim2) = -1;
-        scores(max_idim2, max_idim2) = -1;
+        scores(idim, max_idim2) = T(-1);
       }
 
     }  // for iord

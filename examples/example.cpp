@@ -11,7 +11,7 @@ int main() {
   // {.x[], .weight, .ndinm, .sample_index, .user_data}
   auto func = [](Point<>& point) {
     const auto& x = point.x;  // shorthand
-    return (5 * x[0] * x[0] * x[0] * x[0] + 3* x[0] * x[1] * x[1] + 2 * x[1]);
+    return (5 * x[0] * x[0] * x[0] * x[0] + 3 * x[0] * x[1] * x[1] + 2 * x[1]);
   };
 
   // setup vegas as our integrator for 2 dimension & 32 divisions in the grid
@@ -21,6 +21,9 @@ int main() {
 
   // let's do some warmup adaption for the grid and save it to file
   vegas_int.integrate(func, {.neval = 500, .niter = 5, .adapt = true});
+  /// alternative where order of keys does not matter.
+  // using keys = decltype(vegas_int)::options_type::keys;
+  // vegas_int.integrate(func, keys::neval = 500, keys::niter = 5, keys::adapt = true);
   auto veg_file = "vegas_grid.khs";
   vegas_int.save(veg_file);
   std::cout << "worte vegas state to " << veg_file << "\n";
@@ -60,8 +63,7 @@ int main() {
   auto plain_int = Plain(2);
   auto result = plain_int.integrate(func, {.neval = 10000, .niter = 5, .verbosity = 0});
   std::cout << "plain integral = " << result.value() << " +/- " << result.error();
-  std::cout << " (ntotal="<<result.count()<<", chi2/dof=" << result.chi2dof() <<")\n";
-
+  std::cout << " (ntotal=" << result.count() << ", chi2/dof=" << result.chi2dof() << ")\n";
 
   return 0;
 }
