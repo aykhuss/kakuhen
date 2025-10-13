@@ -3,13 +3,13 @@
 #include "kakuhen/integrator/integral_accumulator.h"
 #include "kakuhen/integrator/integrator_feature.h"
 #include "kakuhen/integrator/numeric_traits.h"
+#include "kakuhen/integrator/options.h"
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/serialize.h"
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <optional>
 #include <random>
 #include <string_view>
 
@@ -53,31 +53,9 @@ class IntegratorBase {
   using point_type = Point<num_traits>;
   using int_acc_type = IntegralAccumulator<value_type, count_type>;
   using result_type = Result<value_type, count_type>;
+  using options_type = Options<value_type, count_type, seed_type>;
 
-  struct Options {
-    std::optional<seed_type> seed;                   // seed of random number generator
-    std::optional<int> verbosity = 2;                // verbosity level
-    std::optional<void*> user_data;                  // pointer to user data
-    std::optional<value_type> rel_tol;               // relative precision goal
-    std::optional<value_type> abs_tol;               // absolute precision goal
-    std::optional<bool> adapt;                       // run adapt after integration
-    std::optional<count_type> neval;                 // number of evaluations
-    std::optional<count_type> niter = 1;             // number of iterations
-    std::optional<std::filesystem::path> file_path;  // path for saving state/data
-
-    void set(const Options& opts) {
-      if (opts.seed) seed = *opts.seed;
-      if (opts.verbosity) verbosity = *opts.verbosity;
-      if (opts.user_data) user_data = *opts.user_data;
-      if (opts.rel_tol) rel_tol = *opts.rel_tol;
-      if (opts.abs_tol) abs_tol = *opts.abs_tol;
-      if (opts.adapt) adapt = *opts.adapt;
-      if (opts.neval) neval = *opts.neval;
-      if (opts.niter) niter = *opts.niter;
-    }
-  };  // struct Options
-
-  explicit IntegratorBase(size_type ndim = 0, const Options& opts = {})
+  explicit IntegratorBase(size_type ndim = 0, const options_type& opts = {})
       : ndim_{ndim}, random_generator_{}, uniform_distribution_{0, 1}, opts_{opts} {
     /// if the integrator supports adation, set default to true
     if constexpr (Derived::has_feature(IntegratorFeature::ADAPT)) {
@@ -96,7 +74,7 @@ class IntegratorBase {
 
   // this is the way to set persistent options
   // optional argument to integrate are per-call overrides
-  inline void set_options(const Options& opts) {
+  inline void set_options(const options_type& opts) {
     opts_.set(opts);
     if (opts.seed) random_generator_.seed(opts_.seed.value());
     if (opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
@@ -107,15 +85,15 @@ class IntegratorBase {
 
   // seed
   inline void set_seed(seed_type seed) noexcept {
-    set_options(Options{.seed = seed});
+    set_options({.seed = seed});
   }
   inline void set_seed() {
     // set a new seed number (just pick next)
     //@todo:  go back in history and pick next seed number, otherwise use 1
     if (!opts_.seed) {
-      set_options(Options{.seed = 1});
+      set_options({.seed = 1});
     } else {
-      set_options(Options{.seed = opts_.seed.value() + 1});
+      set_options({.seed = opts_.seed.value() + 1});
     }
   }
   seed_type seed() const noexcept {
@@ -132,9 +110,18 @@ class IntegratorBase {
   }
 
   // the main integration routine
+  // using keys as options
+  template <typename I, typename... Keys>
+  result_type integrate(I&& integrand, const Keys&... keys) {
+    options_type opts = opts_;
+    (keys.apply(opts), ...);
+    return integrate(std::forward<I>(integrand), opts);
+  }
+
+  // the main integration routine
   // options are temporary overrides; persistent settings through set_options
   template <typename I>
-  result_type integrate(I&& integrand, Options opts = {}) {
+  result_type integrate(I&& integrand, const options_type& opts) {
     // local lvalue reference to make it callable multiple times
     auto& func = integrand;
     // set up local options & check settings
@@ -211,7 +198,9 @@ class IntegratorBase {
   // @ todo
 
   // save state of the integrator to a file
-  void save(const std::filesystem::path& filepath) const requires detail::HasStateStream<Derived> {
+  void save(const std::filesystem::path& filepath) const
+    requires detail::HasStateStream<Derived>
+  {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::format("{} does not support saving state", to_string(id())));
     }
@@ -225,14 +214,18 @@ class IntegratorBase {
       throw std::ios_base::failure("Error writing state file: " + filepath.string());
     }
   }
-  std::filesystem::path save() const requires detail::HasStateStream<Derived> {
+  std::filesystem::path save() const
+    requires detail::HasStateStream<Derived>
+  {
     std::filesystem::path fstate = file_state();
     save(fstate);
     return fstate;
   }
 
   // load state of the integrator from a file
-  void load(const std::filesystem::path& filepath) requires detail::HasStateStream<Derived> {
+  void load(const std::filesystem::path& filepath)
+    requires detail::HasStateStream<Derived>
+  {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::format("{} does not support saving state", to_string(id())));
     }
@@ -246,14 +239,18 @@ class IntegratorBase {
       throw std::ios_base::failure("Error reading state file: " + filepath.string());
     }
   }
-  std::filesystem::path load() requires detail::HasStateStream<Derived> {
+  std::filesystem::path load()
+    requires detail::HasStateStream<Derived>
+  {
     std::filesystem::path fstate = file_state();
     load(fstate);
     return fstate;
   }
 
   // save accumulated data of the integrator to a file
-  void save_data(const std::filesystem::path& filepath) const requires detail::HasDataStream<Derived> {
+  void save_data(const std::filesystem::path& filepath) const
+    requires detail::HasDataStream<Derived>
+  {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(
           std::format("{} does not support data accumulation", to_string(id())));
@@ -268,14 +265,18 @@ class IntegratorBase {
       throw std::ios_base::failure("Error writing data file: " + filepath.string());
     }
   }
-  std::filesystem::path save_data() const requires detail::HasDataStream<Derived> {
+  std::filesystem::path save_data() const
+    requires detail::HasDataStream<Derived>
+  {
     std::filesystem::path fdata = file_data();
     save_data(fdata);
     return fdata;
   }
 
   // append accumulated data of the integrator from a file
-  void append_data(const std::filesystem::path& filepath) requires detail::HasDataStream<Derived> {
+  void append_data(const std::filesystem::path& filepath)
+    requires detail::HasDataStream<Derived>
+  {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(
           std::format("{} does not support data accumulation", to_string(id())));
@@ -290,7 +291,9 @@ class IntegratorBase {
       throw std::ios_base::failure("Error reading data file: " + filepath.string());
     }
   }
-  std::filesystem::path append_data() requires detail::HasDataStream<Derived> {
+  std::filesystem::path append_data()
+    requires detail::HasDataStream<Derived>
+  {
     std::filesystem::path fdata = file_data();
     append_data(fdata);
     return fdata;
@@ -300,7 +303,7 @@ class IntegratorBase {
   size_type ndim_;
   RNG random_generator_;
   DIST uniform_distribution_;
-  Options opts_;
+  options_type opts_;
 
   inline value_type ran() noexcept {
     return uniform_distribution_(random_generator_);
@@ -321,7 +324,9 @@ class IntegratorBase {
   static constexpr std::string_view suffix_state_ = ".khs";
   static constexpr std::string_view suffix_data_ = ".khd";
 
-  inline std::filesystem::path file_state() const noexcept requires detail::HasPrefix<Derived> {
+  inline std::filesystem::path file_state() const noexcept
+    requires detail::HasPrefix<Derived>
+  {
     std::filesystem::path fstate = derived().prefix() + std::string(suffix_state_);
     if (opts_.file_path) {
       fstate = *opts_.file_path;
@@ -330,7 +335,9 @@ class IntegratorBase {
     return fstate;
   }
 
-  inline std::filesystem::path file_data() const noexcept requires detail::HasPrefix<Derived> {
+  inline std::filesystem::path file_data() const noexcept
+    requires detail::HasPrefix<Derived>
+  {
     std::string seed_suffix = ".s" + std::to_string(opts_.seed.value_or(0));
     std::filesystem::path fdata = derived().prefix(true) + seed_suffix + std::string(suffix_data_);
     if (opts_.file_path) {

@@ -14,8 +14,7 @@ struct NumericTraits {
 // ----- helper: extract NumericTraits -----
 
 // Raw triplet (T,S,U) with defaults
-template <typename T = double, typename S = std::uint32_t,
-          typename U = std::uint64_t>
+template <typename T = double, typename S = std::uint32_t, typename U = std::uint64_t>
 struct num_traits_of {
   using type = NumericTraits<T, S, U>;
 };
