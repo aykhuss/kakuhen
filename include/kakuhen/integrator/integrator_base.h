@@ -61,6 +61,9 @@ class IntegratorBase {
     if constexpr (Derived::has_feature(IntegratorFeature::ADAPT)) {
       if (!opts_.adapt) opts_.adapt = true;
     }
+    /// set some default values for the options
+    if (!opts_.niter) opts_.niter = 1;
+    if (!opts_.verbosity) opts_.verbosity = 2;
     //@todo:  do static asserts here?
   }
 
@@ -113,7 +116,7 @@ class IntegratorBase {
   // using keys as options
   template <typename I, typename... Keys>
   result_type integrate(I&& integrand, const Keys&... keys) {
-    options_type opts = opts_;
+    options_type opts{};
     (keys.apply(opts), ...);
     return integrate(std::forward<I>(integrand), opts);
   }
@@ -122,6 +125,7 @@ class IntegratorBase {
   // options are temporary overrides; persistent settings through set_options
   template <typename I>
   result_type integrate(I&& integrand, const options_type& opts) {
+    // std::cout << "integrate: " << opts << std::endl;
     // local lvalue reference to make it callable multiple times
     auto& func = integrand;
     // set up local options & check settings
