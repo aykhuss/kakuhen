@@ -2,77 +2,52 @@
 
 #include <cstdint>
 
+#define KAKUHEN_TYPE_LIST(X) \
+  X(bool, BOOL)              \
+  X(int8_t, INT8)            \
+  X(int16_t, INT16)          \
+  X(int32_t, INT32)          \
+  X(int64_t, INT64)          \
+  X(uint8_t, UINT8)          \
+  X(uint16_t, UINT16)        \
+  X(uint32_t, UINT32)        \
+  X(uint64_t, UINT64)        \
+  X(float, FLOAT)            \
+  X(double, DOUBLE)
+
 namespace kakuhen::util::type {
 
+///------------------------------------
+/// the enum class with all id's
+///------------------------------------
 enum class TypeId : uint8_t {
-  UNKNOWN,
-  BOOL,
-  INT8,
-  INT16,
-  INT32,
-  INT64,
-  UINT8,
-  UINT16,
-  UINT32,
-  UINT64,
-  FLOAT,
-  DOUBLE
+  UNKNOWN = 0,
+#define DEFINE_ENUM_ENTRY(_, NAME) NAME,
+  KAKUHEN_TYPE_LIST(DEFINE_ENUM_ENTRY)
+#undef DEFINE_ENUM_ENTRY
 };
+
+///------------------------------------
+/// type -> TypeId
+///------------------------------------
 
 //> default: cannot recognize
 template <typename T>
 constexpr TypeId get_type_id() {
   return TypeId::UNKNOWN;
 }
+
 //> specializations
-template <>
-constexpr TypeId get_type_id<bool>() {
-  return TypeId::BOOL;
-}
-template <>
-constexpr TypeId get_type_id<int8_t>() {
-  return TypeId::INT8;
-}
-template <>
-constexpr TypeId get_type_id<int16_t>() {
-  return TypeId::INT16;
-}
-template <>
-constexpr TypeId get_type_id<int32_t>() {
-  return TypeId::INT32;
-}
-template <>
-constexpr TypeId get_type_id<int64_t>() {
-  return TypeId::INT64;
-}
-template <>
-constexpr TypeId get_type_id<uint8_t>() {
-  return TypeId::UINT8;
-}
-template <>
-constexpr TypeId get_type_id<uint16_t>() {
-  return TypeId::UINT16;
-}
-template <>
-constexpr TypeId get_type_id<uint32_t>() {
-  return TypeId::UINT32;
-}
-template <>
-constexpr TypeId get_type_id<uint64_t>() {
-  return TypeId::UINT64;
-}
-template <>
-constexpr TypeId get_type_id<float>() {
-  return TypeId::FLOAT;
-}
-template <>
-constexpr TypeId get_type_id<double>() {
-  return TypeId::DOUBLE;
-}
+#define DEFINE_TYPE_TO_ID(TYPE, NAME)    \
+  template <>                            \
+  constexpr TypeId get_type_id<TYPE>() { \
+    return TypeId::NAME;                 \
+  }
+KAKUHEN_TYPE_LIST(DEFINE_TYPE_TO_ID)
+#undef DEFINE_TYPE_TO_ID
 
-//> In case I don't understand the type, use the size of the type (as a negative
-// value) > to get some compatibility information for serialization
-
+//> In case I don't recognize the type, use the size of the type (negative)
+//> to get some compatibility information for serialization
 template <typename T>
 constexpr int16_t get_type_or_size() {
   constexpr TypeId type_id = get_type_id<T>();
@@ -83,4 +58,29 @@ constexpr int16_t get_type_or_size() {
   }
 }
 
+///------------------------------------
+/// TypeId -> type
+///------------------------------------
+
+//> default: cannot recognize
+template <TypeId>
+struct TypeFromId {
+  using type = void;
+};
+
+//> specializations
+#define DEFINE_ID_TO_TYPE(TYPE, NAME) \
+  template <>                         \
+  struct TypeFromId<TypeId::NAME> {   \
+    using type = TYPE;                \
+  };
+KAKUHEN_TYPE_LIST(DEFINE_ID_TO_TYPE)
+#undef DEFINE_ID_TO_TYPE
+
+//> shorthand
+template <TypeId ID>
+using type_from_id_t = typename TypeFromId<ID>::type;
+
 }  // namespace kakuhen::util::type
+
+#undef KAKUHEN_TYPE_LIST
