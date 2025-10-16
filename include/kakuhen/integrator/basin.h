@@ -921,7 +921,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDArray<grid_acc_type, S> accumulator_;
   ndarray::NDView<grid_acc_type, S> accumulator0_;
   /// define the sampling order
-  ndarray::NDArray<T, S> order_;
+  ndarray::NDArray<S, S> order_;
 
   inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
                              U sample_index = U(0)) {
