@@ -5,7 +5,7 @@ FetchContent_Declare(
   argparse
   # GIT_REPOSITORY https://github.com/p-ranav/argparse.git
   URL https://github.com/p-ranav/argparse/archive/refs/tags/v3.2.tar.gz
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  # DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(argparse)
 
@@ -14,7 +14,7 @@ FetchContent_Declare(
   json
   # GIT_REPOSITORY https://github.com/nlohmann/json
   URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  # DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(json)
 
