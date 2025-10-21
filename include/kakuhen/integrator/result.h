@@ -20,6 +20,14 @@ public:
     results_.push_back(acc);
   }
 
+  // append another result
+  void accumulate(const Result<T,U>& res) {
+    for (const auto & acc: res.results_) {
+      if (acc.count() == U(0)) continue;
+      results_.push_back(acc);
+    }
+  }
+
   void reset() {
     results_.clear();
   }

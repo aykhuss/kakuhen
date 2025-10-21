@@ -16,6 +16,7 @@ set(TEST_SOURCES
   test_hash.cpp
   test_serialize.cpp
   test_accumulator.cpp
+  test_result.cpp
   test_vegas.cpp
   test_basin.cpp
 )

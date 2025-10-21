@@ -33,7 +33,7 @@ struct IntegralAccumulator {
     n_++;
   }
 
-  inline void accumulate(const IntegralAccumulator<T,U>& other) noexcept {
+  inline void accumulate(const IntegralAccumulator<T, U>& other) noexcept {
     f_.add(other.f_.result());
     f2_.add(other.f2_.result());
     n_ += other.n_;

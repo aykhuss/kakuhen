@@ -8,8 +8,8 @@ int main() {
 
   // define the function we want to integrate;
   // Point is what is passed to the function with members
-  // {.x[], .weight, .ndinm, .sample_index, .user_data}
-  auto func = [](Point<>& point) {
+  // {.x[], .weight, .ndim, .sample_index, .user_data}
+  auto func = [](const Point<>& point) {
     const auto& x = point.x;  // shorthand
     return (5 * x[0] * x[0] * x[0] * x[0] + 3 * x[0] * x[1] * x[1] + 2 * x[1]);
   };
