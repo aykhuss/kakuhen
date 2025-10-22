@@ -69,8 +69,9 @@ install(
 
 add_subdirectory(examples)
 if(KAKUHEN_BUILD_CLI)
-    add_subdirectory(tools)
+  add_subdirectory(tools)
 endif()
 if(BUILD_TESTING)
+  enable_testing()
   add_subdirectory(tests)
 endif()
