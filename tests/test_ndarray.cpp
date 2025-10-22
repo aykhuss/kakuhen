@@ -14,9 +14,10 @@ TEST_CASE("NDArray fill and access", "[ndarray]") {
   kakuhen::ndarray::NDArray<int> scalar_arr;
   REQUIRE(scalar_arr.size() == 1);
   scalar_arr.fill(42);
-  REQUIRE(scalar_arr() == 42);
-  scalar_arr() = 23;
-  REQUIRE(scalar_arr() == 23);
+  /// scalars need to be accessed with [0]
+  REQUIRE(scalar_arr[0] == 42);
+  scalar_arr[0] = 23;
+  REQUIRE(scalar_arr[0] == 23);
 
   kakuhen::ndarray::NDArray<int> arr({2, 3, 4});
   using size_type = decltype(arr)::size_type;

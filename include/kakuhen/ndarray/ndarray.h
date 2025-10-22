@@ -103,6 +103,7 @@ class NDArray {
 
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
+    static_assert(sizeof...(Indices) > 0, "NDArray index operator must be called with at least one index");
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
