@@ -22,7 +22,7 @@ TEST_CASE("NDArray fill and access", "[ndarray]") {
   using size_type = decltype(arr)::size_type;
   std::vector<size_type> shape = arr.shape();
   REQUIRE(shape.size() == 3);
-  REQUIRE_THAT(shape, RangeEquals(std::initializer_list{2, 3, 4}));
+  REQUIRE_THAT(shape, RangeEquals({2, 3, 4}));
   arr.fill(42);
   REQUIRE(arr(0, 2, 2) == 42);
   arr(1, 2, 0) = 23;
@@ -53,7 +53,7 @@ TEST_CASE("NDView consistency", "[ndarray]") {
   using view_size_type = decltype(view)::size_type;
   STATIC_REQUIRE(std::is_same_v<view_size_type, size_type>);
   REQUIRE(view.ndim() == 3);
-  REQUIRE_THAT(view.shape(), RangeEquals(std::initializer_list{3, 4, 16}));
+  REQUIRE_THAT(view.shape(), RangeEquals({3, 4, 16}));
   std::vector<size_type> vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
@@ -86,7 +86,7 @@ TEST_CASE("NDView slice and access", "[ndarray]") {
   std::vector<size_type> vshape = view.shape();
 
   REQUIRE(view.ndim() == 5);
-  REQUIRE_THAT(vshape, RangeEquals(std::initializer_list{2, 5, 3, 5, 3}));
+  REQUIRE_THAT(vshape, RangeEquals({2, 5, 3, 5, 3}));
 
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
@@ -119,7 +119,7 @@ TEST_CASE("NDView slice and access", "[ndarray]") {
                     {1, _, 3},     // [7]
                     {1, 11, 3}});  // [8]
   vshape = view.shape();
-  REQUIRE_THAT(vshape, RangeEquals(std::initializer_list{3, 2, 3, 3, 3, 3, 3, 3, 4}));
+  REQUIRE_THAT(vshape, RangeEquals({3, 2, 3, 3, 3, 3, 3, 3, 4}));
   view(1, 1, 1, 1, 1, 1, 1, 1, 1) = 1337;
 
   // for (auto idx = 0; idx < arr.size(); ++idx) {
@@ -191,7 +191,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   using view_size_type = decltype(view)::size_type;
   STATIC_REQUIRE(std::is_same_v<view_size_type, size_type>);
   REQUIRE(view.ndim() == 3);
-  REQUIRE_THAT(view.shape(), RangeEquals(std::initializer_list{3, 4, 16}));
+  REQUIRE_THAT(view.shape(), RangeEquals({3, 4, 16}));
   std::vector<size_type> vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
@@ -205,7 +205,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   using vview_size_type = decltype(vview)::size_type;
   STATIC_REQUIRE(std::is_same_v<vview_size_type, size_type>);
   REQUIRE(vview.ndim() == 3);
-  REQUIRE_THAT(vview.shape(), RangeEquals(std::initializer_list{2, 2, 2}));
+  REQUIRE_THAT(vview.shape(), RangeEquals({2, 2, 2}));
   std::vector<size_type> vvshape = vview.shape();
   for (auto i0 = 0; i0 < vvshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vvshape[1]; ++i1) {
@@ -239,7 +239,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
 
   auto view = arr.slice({{}, {}, {}});
   REQUIRE(view.ndim() == 3);
-  REQUIRE_THAT(view.shape(), RangeEquals(std::initializer_list{3, 3, 2}));
+  REQUIRE_THAT(view.shape(), RangeEquals({3, 3, 2}));
   std::vector<size_type> vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
@@ -253,7 +253,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   using view2d_size_type = decltype(view2d)::size_type;
   STATIC_REQUIRE(std::is_same_v<view2d_size_type, size_type>);
   REQUIRE(view2d.ndim() == 2);
-  REQUIRE_THAT(view2d.shape(), RangeEquals(std::initializer_list{3, 6}));
+  REQUIRE_THAT(view2d.shape(), RangeEquals({3, 6}));
   std::vector<size_type> shape2d = view2d.shape();
   for (auto i0 = 0; i0 < shape2d[0]; ++i0) {
     for (auto i1 = 0; i1 < shape2d[1]; ++i1) {
@@ -265,7 +265,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   using viewd_size_type = decltype(viewd)::size_type;
   STATIC_REQUIRE(std::is_same_v<viewd_size_type, size_type>);
   REQUIRE(viewd.ndim() == 2);
-  REQUIRE_THAT(viewd.shape(), RangeEquals(std::initializer_list{3, 2}));
+  REQUIRE_THAT(viewd.shape(), RangeEquals({3, 2}));
   std::vector<size_type> shaped = viewd.shape();
   for (auto i0 = 0; i0 < shaped[0]; ++i0) {
     for (auto i1 = 0; i1 < shaped[1]; ++i1) {

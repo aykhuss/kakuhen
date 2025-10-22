@@ -4,7 +4,7 @@
 
 using namespace kakuhen::integrator;
 
-auto func = [](const Point<>& point) {
+static auto func = [](const Point<>& point) {
   const auto& x = point.x;  // shorthand
   return (x[0] + x[1]) / (1. + x[0] - x[1]);
 };
