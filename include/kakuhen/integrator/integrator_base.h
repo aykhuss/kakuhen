@@ -237,14 +237,22 @@ class IntegratorBase {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::format("{} does not support saving state", to_string(id())));
     }
-    std::ifstream ifs(filepath, std::ios::binary);
-    if (!ifs.is_open()) {
-      throw std::ios_base::failure("Failed to open state file: " + filepath.string());
-    }
-    read_header(ifs, FileType::STATE);
-    derived().read_state_stream(ifs);
-    if (!ifs) {
-      throw std::ios_base::failure("Error reading state file: " + filepath.string());
+    std::error_code ec;
+    if (std::filesystem::exists(filepath, ec)) {
+      if (ec) {
+        throw std::system_error(ec, "Failed to check if file exists");
+      }
+      std::ifstream ifs(filepath, std::ios::binary);
+      if (!ifs.is_open()) {
+        throw std::ios_base::failure("Failed to open state file: " + filepath.string());
+      }
+      read_header(ifs, FileType::STATE);
+      derived().read_state_stream(ifs);
+      if (!ifs) {
+        throw std::ios_base::failure("Error reading state file: " + filepath.string());
+      }
+    } else {
+      std::cout << std::format("state file {} not found; skip loading\n", filepath.string());
     }
   }
   std::filesystem::path load()

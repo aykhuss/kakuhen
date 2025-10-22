@@ -110,4 +110,7 @@ void deserialize_container(std::istream& in, Container& container) {
   deserialize_range(in, std::begin(container), std::end(container));
 }
 
+// // class to indicate a non-serialisable type
+// struct NonSerializable {};
+
 }  // namespace kakuhen::util::serialize
