@@ -15,6 +15,7 @@ set(TEST_SOURCES
   test_ndarray.cpp
   test_hash.cpp
   test_serialize.cpp
+  test_user_data.cpp
   test_accumulator.cpp
   test_result.cpp
   test_vegas.cpp

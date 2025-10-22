@@ -9,7 +9,7 @@ namespace kakuhen::integrator {
 
 template <typename T, typename U>
 class Result {
-public:
+ public:
   using value_type = T;
   using count_type = U;
   using int_acc_type = IntegralAccumulator<T, U>;
@@ -21,8 +21,8 @@ public:
   }
 
   // append another result
-  void accumulate(const Result<T,U>& res) {
-    for (const auto & acc: res.results_) {
+  void accumulate(const Result<T, U>& res) {
+    for (const auto& acc : res.results_) {
       if (acc.count() == U(0)) continue;
       results_.push_back(acc);
     }

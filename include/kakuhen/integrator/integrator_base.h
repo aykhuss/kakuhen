@@ -7,11 +7,15 @@
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/serialize.h"
+#include <array>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <random>
 #include <string_view>
+#include <system_error>
+#include <type_traits>
 
 namespace kakuhen::integrator {
 
