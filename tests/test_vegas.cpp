@@ -36,3 +36,28 @@ TEST_CASE("write/load state and data", "[vegas]") {
   veg_alt.adapt();
   REQUIRE(veg.hash().value() == veg_alt.hash().value());
 }
+
+TEST_CASE("write/load RNG state", "[vegas]") {
+  std::stringstream ss_grid, ss_rng;
+
+  auto veg = Vegas(2);
+  veg.set_options({.verbosity = 0});
+  veg.set_seed(42);
+
+  /// quick adaption:  save state
+  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  veg.write_state_stream(ss_grid);
+  veg.write_rng_state_stream(ss_rng);
+
+  /// synchronize full state of veg
+  auto veg2 = Vegas(2);
+  veg2.read_state_stream(ss_grid);
+  veg2.read_rng_state_stream(ss_rng);
+
+  auto res1 = veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  auto res2 = veg2.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+
+  REQUIRE(veg.hash().value() == veg2.hash().value());
+  REQUIRE(res1.value() == res2.value());
+  REQUIRE(res1.error() == res2.error());
+}

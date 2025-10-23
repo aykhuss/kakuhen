@@ -315,6 +315,27 @@ class IntegratorBase {
     return fdata;
   }
 
+  void write_rng_state_stream(std::ostream& out) const {
+    out << random_generator_;
+  }
+  void read_rng_state_stream(std::istream& in) {
+    in >> random_generator_;
+  }
+  void save_rng_state(const std::filesystem::path& filepath) const {
+    std::ofstream ofs(filepath, std::ios::binary);
+    write_rng_state_stream(ofs);
+  }
+  void load_rng_state(const std::filesystem::path& filepath) {
+    std::ifstream ifs(filepath, std::ios::binary);
+    if (!ifs.is_open()) {
+      throw std::ios_base::failure("Failed to open RNG state file: " + filepath.string());
+    }
+    read_rng_state_stream(ifs);
+    if (!ifs) {
+      throw std::ios_base::failure("Error reading RNG state file: " + filepath.string());
+    }
+  }
+
  protected:
   size_type ndim_;
   RNG random_generator_;
