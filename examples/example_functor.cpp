@@ -100,9 +100,9 @@ class MyFunctor {
     /// loop over all histogram data bins in one go
     for (auto ibin = 0; ibin < histogram_data_.size(); ++ibin) {
       /// histogram headers:
-      if (ibin == 0) std::cout << std::format("\n\n# histogram (a) --- x[0]\n");
-      if (ibin == 10) std::cout << std::format("\n\n# histogram (b) --- x[1]\n");
-      if (ibin == 20) std::cout << std::format("\n\n# histogram (c) --- y == x[0]+x[1]\n");
+      if (ibin == 0) std::cout << fmt::format("\n\n# histogram (a) --- x[0]\n");
+      if (ibin == 10) std::cout << fmt::format("\n\n# histogram (b) --- x[1]\n");
+      if (ibin == 20) std::cout << fmt::format("\n\n# histogram (c) --- y == x[0]+x[1]\n");
       /// compute x-values of the bin (lower & upper edges) & offsets
       int jbin;
       double xlow, xupp;
@@ -130,8 +130,8 @@ class MyFunctor {
           count_ > 0 ? ((sumf2 / double(count_) - res * res) / double(count_ - 1)) : 0.;
       /// output the row of the histogram bin:
       /// [1] bin idx, [2,3] bin range, [4] value, [5] error
-      std::cout << std::format("{:4d}  {:4.2f} {:4.2f}  ", jbin, xlow, xupp);
-      std::cout << std::format("{:8.3e} {:8.3e}\n", res, err);
+      std::cout << fmt::format("{:4d}  {:4.2f} {:4.2f}  ", jbin, xlow, xupp);
+      std::cout << fmt::format("{:8.3e} {:8.3e}\n", res, err);
     }
   }
 
@@ -167,7 +167,7 @@ int main() {
   fntor.set_stage(1);                       // production with histogram filling
   fntor.reset_histogram();                  // for good measure
   auto result = basin_int.integrate(fntor, {.neval = 1000000, .verbosity = 0});
-  std::cout << std::format("integral = {} +/- {}\n", result.value(), result.error());
+  std::cout << fmt::format("integral = {} +/- {}\n", result.value(), result.error());
   fntor.print_histogram();
 
   return 0;
