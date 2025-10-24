@@ -180,6 +180,7 @@ class NDArray {
     S total_size_in;
     kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
     assert(total_size_in == total_size_);
+    data_ = std::make_unique<T[]>(total_size_);
     kakuhen::util::serialize::deserialize_array<T>(in, data_.get(), total_size_);
   }
 

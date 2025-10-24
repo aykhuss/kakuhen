@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #define KAKUHEN_TYPE_LIST(X) \
   X(bool, BOOL)              \
@@ -31,20 +32,46 @@ enum class TypeId : uint8_t {
 /// type -> TypeId
 ///------------------------------------
 
-//> default: cannot recognize
+/// //> default: cannot recognize
+/// template <typename T>
+/// constexpr TypeId get_type_id() {
+///   return TypeId::UNKNOWN;
+/// }
+///
+/// //> specializations
+/// #define DEFINE_TYPE_TO_ID(TYPE, NAME)    \
+///   template <>                            \
+///   constexpr TypeId get_type_id<TYPE>() { \
+///     return TypeId::NAME;                 \
+///   }
+/// KAKUHEN_TYPE_LIST(DEFINE_TYPE_TO_ID)
+/// #undef DEFINE_TYPE_TO_ID
+
 template <typename T>
 constexpr TypeId get_type_id() {
+#define DEFINE_TYPE_TO_ID(TYPE, NAME) \
+  if constexpr (std::is_same_v<T, TYPE>) return TypeId::NAME;
+  KAKUHEN_TYPE_LIST(DEFINE_TYPE_TO_ID)
+#undef DEFINE_TYPE_TO_ID
+
+  // map native signed integers by size
+  if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+    if constexpr (sizeof(T) == 1) return TypeId::INT8;
+    if constexpr (sizeof(T) == 2) return TypeId::INT16;
+    if constexpr (sizeof(T) == 4) return TypeId::INT32;
+    if constexpr (sizeof(T) == 8) return TypeId::INT64;
+  }
+
+  // map native unsigned integers by size
+  if constexpr (std::is_integral_v<T> && std::is_unsigned_v<T>) {
+    if constexpr (sizeof(T) == 1) return TypeId::UINT8;
+    if constexpr (sizeof(T) == 2) return TypeId::UINT16;
+    if constexpr (sizeof(T) == 4) return TypeId::UINT32;
+    if constexpr (sizeof(T) == 8) return TypeId::UINT64;
+  }
+
   return TypeId::UNKNOWN;
 }
-
-//> specializations
-#define DEFINE_TYPE_TO_ID(TYPE, NAME)    \
-  template <>                            \
-  constexpr TypeId get_type_id<TYPE>() { \
-    return TypeId::NAME;                 \
-  }
-KAKUHEN_TYPE_LIST(DEFINE_TYPE_TO_ID)
-#undef DEFINE_TYPE_TO_ID
 
 //> In case I don't recognize the type, use the size of the type (negative)
 //> to get some compatibility information for serialization
