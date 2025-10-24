@@ -12,7 +12,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <format>
+#include <fmt/format.h>
 #include <iostream>
 #include <stdexcept>
 
@@ -185,9 +185,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       auto d0 = d.view();
       auto grid0_new = grid_new.view();
 
-      // std::cout << std::format("acc0[{}]:", idim1);
+      // std::cout << fmt::format("acc0[{}]:", idim1);
       // for (S ig0 = 0; ig0 < ndiv0_; ++ig0)
-      //   std::cout << std::format(" {:7.3e}[{}]", accumulator0_(idim1, ig0).value(),
+      //   std::cout << fmt::format(" {:7.3e}[{}]", accumulator0_(idim1, ig0).value(),
       //                            accumulator0_(idim1, ig0).count());
       // std::cout << std::endl;
 
@@ -264,9 +264,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }  // for ig0
       grid0_new(ndiv0_ - 1) = T(1);
       ///< check ---
-      // std::cout << std::format("grid0 old -> new: \n");
+      // std::cout << fmt::format("grid0 old -> new: \n");
       // for (S ig0 = 0; ig0 < ndiv0_; ++ig0)
-      //   std::cout << std::format("  {:7.3f} -> {:7.3f}\n", grid0_(idim1, ig0), grid0_new(ig0));
+      //   std::cout << fmt::format("  {:7.3f} -> {:7.3f}\n", grid0_(idim1, ig0), grid0_new(ig0));
       // std::cout << std::endl;
       assert(grid0_new(0) > T(0));
       for (S ig0 = 1; ig0 < ndiv0_; ++ig0)
@@ -379,9 +379,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
             if (wgt11(ig1_new, ig1) <= T(0)) continue;
             // ///---<debug
-            // std::cout << std::format("grid in[{}]:", ig1);
+            // std::cout << fmt::format("grid in[{}]:", ig1);
             // for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            //   std::cout << std::format(" {:7.3f}", grid_(idim1, idim2, ig1, ig2));
+            //   std::cout << fmt::format(" {:7.3f}", grid_(idim1, idim2, ig1, ig2));
             // }
             // std::cout << std::endl;
             // ///---debug>
@@ -407,9 +407,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
             if (wgt11(ig1_new, ig1) <= T(0)) continue;
             // /// < check ---
-            // std::cout << std::format("[{}] {:7.3f} x dIN[{}]: ", ig1_new, wgt11(ig1_new, ig1),
+            // std::cout << fmt::format("[{}] {:7.3f} x dIN[{}]: ", ig1_new, wgt11(ig1_new, ig1),
             // ig1); for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            //   std::cout << std::format(" {:7.3f}", d12(ig1, ig2));
+            //   std::cout << fmt::format(" {:7.3f}", d12(ig1, ig2));
             // }
             // std::cout << std::endl;
             // /// --- check >
@@ -475,9 +475,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           grid12_new(ig1_new, ndiv2_ - 1) = T(1);
 
           ///< check ---
-          // std::cout << std::format("grid12[{}]: ", ig1_new);
+          // std::cout << fmt::format("grid12[{}]: ", ig1_new);
           // for (S ig2 = 0; ig2 < ndiv2_; ++ig2)
-          //   std::cout << std::format("  {:7.3f}", grid12_new(ig1_new, ig2));
+          //   std::cout << fmt::format("  {:7.3f}", grid12_new(ig1_new, ig2));
           // std::cout << std::endl;
           assert(grid12_new(ig1_new, 0) > T(0));
           for (S ig2 = 1; ig2 < ndiv2_; ++ig2)
@@ -520,7 +520,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                                       grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
         }
         scores(idim1, idim2) /= T(ndiv1_);
-        std::cout << std::format("score[{},{}] = {:6.1f}%\n", idim1, idim2,
+        std::cout << fmt::format("score[{},{}] = {:6.1f}%\n", idim1, idim2,
                                  scores(idim1, idim2) * 100.);
       }  // for idim2
     }  // for idim1
@@ -564,7 +564,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// register the order and invalidate the scores
-      std::cout << std::format("order[{}] = ({}, {}) with score {:6.1f}%\n", iord, max_idim1,
+      std::cout << fmt::format("order[{}] = ({}, {}) with score {:6.1f}%\n", iord, max_idim1,
                                max_idim2, max_score * 100);
       order_(iord, 0) = max_idim1;
       order_(iord, 1) = max_idim2;
@@ -590,17 +590,17 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   void print_grid(const std::string& prefix = "") {
     /// long 1D grid
     for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-      std::cout << std::format("{0}#dim{1}\n{0}", prefix, idim0);
+      std::cout << fmt::format("{0}#dim{1}\n{0}", prefix, idim0);
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        std::cout << std::format(" {:12.7e}", grid0_(idim0, ig0));
+        std::cout << fmt::format(" {:12.7e}", grid0_(idim0, ig0));
       }
-      std::cout << std::format("\n{0}\n{0}\n", prefix);
+      std::cout << fmt::format("\n{0}\n{0}\n", prefix);
     }
     /// joint 2D grid
     for (S idim1 = 0; idim1 < ndim_; ++idim1) {
       for (S idim2 = 0; idim2 < ndim_; ++idim2) {
         if (idim1 == idim2) continue;
-        std::cout << std::format("{0}#dim{1}{2}\n", prefix, idim1, idim2);
+        std::cout << fmt::format("{0}#dim{1}{2}\n", prefix, idim1, idim2);
         /// multiple short grids
         for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
           const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
@@ -608,12 +608,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
             const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
             const T x2_max = grid_(idim1, idim2, ig1, ig2);
-            std::cout << std::format("{}  {:12.7e} {:12.7e}  {:12.7e} {:12.7e}\n", prefix, x1_min,
+            std::cout << fmt::format("{}  {:12.7e} {:12.7e}  {:12.7e} {:12.7e}\n", prefix, x1_min,
                                      x1_max, x2_min, x2_max);
           }
-          std::cout << std::format("{}\n", prefix);
+          std::cout << fmt::format("{}\n", prefix);
         }
-        std::cout << std::format("{}\n", prefix);
+        std::cout << fmt::format("{}\n", prefix);
       }
     }
   }
@@ -621,13 +621,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   void print_pdf() {
     /// diagonal
     for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-      std::cout << std::format("\n#dim: {}\n", idim0);
-      std::cout << std::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", 0, 0., 0., 0.);
+      std::cout << fmt::format("\n#dim: {}\n", idim0);
+      std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", 0, 0., 0., 0.);
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
         const T dx = ig0 > 0 ? (grid0_(idim0, ig0) - grid0_(idim0, ig0 - 1)) : grid0_(idim0, ig0);
         const T pdf = T(1) / (dx * T(ndiv0_));
         const T cdf = T(ig0 + 1) / T(ndiv0_);
-        std::cout << std::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", ig0 + 1,
+        std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", ig0 + 1,
                                  grid0_(idim0, ig0), pdf, cdf);
       }
       std::cout << "\n";
@@ -636,8 +636,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S idim1 = 0; idim1 < ndim_; ++idim1) {
       for (S idim2 = 0; idim2 < ndim_; ++idim2) {
         if (idim1 == idim2) continue;
-        std::cout << std::format("\n#dim: {} {}\n", idim1, idim2);
-        std::cout << std::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", 0, 0, 0., 0., 0.);
+        std::cout << fmt::format("\n#dim: {} {}\n", idim1, idim2);
+        std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", 0, 0, 0., 0., 0.);
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
             const T dx1 =
@@ -647,7 +647,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                               ? grid_(idim1, idim2, ig1, ig2) - grid_(idim1, idim2, ig1, ig2 - 1)
                               : grid_(idim1, idim2, ig1, ig2);
             const T pdf = T(1) / (dx1 * dx2 * T(ndiv0_));
-            std::cout << std::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", ig1 + 1,
+            std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", ig1 + 1,
                                      ig2 + 1, grid0_(idim1, (ig1 + 1) * ndiv2_ - 1),
                                      grid_(idim1, idim2, ig1, ig2), pdf);
           }
@@ -676,7 +676,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T x2_upp = grid2(ig2);
         assert(x >= x2_low && x <= x2_upp);
         cdf2 = (ig2 + (x - x2_low) / (x2_upp - x2_low)) / T(grid2.size());
-        std::cout << std::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
 
         ig1++;
       } else if (grid1(ig1) > grid2(ig2)) {
@@ -686,7 +686,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T x1_upp = grid1(ig1);
         assert(x >= x1_low && x <= x1_upp);
         cdf1 = (ig1 + (x - x1_low) / (x1_upp - x1_low)) / T(grid1.size());
-        std::cout << std::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
 
         ig2++;
       } else {
@@ -694,7 +694,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         x = grid1(ig1);
         cdf1 = T(ig1 + 1) / T(grid1.size());
         cdf2 = T(ig2 + 1) / T(grid2.size());
-        std::cout << std::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
 
         ig1++;
         ig2++;
@@ -775,7 +775,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       cdf2 = cdf2_nxt;
       if (advance_ig1) ig1++;
       if (advance_ig2) ig2++;
-      // std::cout << std::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+      // std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
 
     }  // while
 

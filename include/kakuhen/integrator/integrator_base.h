@@ -9,7 +9,7 @@
 #include "kakuhen/util/serialize.h"
 #include <array>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <fstream>
 #include <functional>
 #include <random>
@@ -86,7 +86,7 @@ class IntegratorBase {
     if (opts.seed) random_generator_.seed(opts_.seed.value());
     if (opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
       throw std::invalid_argument(
-          std::format("{} does not support grid adaption", to_string(id())));
+          fmt::format("{} does not support grid adaption", to_string(id())));
     }
   }
 
@@ -152,13 +152,13 @@ class IntegratorBase {
       int_acc_type res_it = derived().integrate_impl(func, *opts_.neval);
       result.accumulate(res_it);
       if (opts_.verbosity && *opts_.verbosity > 0) {
-        std::cout << std::format("\n***** Integration by {} (Iteration {} / {} ) *****\n",
+        std::cout << fmt::format("\n***** Integration by {} (Iteration {} / {} ) *****\n",
                                  to_string(id()), iter + 1, *opts_.niter, res_it.count());
-        std::cout << std::format("  integral(iter) = {:14.8g} +/- {:14.8g} (n={})\n",
+        std::cout << fmt::format("  integral(iter) = {:14.8g} +/- {:14.8g} (n={})\n",
                                  res_it.value(), res_it.error(), res_it.count());
-        std::cout << std::format("  integral(acc.) = {:14.8g} +/- {:14.8g} (n={})\n",
+        std::cout << fmt::format("  integral(acc.) = {:14.8g} +/- {:14.8g} (n={})\n",
                                  result.value(), result.error(), result.count());
-        std::cout << std::format("***** chi^2/dof = {:14.8g} *****\n", result.chi2dof());
+        std::cout << fmt::format("***** chi^2/dof = {:14.8g} *****\n", result.chi2dof());
       }
 
       // // check for convergence
@@ -210,7 +210,7 @@ class IntegratorBase {
     requires detail::HasStateStream<Derived>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(std::format("{} does not support saving state", to_string(id())));
+      throw std::runtime_error(fmt::format("{} does not support saving state", to_string(id())));
     }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
@@ -235,7 +235,7 @@ class IntegratorBase {
     requires detail::HasStateStream<Derived>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(std::format("{} does not support saving state", to_string(id())));
+      throw std::runtime_error(fmt::format("{} does not support saving state", to_string(id())));
     }
     std::error_code ec;
     if (std::filesystem::exists(filepath, ec)) {
@@ -252,7 +252,7 @@ class IntegratorBase {
         throw std::ios_base::failure("Error reading state file: " + filepath.string());
       }
     } else {
-      std::cout << std::format("state file {} not found; skip loading\n", filepath.string());
+      std::cout << fmt::format("state file {} not found; skip loading\n", filepath.string());
     }
   }
   std::filesystem::path load()
@@ -269,7 +269,7 @@ class IntegratorBase {
   {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(
-          std::format("{} does not support data accumulation", to_string(id())));
+          fmt::format("{} does not support data accumulation", to_string(id())));
     }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
@@ -295,7 +295,7 @@ class IntegratorBase {
   {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(
-          std::format("{} does not support data accumulation", to_string(id())));
+          fmt::format("{} does not support data accumulation", to_string(id())));
     }
     std::ifstream ifs(filepath, std::ios::binary);
     if (!ifs.is_open()) {

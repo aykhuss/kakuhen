@@ -49,6 +49,14 @@ write_basic_package_version_file(
   COMPATIBILITY SameMajorVersion
 )
 
+# {fmt} to avoid std::format
+find_package(fmt QUIET) # Try to find system fmt first
+if(NOT fmt_FOUND)
+  message(STATUS "Using vendored fmt")
+  add_subdirectory(external/fmt EXCLUDE_FROM_ALL)
+endif()
+target_link_libraries(kakuhen INTERFACE fmt::fmt)
+
 install(
   TARGETS kakuhen EXPORT kakuhenTargets)
 install(
