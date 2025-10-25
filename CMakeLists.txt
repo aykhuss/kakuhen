@@ -50,11 +50,12 @@ write_basic_package_version_file(
 )
 
 # {fmt} to avoid std::format
+set(FMT_INSTALL ON CACHE BOOL "" FORCE)
 add_subdirectory(external/fmt EXCLUDE_FROM_ALL)
 target_link_libraries(kakuhen INTERFACE fmt::fmt)
 
 install(
-  TARGETS kakuhen fmt
+  TARGETS kakuhen
   EXPORT kakuhenTargets)
 install(
   EXPORT kakuhenTargets
