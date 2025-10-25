@@ -65,5 +65,4 @@ TEST_CASE("accumulate", "[result]") {
   REQUIRE(result.value() == Catch::Approx(0.59336099585062241));
   REQUIRE(result.variance() == Catch::Approx(0.00142634854771785));
   REQUIRE(result.error() == Catch::Approx(0.03776702990331442));
-
 }

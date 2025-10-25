@@ -1,7 +1,9 @@
 #include "kakuhen/integrator/vegas.h"
+
+#include <fmt/format.h>
+
 #include <argparse/argparse.hpp>
 #include <filesystem>
-#include <fmt/format.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
 

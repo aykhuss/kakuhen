@@ -12,8 +12,7 @@ TEST_CASE("Hash for different Plain Data", "[hash]") {
   HashValue_t hash_dble = Hash().add<double>(1e23).value();
   REQUIRE(hash_dble == HashValue_t(3556694915024222193ull));
 
-  HashValue_t hash_comp =
-      Hash().add<float>(3.3).add<uint64_t>(99).add<bool>(false).value();
+  HashValue_t hash_comp = Hash().add<float>(3.3).add<uint64_t>(99).add<bool>(false).value();
   REQUIRE(hash_comp == HashValue_t(7636397818777378217ull));
 }
 

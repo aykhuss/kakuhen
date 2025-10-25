@@ -7,9 +7,11 @@
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/serialize.h"
+
+#include <fmt/format.h>
+
 #include <array>
 #include <filesystem>
-#include <fmt/format.h>
 #include <fstream>
 #include <functional>
 #include <random>

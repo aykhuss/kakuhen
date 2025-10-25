@@ -5,10 +5,7 @@
 #include "kakuhen/integrator/numeric_traits.h"
 #include "kakuhen/integrator/point.h"
 #include <cassert>
-#include <cmath>
 #include <cstddef>
-#include <iostream>
-#include <stdexcept>
 
 namespace kakuhen::integrator {
 

@@ -9,10 +9,12 @@
 /// Here's an example to illustate such a use case for a simple case
 
 #include "kakuhen/kakuhen.h"
+
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <fmt/format.h>
 #include <iostream>
 #include <vector>
 

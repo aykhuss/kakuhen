@@ -19,12 +19,10 @@ struct Slice {
   constexpr Slice(S s) : start(s), stop(s + 1), step(1) {}
 
   //> Full slice (equivalent to [:])
-  constexpr Slice()
-      : start(std::nullopt), stop(std::nullopt), step(std::nullopt) {}
+  constexpr Slice() : start(std::nullopt), stop(std::nullopt), step(std::nullopt) {}
 
   //> Explicit slice
-  constexpr Slice(std::optional<S> s, std::optional<S> e,
-                  std::optional<S> st = std::nullopt)
+  constexpr Slice(std::optional<S> s, std::optional<S> e, std::optional<S> st = std::nullopt)
       : start(s), stop(e), step(st) {}
 
   // //> Convenience nullopt alias, e.g., Slice(Slice::_, 5)

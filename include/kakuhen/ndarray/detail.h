@@ -6,8 +6,7 @@
 namespace kakuhen::ndarray::detail {
 
 template <typename S>
-inline S flat_index(const S* idx, const S* strides, const S* shape,
-                    S ndim) noexcept {
+inline S flat_index(const S* idx, const S* strides, const S* shape, S ndim) noexcept {
   S offset = 0;
   for (S i = 0; i < ndim; ++i) {
     assert(idx[i] >= 0);

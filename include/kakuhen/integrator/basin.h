@@ -9,10 +9,12 @@
 #include "kakuhen/ndarray/ndview.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/serialize.h"
+
+#include <fmt/format.h>
+
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <fmt/format.h>
 #include <iostream>
 #include <stdexcept>
 

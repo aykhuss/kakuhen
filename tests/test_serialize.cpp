@@ -45,8 +45,7 @@ TEST_CASE("deserialize_one throws on short stream", "[serialize]") {
   std::stringstream truncated_ss(truncated);
 
   int read_value = 0;
-  REQUIRE_THROWS_AS(deserialize_one(truncated_ss, read_value),
-                    std::runtime_error);
+  REQUIRE_THROWS_AS(deserialize_one(truncated_ss, read_value), std::runtime_error);
 }
 
 TEST_CASE("Write and read container of POD values", "[serialize]") {

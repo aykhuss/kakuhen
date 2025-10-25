@@ -250,7 +250,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
     }
   }
 
-  auto view2d = view.reshape({3,6});
+  auto view2d = view.reshape({3, 6});
   using view2d_size_type = decltype(view2d)::size_type;
   STATIC_REQUIRE(std::is_same_v<view2d_size_type, size_type>);
   REQUIRE(view2d.ndim() == 2);
@@ -258,11 +258,11 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   std::vector<size_type> shape2d = view2d.shape();
   for (auto i0 = 0; i0 < shape2d[0]; ++i0) {
     for (auto i1 = 0; i1 < shape2d[1]; ++i1) {
-      REQUIRE(view2d(i0, i1) == i0*100+(i1/2)*10+(i1%2));
+      REQUIRE(view2d(i0, i1) == i0 * 100 + (i1 / 2) * 10 + (i1 % 2));
     }
   }
 
-  auto viewd = view.diagonal(0,1);
+  auto viewd = view.diagonal(0, 1);
   using viewd_size_type = decltype(viewd)::size_type;
   STATIC_REQUIRE(std::is_same_v<viewd_size_type, size_type>);
   REQUIRE(viewd.ndim() == 2);
@@ -273,7 +273,6 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
       REQUIRE(viewd(i0, i1) == view(i0, i0, i1));
     }
   }
-
 }
 
 TEST_CASE("NDArray serialization", "[ndarray]") {
