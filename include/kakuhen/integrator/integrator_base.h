@@ -202,9 +202,8 @@ class IntegratorBase {
   // @ todo
 
   // save state of the integrator to a file
-  void save(const std::filesystem::path& filepath) const
-    requires detail::HasStateStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_state_stream<D>::value>>
+  void save(const std::filesystem::path& filepath) const {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
     }
@@ -218,18 +217,16 @@ class IntegratorBase {
       throw std::ios_base::failure("Error writing state file: " + filepath.string());
     }
   }
-  std::filesystem::path save() const
-    requires detail::HasStateStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_state_stream<D>::value>>
+  std::filesystem::path save() const {
     std::filesystem::path fstate = file_state();
     save(fstate);
     return fstate;
   }
 
   // load state of the integrator from a file
-  void load(const std::filesystem::path& filepath)
-    requires detail::HasStateStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_state_stream<D>::value>>
+  void load(const std::filesystem::path& filepath) {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
     }
@@ -251,20 +248,19 @@ class IntegratorBase {
       std::cout << "state file " << filepath.string() << " not found; skip loading\n";
     }
   }
-  std::filesystem::path load()
-    requires detail::HasStateStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_state_stream<D>::value>>
+  std::filesystem::path load() {
     std::filesystem::path fstate = file_state();
     load(fstate);
     return fstate;
   }
 
   // save accumulated data of the integrator to a file
-  void save_data(const std::filesystem::path& filepath) const
-    requires detail::HasDataStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_data_stream<D>::value>>
+  void save_data(const std::filesystem::path& filepath) const {
     if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(std::string(to_string(id())) + " does not support data accumulation");
+      throw std::runtime_error(std::string(to_string(id())) +
+                               " does not support data accumulation");
     }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
@@ -276,20 +272,19 @@ class IntegratorBase {
       throw std::ios_base::failure("Error writing data file: " + filepath.string());
     }
   }
-  std::filesystem::path save_data() const
-    requires detail::HasDataStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_data_stream<D>::value>>
+  std::filesystem::path save_data() const {
     std::filesystem::path fdata = file_data();
     save_data(fdata);
     return fdata;
   }
 
   // append accumulated data of the integrator from a file
-  void append_data(const std::filesystem::path& filepath)
-    requires detail::HasDataStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_data_stream<D>::value>>
+  void append_data(const std::filesystem::path& filepath) {
     if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(std::string(to_string(id())) + " does not support data accumulation");
+      throw std::runtime_error(std::string(to_string(id())) +
+                               " does not support data accumulation");
     }
     std::ifstream ifs(filepath, std::ios::binary);
     if (!ifs.is_open()) {
@@ -301,9 +296,8 @@ class IntegratorBase {
       throw std::ios_base::failure("Error reading data file: " + filepath.string());
     }
   }
-  std::filesystem::path append_data()
-    requires detail::HasDataStream<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_data_stream<D>::value>>
+  std::filesystem::path append_data() {
     std::filesystem::path fdata = file_data();
     append_data(fdata);
     return fdata;
@@ -355,9 +349,8 @@ class IntegratorBase {
   static constexpr std::string_view suffix_state_ = ".khs";
   static constexpr std::string_view suffix_data_ = ".khd";
 
-  inline std::filesystem::path file_state() const noexcept
-    requires detail::HasPrefix<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_prefix<D>::value>>
+  inline std::filesystem::path file_state() const noexcept {
     std::filesystem::path fstate = derived().prefix() + std::string(suffix_state_);
     if (opts_.file_path) {
       fstate = *opts_.file_path;
@@ -366,9 +359,8 @@ class IntegratorBase {
     return fstate;
   }
 
-  inline std::filesystem::path file_data() const noexcept
-    requires detail::HasPrefix<Derived>
-  {
+  template <typename D = Derived, typename = std::enable_if_t<detail::has_prefix<D>::value>>
+  inline std::filesystem::path file_data() const noexcept {
     std::string seed_suffix = ".s" + std::to_string(opts_.seed.value_or(0));
     std::filesystem::path fdata = derived().prefix(true) + seed_suffix + std::string(suffix_data_);
     if (opts_.file_path) {

@@ -1,9 +1,6 @@
 #pragma once
 
-#include <concepts>
 #include <cstdint>
-#include <iostream>
-#include <string>
 #include <type_traits>
 
 namespace kakuhen::integrator {
@@ -54,28 +51,59 @@ constexpr bool has_flag(IntegratorFeature value, IntegratorFeature flag) noexcep
   return to_underlying(value & flag) != 0;
 }
 
-template <typename T>
-concept HasAdapt = requires(T t) {
-  { t.adapt() } -> std::same_as<void>;
-};
+/// concepts were replaced by
+// template <typename T>
+// concept HasAdapt = requires(T t) {
+//   { t.adapt() } -> std::same_as<void>;
+// };
+// template <typename T>
+// concept HasStateStream = requires(T t, std::ostream& out, std::istream& in) {
+//   { t.write_state_stream(out) } -> std::same_as<void>;
+//   { t.read_state_stream(in) } -> std::same_as<void>;
+// };
+// template <typename T>
+// concept HasDataStream = requires(T t, std::ostream& out, std::istream& in) {
+//   { t.write_data_stream(out) } -> std::same_as<void>;
+//   { t.read_data_stream(in) } -> std::same_as<void>;
+//   { t.accumulate_data_stream(in) } -> std::same_as<void>;
+// };
+// template <typename T>
+// concept HasPrefix = requires(T t, bool b) {
+//   { t.prefix(b) } -> std::same_as<std::string>;
+// };
+
+// SFINAE detection idiom (C++17-friendly)
+template <typename, typename = void>
+struct has_adapt : std::false_type {};
 
 template <typename T>
-concept HasStateStream = requires(T t, std::ostream& out, std::istream& in) {
-  { t.write_state_stream(out) } -> std::same_as<void>;
-  { t.read_state_stream(in) } -> std::same_as<void>;
-};
+struct has_adapt<T, std::void_t<decltype(std::declval<T>().adapt())>> : std::true_type {};
+
+template <typename, typename = void>
+struct has_state_stream : std::false_type {};
 
 template <typename T>
-concept HasDataStream = requires(T t, std::ostream& out, std::istream& in) {
-  { t.write_data_stream(out) } -> std::same_as<void>;
-  { t.read_data_stream(in) } -> std::same_as<void>;
-  { t.accumulate_data_stream(in) } -> std::same_as<void>;
-};
+struct has_state_stream<
+    T, std::void_t<decltype(std::declval<T>().write_state_stream(std::declval<std::ostream&>())),
+                   decltype(std::declval<T>().read_state_stream(std::declval<std::istream&>()))>>
+    : std::true_type {};
+
+template <typename, typename = void>
+struct has_data_stream : std::false_type {};
 
 template <typename T>
-concept HasPrefix = requires(T t, bool b) {
-  { t.prefix(b) } -> std::same_as<std::string>;
-};
+struct has_data_stream<
+    T,
+    std::void_t<decltype(std::declval<T>().write_data_stream(std::declval<std::ostream&>())),
+                decltype(std::declval<T>().read_data_stream(std::declval<std::istream&>())),
+                decltype(std::declval<T>().accumulate_data_stream(std::declval<std::istream&>()))>>
+    : std::true_type {};
+
+template <typename, typename = void>
+struct has_prefix : std::false_type {};
+
+template <typename T>
+struct has_prefix<T, std::void_t<decltype(std::declval<T>().prefix(true))>> : std::true_type {};
 
 }  // namespace detail
 
