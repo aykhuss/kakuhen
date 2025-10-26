@@ -49,9 +49,15 @@ write_basic_package_version_file(
   COMPATIBILITY SameMajorVersion
 )
 
-# {fmt} to avoid std::format
-set(FMT_INSTALL ON CACHE BOOL "" FORCE)
-add_subdirectory(external/fmt EXCLUDE_FROM_ALL)
+#> {fmt} to avoid std::format
+find_package(fmt QUIET)
+if(NOT fmt_FOUND)
+  message(STATUS "Using bundled fmt from external/fmt")
+  # set(FMT_INSTALL OFF CACHE BOOL "Disable fmt installation" FORCE)
+  set(FMT_INSTALL ON CACHE BOOL "Enable fmt installation" FORCE)
+  set(FMT_HEADER_ONLY ON CACHE BOOL "Use header-only fmt" FORCE)
+  add_subdirectory(external/fmt EXCLUDE_FROM_ALL)
+endif()
 target_link_libraries(kakuhen INTERFACE fmt::fmt)
 
 install(
