@@ -9,9 +9,6 @@
 /// Here's an example to illustate such a use case for a simple case
 
 #include "kakuhen/kakuhen.h"
-
-#include <fmt/format.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -24,7 +21,7 @@ class MyFunctor {
  public:
   MyFunctor() : stage_{0}, count_{0} {
     /// allocate the histgram datastructure
-    /// in this example we lay out the data of 3 histograms like this:
+    /// in this example we lay out the data of 3 h9istograms like this:
     ///   (a) 0-9:   10 bins in x[0]
     ///   (b) 10-19: 10 bins in x[1]
     ///   (c) 20-39: 20 bins in y == x[0]+x[1]
@@ -102,9 +99,9 @@ class MyFunctor {
     /// loop over all histogram data bins in one go
     for (auto ibin = 0; ibin < histogram_data_.size(); ++ibin) {
       /// histogram headers:
-      if (ibin == 0) std::cout << fmt::format("\n\n# histogram (a) --- x[0]\n");
-      if (ibin == 10) std::cout << fmt::format("\n\n# histogram (b) --- x[1]\n");
-      if (ibin == 20) std::cout << fmt::format("\n\n# histogram (c) --- y == x[0]+x[1]\n");
+      if (ibin == 0) std::cout << "\n\n# histogram (a) --- x[0]\n";
+      if (ibin == 10) std::cout << "\n\n# histogram (b) --- x[1]\n";
+      if (ibin == 20) std::cout << "\n\n# histogram (c) --- y == x[0]+x[1]\n";
       /// compute x-values of the bin (lower & upper edges) & offsets
       int jbin;
       double xlow, xupp;
@@ -132,8 +129,8 @@ class MyFunctor {
           count_ > 0 ? ((sumf2 / double(count_) - res * res) / double(count_ - 1)) : 0.;
       /// output the row of the histogram bin:
       /// [1] bin idx, [2,3] bin range, [4] value, [5] error
-      std::cout << fmt::format("{:4d}  {:4.2f} {:4.2f}  ", jbin, xlow, xupp);
-      std::cout << fmt::format("{:8.3e} {:8.3e}\n", res, err);
+      std::cout << jbin << "   " << xlow << " " << xupp << "   ";
+      std::cout << res << " " << err << "\n";
     }
   }
 
@@ -169,7 +166,7 @@ int main() {
   fntor.set_stage(1);                       // production with histogram filling
   fntor.reset_histogram();                  // for good measure
   auto result = basin_int.integrate(fntor, {.neval = 1000000, .verbosity = 0});
-  std::cout << fmt::format("integral = {} +/- {}\n", result.value(), result.error());
+  std::cout << "integral = " << result.value() << " +/- " << result.error() << "\n";
   fntor.print_histogram();
 
   return 0;

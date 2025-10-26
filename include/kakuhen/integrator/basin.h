@@ -9,9 +9,6 @@
 #include "kakuhen/ndarray/ndview.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/serialize.h"
-
-#include <fmt/format.h>
-
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -522,8 +519,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                                       grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
         }
         scores(idim1, idim2) /= T(ndiv1_);
-        std::cout << fmt::format("score[{},{}] = {:6.1f}%\n", idim1, idim2,
-                                 scores(idim1, idim2) * 100.);
+        std::cout << "score[" << idim1 << "," << idim2 << "] = ";
+        std::cout << scores(idim1, idim2) * 100. << "%\n";
       }  // for idim2
     }  // for idim1
 
@@ -566,8 +563,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// register the order and invalidate the scores
-      std::cout << fmt::format("order[{}] = ({}, {}) with score {:6.1f}%\n", iord, max_idim1,
-                               max_idim2, max_score * 100);
+      std::cout << "order[" << iord << "] = (" << max_idim1 << ", " << max_idim2 << ")";
+      std::cout << " with score " << max_score * 100 << "%\n";
       order_(iord, 0) = max_idim1;
       order_(iord, 1) = max_idim2;
       scores(max_idim2, max_idim2) = T(-1);
@@ -589,75 +586,76 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     result_.reset();
   }
 
-  void print_grid(const std::string& prefix = "") {
-    /// long 1D grid
-    for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-      std::cout << fmt::format("{0}#dim{1}\n{0}", prefix, idim0);
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        std::cout << fmt::format(" {:12.7e}", grid0_(idim0, ig0));
-      }
-      std::cout << fmt::format("\n{0}\n{0}\n", prefix);
-    }
-    /// joint 2D grid
-    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        if (idim1 == idim2) continue;
-        std::cout << fmt::format("{0}#dim{1}{2}\n", prefix, idim1, idim2);
-        /// multiple short grids
-        for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
-          const T x1_max = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
-          for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
-            const T x2_max = grid_(idim1, idim2, ig1, ig2);
-            std::cout << fmt::format("{}  {:12.7e} {:12.7e}  {:12.7e} {:12.7e}\n", prefix, x1_min,
-                                     x1_max, x2_min, x2_max);
-          }
-          std::cout << fmt::format("{}\n", prefix);
-        }
-        std::cout << fmt::format("{}\n", prefix);
-      }
-    }
-  }
+  // void print_grid(const std::string& prefix = "") {
+  //   /// long 1D grid
+  //   for (S idim0 = 0; idim0 < ndim_; ++idim0) {
+  //     std::cout << fmt::format("{0}#dim{1}\n{0}", prefix, idim0);
+  //     for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+  //       std::cout << fmt::format(" {:12.7e}", grid0_(idim0, ig0));
+  //     }
+  //     std::cout << fmt::format("\n{0}\n{0}\n", prefix);
+  //   }
+  //   /// joint 2D grid
+  //   for (S idim1 = 0; idim1 < ndim_; ++idim1) {
+  //     for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+  //       if (idim1 == idim2) continue;
+  //       std::cout << fmt::format("{0}#dim{1}{2}\n", prefix, idim1, idim2);
+  //       /// multiple short grids
+  //       for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
+  //         const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
+  //         const T x1_max = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
+  //         for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
+  //           const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
+  //           const T x2_max = grid_(idim1, idim2, ig1, ig2);
+  //           std::cout << fmt::format("{}  {:12.7e} {:12.7e}  {:12.7e} {:12.7e}\n", prefix,
+  //           x1_min,
+  //                                    x1_max, x2_min, x2_max);
+  //         }
+  //         std::cout << fmt::format("{}\n", prefix);
+  //       }
+  //       std::cout << fmt::format("{}\n", prefix);
+  //     }
+  //   }
+  // }
 
-  void print_pdf() {
-    /// diagonal
-    for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-      std::cout << fmt::format("\n#dim: {}\n", idim0);
-      std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", 0, 0., 0., 0.);
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        const T dx = ig0 > 0 ? (grid0_(idim0, ig0) - grid0_(idim0, ig0 - 1)) : grid0_(idim0, ig0);
-        const T pdf = T(1) / (dx * T(ndiv0_));
-        const T cdf = T(ig0 + 1) / T(ndiv0_);
-        std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", ig0 + 1,
-                                 grid0_(idim0, ig0), pdf, cdf);
-      }
-      std::cout << "\n";
-    }  // for idim0
-    /// joint distributions
-    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        if (idim1 == idim2) continue;
-        std::cout << fmt::format("\n#dim: {} {}\n", idim1, idim2);
-        std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", 0, 0, 0., 0., 0.);
-        for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            const T dx1 =
-                ig1 > 0 ? grid0_(idim1, (ig1 + 1) * ndiv2_ - 1) - grid0_(idim1, ig1 * ndiv2_ - 1)
-                        : grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
-            const T dx2 = ig2 > 0
-                              ? grid_(idim1, idim2, ig1, ig2) - grid_(idim1, idim2, ig1, ig2 - 1)
-                              : grid_(idim1, idim2, ig1, ig2);
-            const T pdf = T(1) / (dx1 * dx2 * T(ndiv0_));
-            std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", ig1 + 1,
-                                     ig2 + 1, grid0_(idim1, (ig1 + 1) * ndiv2_ - 1),
-                                     grid_(idim1, idim2, ig1, ig2), pdf);
-          }
-        }
-        std::cout << "\n";
-      }  // for idim2
-    }  // for idim1
-  }
+  // void print_pdf() {
+  //   /// diagonal
+  //   for (S idim0 = 0; idim0 < ndim_; ++idim0) {
+  //     std::cout << fmt::format("\n#dim: {}\n", idim0);
+  //     std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", 0, 0., 0., 0.);
+  //     for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+  //       const T dx = ig0 > 0 ? (grid0_(idim0, ig0) - grid0_(idim0, ig0 - 1)) : grid0_(idim0, ig0);
+  //       const T pdf = T(1) / (dx * T(ndiv0_));
+  //       const T cdf = T(ig0 + 1) / T(ndiv0_);
+  //       std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", ig0 + 1,
+  //                                grid0_(idim0, ig0), pdf, cdf);
+  //     }
+  //     std::cout << "\n";
+  //   }  // for idim0
+  //   /// joint distributions
+  //   for (S idim1 = 0; idim1 < ndim_; ++idim1) {
+  //     for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+  //       if (idim1 == idim2) continue;
+  //       std::cout << fmt::format("\n#dim: {} {}\n", idim1, idim2);
+  //       std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", 0, 0, 0., 0., 0.);
+  //       for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
+  //         for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
+  //           const T dx1 =
+  //               ig1 > 0 ? grid0_(idim1, (ig1 + 1) * ndiv2_ - 1) - grid0_(idim1, ig1 * ndiv2_ - 1)
+  //                       : grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
+  //           const T dx2 = ig2 > 0
+  //                             ? grid_(idim1, idim2, ig1, ig2) - grid_(idim1, idim2, ig1, ig2 - 1)
+  //                             : grid_(idim1, idim2, ig1, ig2);
+  //           const T pdf = T(1) / (dx1 * dx2 * T(ndiv0_));
+  //           std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", ig1 + 1,
+  //                                    ig2 + 1, grid0_(idim1, (ig1 + 1) * ndiv2_ - 1),
+  //                                    grid_(idim1, idim2, ig1, ig2), pdf);
+  //         }
+  //       }
+  //       std::cout << "\n";
+  //     }  // for idim2
+  //   }  // for idim1
+  // }
 
   void nest_grid(const kakuhen::ndarray::NDView<T, S>& grid1,
                  const kakuhen::ndarray::NDView<T, S>& grid2) {
@@ -678,7 +676,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T x2_upp = grid2(ig2);
         assert(x >= x2_low && x <= x2_upp);
         cdf2 = (ig2 + (x - x2_low) / (x2_upp - x2_low)) / T(grid2.size());
-        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << x << "  " << cdf1 << "  " << cdf2 << "\n";
 
         ig1++;
       } else if (grid1(ig1) > grid2(ig2)) {
@@ -688,7 +686,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T x1_upp = grid1(ig1);
         assert(x >= x1_low && x <= x1_upp);
         cdf1 = (ig1 + (x - x1_low) / (x1_upp - x1_low)) / T(grid1.size());
-        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << x << "  " << cdf1 << "  " << cdf2 << "\n";
 
         ig2++;
       } else {
@@ -696,7 +694,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         x = grid1(ig1);
         cdf1 = T(ig1 + 1) / T(grid1.size());
         cdf2 = T(ig2 + 1) / T(grid2.size());
-        std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
+        std::cout << x << "  " << cdf1 << "  " << cdf2 << "\n";
 
         ig1++;
         ig2++;

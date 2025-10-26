@@ -18,6 +18,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+#> fmt for pretty printing
+FetchContent_Declare(
+  fmt
+  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+  # DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(fmt)
+
 add_executable(kakuhen_cli kakuhen_cli.cpp)
 
 target_link_libraries(kakuhen_cli
@@ -25,6 +33,7 @@ target_link_libraries(kakuhen_cli
     kakuhen
     argparse
     nlohmann_json::nlohmann_json
+    fmt::fmt
 )
 set_target_properties(kakuhen_cli PROPERTIES OUTPUT_NAME "kakuhen")
 install(TARGETS kakuhen_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

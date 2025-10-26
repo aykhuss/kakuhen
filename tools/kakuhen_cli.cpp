@@ -1,7 +1,4 @@
 #include "kakuhen/integrator/vegas.h"
-
-#include <fmt/format.h>
-
 #include <argparse/argparse.hpp>
 #include <filesystem>
 #include <iostream>
@@ -11,7 +8,7 @@ using json = nlohmann::json;
 using namespace kakuhen::integrator;
 
 int main(int argc, char* argv[]) {
-  std::cout << fmt::format("Hello, {}!\n", "Al");
+  std::cout << "Hello, 世界!\n";
 
   argparse::ArgumentParser program("kakuhen");
 

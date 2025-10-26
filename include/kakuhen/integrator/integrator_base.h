@@ -7,9 +7,6 @@
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/serialize.h"
-
-#include <fmt/format.h>
-
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -85,8 +82,7 @@ class IntegratorBase {
     opts_.set(opts);
     if (opts.seed) random_generator_.seed(opts_.seed.value());
     if (opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
-      throw std::invalid_argument(
-          fmt::format("{} does not support grid adaption", to_string(id())));
+      throw std::invalid_argument(std::string(to_string(id())) + " does not support grid adaption");
     }
   }
 
@@ -152,13 +148,13 @@ class IntegratorBase {
       int_acc_type res_it = derived().integrate_impl(func, *opts_.neval);
       result.accumulate(res_it);
       if (opts_.verbosity && *opts_.verbosity > 0) {
-        std::cout << fmt::format("\n***** Integration by {} (Iteration {} / {} ) *****\n",
-                                 to_string(id()), iter + 1, *opts_.niter, res_it.count());
-        std::cout << fmt::format("  integral(iter) = {:14.8g} +/- {:14.8g} (n={})\n",
-                                 res_it.value(), res_it.error(), res_it.count());
-        std::cout << fmt::format("  integral(acc.) = {:14.8g} +/- {:14.8g} (n={})\n",
-                                 result.value(), result.error(), result.count());
-        std::cout << fmt::format("***** chi^2/dof = {:14.8g} *****\n", result.chi2dof());
+        std::cout << "\n***** Integration by " << to_string(id());
+        std::cout << " (Iteration " << iter + 1 << " / " << *opts_.niter << " ) *****\n";
+        std::cout << "  integral(iter) = " << res_it.value() << " +/- " << res_it.error();
+        std::cout << " (n=" << res_it.count() << ")\n";
+        std::cout << "  integral(acc.) = " << result.value() << " +/- " << result.error();
+        std::cout << " (n=" << result.count() << ")\n";
+        std::cout << "***** chi^2/dof = " << result.chi2dof() << " *****\n";
       }
 
       // // check for convergence
@@ -210,7 +206,7 @@ class IntegratorBase {
     requires detail::HasStateStream<Derived>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(fmt::format("{} does not support saving state", to_string(id())));
+      throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
     }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
@@ -235,7 +231,7 @@ class IntegratorBase {
     requires detail::HasStateStream<Derived>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(fmt::format("{} does not support saving state", to_string(id())));
+      throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
     }
     std::error_code ec;
     if (std::filesystem::exists(filepath, ec)) {
@@ -252,7 +248,7 @@ class IntegratorBase {
         throw std::ios_base::failure("Error reading state file: " + filepath.string());
       }
     } else {
-      std::cout << fmt::format("state file {} not found; skip loading\n", filepath.string());
+      std::cout << "state file " << filepath.string() << " not found; skip loading\n";
     }
   }
   std::filesystem::path load()
@@ -268,8 +264,7 @@ class IntegratorBase {
     requires detail::HasDataStream<Derived>
   {
     if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(
-          fmt::format("{} does not support data accumulation", to_string(id())));
+      throw std::runtime_error(std::string(to_string(id())) + " does not support data accumulation");
     }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
@@ -294,8 +289,7 @@ class IntegratorBase {
     requires detail::HasDataStream<Derived>
   {
     if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(
-          fmt::format("{} does not support data accumulation", to_string(id())));
+      throw std::runtime_error(std::string(to_string(id())) + " does not support data accumulation");
     }
     std::ifstream ifs(filepath, std::ios::binary);
     if (!ifs.is_open()) {
