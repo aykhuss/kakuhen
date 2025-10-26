@@ -86,7 +86,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       const T func2 = func * func;
       result_.accumulate(func, func2);
       /// accumulator for the grid
-      const T acc = std::abs(func);  // func2: wrong; func2/point.weight: ok
+      const T acc = func2;
       for (S idim = 0; idim < ndim_; ++idim) {
         accumulator_(idim, grid_vec[idim]).accumulate(acc);
       }

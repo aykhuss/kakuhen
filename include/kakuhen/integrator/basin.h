@@ -99,7 +99,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       const T func2 = func * func;
       result_.accumulate(func, func2);
       /// accumulators for the grid
-      const T acc = std::abs(func);
+      const T acc = func2;
       for (S idim = 0; idim < ndim_; ++idim) {
         const S ig0 = grid_vec[idim];
         accumulator0_(idim, ig0).accumulate(acc);

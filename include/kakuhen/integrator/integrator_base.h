@@ -13,11 +13,9 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <random>
 #include <string_view>
 #include <system_error>
-#include <type_traits>
 
 namespace kakuhen::integrator {
 
