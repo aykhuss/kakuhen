@@ -506,8 +506,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                                       grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
         }
         scores(idim1, idim2) /= T(ndiv1_);
-        std::cout << "score[" << idim1 << "," << idim2 << "] = ";
-        std::cout << scores(idim1, idim2) * 100. << "%\n";
+        // std::cout << "score[" << idim1 << "," << idim2 << "] = ";
+        // std::cout << scores(idim1, idim2) * 100. << "%\n";
       }  // for idim2
     }  // for idim1
 
@@ -528,7 +528,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           avg_score += scores(idim1, idim2);
           count++;
         }
-        if (count > 0) avg_score /= T(count);
+        /// we need to penalize sampling of new dimensions
+        if (count > 0) avg_score /= pentalty_fac_score_ * T(count);
+        // std::cout << "score[" << idim1 << "," << idim1 << "] = ";
+        // std::cout << avg_score * 100. << "% [" << count << "]\n";
         if (avg_score > max_score) {
           max_score = avg_score;
           max_idim1 = idim1;
@@ -542,6 +545,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
           if (scores(idim1, idim2) < min_score_) continue;
+          // std::cout << "score[" << idim1 << "," << idim2 << "] = ";
+          // std::cout << scores(idim1, idim2) * 100. << "%\n";
           if (scores(idim1, idim2) > max_score) {
             max_score = scores(idim1, idim2);
             max_idim1 = idim1;
@@ -551,8 +556,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// register the order and invalidate the scores
-      std::cout << "order[" << iord << "] = (" << max_idim1 << ", " << max_idim2 << ")";
-      std::cout << " with score " << max_score * 100 << "%\n";
+      // std::cout << "order[" << iord << "] = (" << max_idim1 << ", " << max_idim2 << ")";
+      // std::cout << " with score " << max_score * 100 << "%\n";
       order_(iord, 0) = max_idim1;
       order_(iord, 1) = max_idim2;
       scores(max_idim2, max_idim2) = T(-1);
@@ -905,6 +910,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   T alpha_{0.75};
   T weight_smooth_{3};
   T min_score_{0.05};
+  T pentalty_fac_score_{2};
 
   /// division for conditional PDF:  P(x2|x1)
   S ndiv1_;  // number of divisions of the grid along dim 1
