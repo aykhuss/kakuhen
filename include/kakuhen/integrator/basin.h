@@ -1,4 +1,9 @@
 // basin - Blockwise Adaptive Sampling with Interdimensional Nesting
+// ▗▄▄▖  ▗▄▖  ▗▄▄▖▗▄▄▄▖▗▖  ▗▖
+// ▐▌ ▐▌▐▌ ▐▌▐▌     █  ▐▛▚▖▐▌
+// ▐▛▀▚▖▐▛▀▜▌ ▝▀▚▖  █  ▐▌ ▝▜▌
+// ▐▙▄▞▘▐▌ ▐▌▗▄▄▞▘▗▄█▄▖▐▌  ▐▌
+
 #pragma once
 
 #include "kakuhen/integrator/grid_accumulator.h"
@@ -50,6 +55,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         ndiv2_{ndiv2},
         ndiv0_{ndiv1 * ndiv2},
         grid_({ndim, ndim, ndiv1, ndiv2}),
+        accumulator_count_{0},
         accumulator_({ndim, ndim, ndiv1, ndiv2}),
         order_({ndim, 2}) {
     assert(ndim > 0 && ndiv1 > 1 && ndiv2 > 1);
@@ -105,6 +111,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       result_.accumulate(func, func2);
       /// accumulators for the grid
       const T acc = func2;
+      accumulator_count_++;
       for (S idim = 0; idim < ndim_; ++idim) {
         const S ig0 = grid_vec[idim];
         accumulator0_(idim, ig0).accumulate(acc);
@@ -171,7 +178,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
-    std::cout << "\n*** Adapting the grid on " << result_.count() << " collected samples. ***\n\n";
+    if (opts_.verbosity && *opts_.verbosity > 0) {
+      std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
+    }
 
     //> pre-allocate data structures we need (ndiv0_ = ndiv1_*ndiv2_)
     NDArray<T, S> dval({ndiv0_});
@@ -201,7 +210,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       /// initialize `d0val`
       d0val.fill(T(0));
       dsum = T(0);
+      U nsum{0};
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+        nsum += accumulator0_(idim1, ig0).count();
         if (accumulator0_(idim1, ig0).count() == 0) {
           d0val(ig0) = T(0);
           continue;
@@ -210,6 +221,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         d0val(ig0) = accumulator0_(idim1, ig0).value();
         dsum += d0val(ig0);
       }
+      assert(nsum == accumulator_count_);
 
       /// smoothen out and save in `d0`
       d0.fill(T(0));
@@ -591,6 +603,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }  // adpat
 
   void clear_data() {
+    accumulator_count_ = U(0);
     std::for_each(accumulator_.begin(), accumulator_.end(), [](auto& acc) { acc.reset(); });
     result_.reset();
   }
@@ -833,6 +846,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     serialize_one<S>(out, ndiv2_);
     serialize_one<kakuhen::util::HashValue_t>(out, hash().value());
     result_.serialize(out);
+    serialize_one<U>(out, accumulator_count_);
     accumulator_.serialize(out);
   }
 
@@ -840,7 +854,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
     //> check that we won't overwrite existing data
-    if (result_.count() != 0) {
+    if (accumulator_count_ != 0) {
       throw std::runtime_error("result already has data");
     }
     for (S idim1 = 0; idim1 < ndim_; ++idim1) {
@@ -903,6 +917,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     result_in.deserialize(in);
     result_.accumulate(result_in);
     //> accumulate grid data
+    U accumulator_count_in;
+    deserialize_one<U>(in, accumulator_count_in);
+    accumulator_count_ += accumulator_count_in;
     ndarray::NDArray<grid_acc_type, S> accumulator_in({ndim_, ndim_, ndiv1_, ndiv2_});
     accumulator_in.deserialize(in);
     for (S idim1 = 0; idim1 < ndim_; ++idim1) {
@@ -928,6 +945,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDArray<T, S> grid_;
   ndarray::NDView<T, S> grid0_;
   int_acc_type result_;
+  U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
   ndarray::NDView<grid_acc_type, S> accumulator0_;
   /// define the sampling order
