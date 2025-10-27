@@ -51,6 +51,7 @@ TEST_CASE("write/load RNG state", "[vegas]") {
 
   /// synchronize full state of veg
   auto veg2 = Vegas(2);
+  veg2.set_options({.verbosity = 0});
   veg2.read_state_stream(ss_grid);
   veg2.read_rng_state_stream(ss_rng);
 

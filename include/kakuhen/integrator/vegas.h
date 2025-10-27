@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace kakuhen::integrator {
@@ -117,6 +118,14 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
+    if (accumulator_count_ <= U(0)) {
+      std::cout << "no data collected for adaption" << std::endl;
+      return;
+    }
+
+    const T eps = T(10) * std::numeric_limits<T>::min();
+    const T nrm = T(1) / (T(accumulator_count_) * T(accumulator_count_));
+
     if (opts_.verbosity && *opts_.verbosity > 0) {
       std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
     }
@@ -128,30 +137,20 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     T dsum, davg, dacc;
 
     for (S idim = 0; idim < ndim_; ++idim) {
-      /// initialize
-      dval.fill(T(0));
-      dsum = T(0);
-      U nsum{0};
-      for (S ig = 0; ig < ndiv_; ++ig) {
-        nsum += accumulator_(idim, ig).count();
-        if (accumulator_(idim, ig).count() == 0) {
-          dval(ig) = T(0);
-          continue;
+      /// initialize & check count compatibility
+      {
+        dval.fill(T(0));
+        U nsum{0};
+        for (S ig = 0; ig < ndiv_; ++ig) {
+          nsum += accumulator_(idim, ig).count();
+          dval(ig) = std::max(nrm * accumulator_(idim, ig).value(), eps);
         }
-        // dval(ig) = accumulator_(idim, ig).value() / T(accumulator_(idim, ig).count());
-        dval(ig) = accumulator_(idim, ig).value();
-        dsum += dval(ig);
-      }
-      assert(nsum == accumulator_count_);
-
-      if (dsum <= T(0)) {
-        std::cout << "no data collected to adapt the grid" << std::endl;
-        return;
+        assert(nsum == accumulator_count_);
       }
 
       /// smoothen out
       d.fill(T(0));
-      dsum = T(0);
+      dacc = T(0);
       for (S ig = 0; ig < ndiv_; ++ig) {
         if (ig == 0) {
           d(ig) = (7 * dval(ig) + dval(ig + 1)) / T(8);
@@ -160,19 +159,14 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         } else {
           d(ig) = (dval(ig - 1) + 6 * dval(ig) + dval(ig + 1)) / T(8);
         }
-        dsum += d(ig);
+        dacc += d(ig);
       }  // for ig
-
-      /// normalize
-      for (S ig = 0; ig < ndiv_; ++ig) {
-        d(ig) = d(ig) / dsum;
-      }
 
       /// dampen
       dsum = T(0);
       for (S ig = 0; ig < ndiv_; ++ig) {
         if (d(ig) > T(0)) {
-          d(ig) = std::pow(-(T(1) - d(ig)) / std::log(d(ig)), alpha_);
+          d(ig) = std::pow((T(1) - d(ig) / dacc) / (std::log(dacc) - std::log(d(ig))), alpha_);
         }
         dsum += d(ig);
       }
@@ -347,7 +341,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   S ndiv_;  // number of divisions of the grid along each dimension
   ndarray::NDArray<T, S> grid_;
   int_acc_type result_;
-  U accumulator_count_;
+  U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 
   inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
