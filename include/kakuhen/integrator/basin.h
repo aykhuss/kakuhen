@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace kakuhen::integrator {
@@ -76,6 +77,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
   inline T alpha() const noexcept {
     return alpha_;
+  }
+
+  inline void set_weight_smooth(const T& weight_smooth) noexcept {
+    assert(weight_smooth >= T(1));
+    weight_smooth_ = weight_smooth;
+  }
+  inline T weight_smooth() const noexcept {
+    return weight_smooth_;
   }
 
   inline void set_min_score(const T& min_score) noexcept {
@@ -178,6 +187,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
+    if (accumulator_count_ <= U(0)) {
+      std::cout << "no data collected for adaption" << std::endl;
+      return;
+    }
+
+    const T eps = T(10) * std::numeric_limits<T>::min();
+    const T nrm = T(1) / (T(accumulator_count_) * T(accumulator_count_));
+
     if (opts_.verbosity && *opts_.verbosity > 0) {
       std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
     }
@@ -201,70 +218,49 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       auto d0 = d.view();
       auto grid0_new = grid_new.view();
 
-      // std::cout << fmt::format("acc0[{}]:", idim1);
-      // for (S ig0 = 0; ig0 < ndiv0_; ++ig0)
-      //   std::cout << fmt::format(" {:7.3e}[{}]", accumulator0_(idim1, ig0).value(),
-      //                            accumulator0_(idim1, ig0).count());
-      // std::cout << std::endl;
-
-      /// initialize `d0val`
-      d0val.fill(T(0));
-      dsum = T(0);
-      U nsum{0};
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        nsum += accumulator0_(idim1, ig0).count();
-        if (accumulator0_(idim1, ig0).count() == 0) {
-          d0val(ig0) = T(0);
-          continue;
+      /// initialize `d0val` & check count compatibility
+      {
+        d0val.fill(T(0));
+        U nsum{0};
+        for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+          nsum += accumulator0_(idim1, ig0).count();
+          d0val(ig0) = nrm * accumulator0_(idim1, ig0).value();
         }
-        // d0val(ig0) = accumulator0_(idim1, ig0).value() / T(accumulator0_(idim1, ig0).count());
-        d0val(ig0) = accumulator0_(idim1, ig0).value();
-        dsum += d0val(ig0);
+        assert(nsum == accumulator_count_);
       }
-      assert(nsum == accumulator_count_);
 
       /// smoothen out and save in `d0`
-      d0.fill(T(0));
+      {
+        d0.fill(T(0));
+        dacc = T(0);
+        for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+          if (ig0 == 0) {
+            d0(ig0) = (weight_smooth_ + 1) * d0val(ig0) + d0val(ig0 + 1);
+          } else if (ig0 == ndiv0_ - 1) {
+            d0(ig0) = d0val(ig0 - 1) + (weight_smooth_ + 1) * d0val(ig0);
+          } else {
+            d0(ig0) = d0val(ig0 - 1) + weight_smooth_ * d0val(ig0) + d0val(ig0 + 1);
+          }
+          d0(ig0) /= (weight_smooth_ + 2);
+          if (d0(ig0) < eps) d0(ig0) = eps;
+          dacc += d0(ig0);
+        }  // for ig0
+        // std::copy_n(&d0val(0), ndiv0_, &d0(0)); // DEBUG: no smearing
+      }
+
+      /// dampen (w/o assuming normalization & stable for `eps`)
       dsum = T(0);
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        if (ig0 == 0) {
-          d0(ig0) = (7 * d0val(ig0) + d0val(ig0 + 1)) / T(8);
-        } else if (ig0 == ndiv0_ - 1) {
-          d0(ig0) = (d0val(ig0 - 1) + 7 * d0val(ig0)) / T(8);
-        } else {
-          d0(ig0) = (d0val(ig0 - 1) + 6 * d0val(ig0) + d0val(ig0 + 1)) / T(8);
-        }
-        dsum += d0(ig0);
-      }  // for ig0
-      // std::copy_n(&d0val(0), ndiv0_, &d0(0)); // DEBUG: no smearing
-
-      /// normalize `d0`
-      if (dsum > T(0)) {
-        for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-          d0(ig0) = d0(ig0) / dsum;
-        }
-      }
-
-      /// dampen
-      dsum = 0;
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
         if (d0(ig0) > T(0)) {
-          d0(ig0) = std::pow(-(T(1) - d0(ig0)) / std::log(d0(ig0)), alpha_);
+          d0(ig0) =
+              std::pow((T(1) - d0(ig0) / dacc) / (std::log(dacc) - std::log(d0(ig0))), alpha_);
         }
         dsum += d0(ig0);
-      }
-
-      /// re-normalize `d0`
-      if (dsum > T(0)) {
-        for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-          d0(ig0) = d0(ig0) / dsum;
-        }
       }
 
       /// refine the grid using `d0`
       grid0_new.fill(T(0));
-      // davg = dsum / T(ndiv0_);
-      davg = T(1) / T(ndiv0_);  // normalized
+      davg = dsum / T(ndiv0_);
       dacc = T(0);
       S ig0_new = 0;
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
@@ -272,10 +268,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         while (dacc >= davg) {
           dacc -= davg;
           const T rat = dacc / d0(ig0);
-          assert(rat >= 0. && rat <= 1.);
+          assert(rat >= T(0) && rat <= T(1));
           const T x_low = ig0 > 0 ? grid0_(idim1, ig0 - 1) : T(0);
           const T x_upp = grid0_(idim1, ig0);
-          grid0_new(ig0_new) = x_low * rat + x_upp * (1. - rat);
+          grid0_new(ig0_new) = x_low * rat + x_upp * (T(1) - rat);
           //> accumulate the weight for this bin (rat = *remainder*)
           // prepare for next
           ig0_new++;
@@ -283,7 +279,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }  // for ig0
       grid0_new(ndiv0_ - 1) = T(1);
       ///< check ---
-      // std::cout << fmt::format("grid0 old -> new: \n");
+      // std::cout << "grid0 old -> new: \n";
       // for (S ig0 = 0; ig0 < ndiv0_; ++ig0)
       //   std::cout << fmt::format("  {:7.3f} -> {:7.3f}\n", grid0_(idim1, ig0), grid0_new(ig0));
       // std::cout << std::endl;
@@ -333,55 +329,39 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         ///------------
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
           /// init dval
-          dsum = T(0);
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            if (accumulator_(idim1, idim2, ig1, ig2).count() == 0) {
-              d12val(ig1, ig2) = T(0);
-              continue;
-            }
-            // d12val(ig1, ig2) = accumulator_(idim1, idim2, ig1, ig2).value() /
-            //                    T(accumulator_(idim1, idim2, ig1, ig2).count());
-            d12val(ig1, ig2) = accumulator_(idim1, idim2, ig1, ig2).value();
-            dsum += d12val(ig1, ig2);
+            d12val(ig1, ig2) = nrm * accumulator_(idim1, idim2, ig1, ig2).value();
           }  // for ig2
 
           /// smoothen
-          dsum = T(0);
-          for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            if (ig2 == 0) {
-              d12(ig1, ig2) = (7 * d12val(ig1, ig2) + d12val(ig1, ig2 + 1)) / T(8);
-            } else if (ig2 == ndiv2_ - 1) {
-              d12(ig1, ig2) = (d12val(ig1, ig2 - 1) + 7 * d12val(ig1, ig2)) / T(8);
-            } else {
-              d12(ig1, ig2) =
-                  (d12val(ig1, ig2 - 1) + 6 * d12val(ig1, ig2) + d12val(ig1, ig2 + 1)) / T(8);
-            }
-            dsum += d12(ig1, ig2);
-          }  // for ig2
-          // std::copy_n(&d12val(ig1, 0), ndiv2_, &d12(ig1, 0)); // DEBUG: no smearing
-
-          /// normalize
-          if (dsum > T(0)) {
+          {
+            dacc = T(0);
             for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-              d12(ig1, ig2) /= dsum;
-            }
+              if (ig2 == 0) {
+                d12(ig1, ig2) = (weight_smooth_ + 1) * d12val(ig1, ig2) + d12val(ig1, ig2 + 1);
+              } else if (ig2 == ndiv2_ - 1) {
+                d12(ig1, ig2) = d12val(ig1, ig2 - 1) + (weight_smooth_ + 1) * d12val(ig1, ig2);
+              } else {
+                d12(ig1, ig2) =
+                    d12val(ig1, ig2 - 1) + weight_smooth_ * d12val(ig1, ig2) + d12val(ig1, ig2 + 1);
+              }
+              d12(ig1, ig2) /= (weight_smooth_ + 2);
+              if (d12(ig1, ig2) < eps) d12(ig1, ig2) = eps;
+              dacc += d12(ig1, ig2);
+            }  // for ig2
+            // std::copy_n(&d12val(ig1, 0), ndiv2_, &d12(ig1, 0)); // DEBUG: no smearing
           }
 
-          /// dampen
-          dsum = T(0);
+          /// dampen (w/o assuming normalization & stable for `eps`)
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
             if (d12(ig1, ig2) > T(0)) {
-              d12(ig1, ig2) = std::pow(-(T(1) - d12(ig1, ig2)) / std::log(d12(ig1, ig2)), alpha_);
+              d12(ig1, ig2) = std::pow(
+                  (T(1) - d12(ig1, ig2) / dacc) / (std::log(dacc) - std::log(d12(ig1, ig2))),
+                  alpha_);
             }
-            dsum += d12(ig1, ig2);
           }
 
-          /// re-normalize
-          if (dsum > T(0)) {
-            for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-              d12(ig1, ig2) /= dsum;
-            }
-          }
+          /// attention:  no normalization!
 
         }  // for ig1
 
@@ -455,28 +435,15 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                 } else {
                   break;  // -> next `ig_mrg`
                 }
-              } while (del_x > 0);
+              } while (del_x > T(0));
             }  // for ig_mrg
           }  // for ig1
 
-          /// (c)  normalize
-          for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
-            d_mrg(ig_mrg) = d_mrg(ig_mrg) / dsum;
-          }
+          /// attention: no normalization (potential ~eps entries)
+          /// attention: no damping (already done at the pre-merge step)
 
-          // WRONG: /// (d)  dampen
-          // WRONG: dsum = 0;
-          // WRONG: for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
-          // WRONG:   if (d_mrg(ig_mrg) > T(0)) {
-          // WRONG:     d_mrg(ig_mrg) =
-          // WRONG:         std::pow(-(T(1) - d_mrg(ig_mrg)) / std::log(d_mrg(ig_mrg)), alpha_);
-          // WRONG:   }
-          // WRONG:   dsum += d_mrg(ig_mrg);
-          // WRONG: }
-
-          /// (e)  refine the sub-grid using `d_mrg` -> into ndiv2_ bins
-          // davg = dsum / T(ndiv2_);
-          davg = T(1) / T(ndiv2_);  // normalized
+          /// (c)  refine the sub-grid using `d_mrg` -> into ndiv2_ bins
+          davg = dsum / T(ndiv2_);
           dacc = T(0);
           S ig2_new = 0;
           for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
@@ -484,7 +451,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             while (dacc >= davg) {
               dacc -= davg;
               const T rat = dacc / d_mrg(ig_mrg);
-              assert(rat >= 0. && rat <= 1.);
+              assert(rat >= T(0) && rat <= T(1));
               const T x_low = ig_mrg > 0 ? grid_mrg(ig_mrg - 1) : T(0);
               const T x_upp = grid_mrg(ig_mrg);
               grid12_new(ig1_new, ig2_new) = x_low * rat + x_upp * (1 - rat);
@@ -936,6 +903,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   /// parameters that controls the grid refinement
   T alpha_{0.75};
+  T weight_smooth_{3};
   T min_score_{0.05};
 
   /// division for conditional PDF:  P(x2|x1)
