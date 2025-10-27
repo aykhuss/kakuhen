@@ -72,6 +72,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     return alpha_;
   }
 
+  inline void set_min_score(const T& min_score) noexcept {
+    assert((min_score >= T(0)) && (min_score < T(1)));
+    min_score_ = min_score;
+  }
+  inline T min_score() const noexcept {
+    return min_score_;
+  }
+
   inline kakuhen::util::Hash hash() const {
     return kakuhen::util::Hash().add(ndim_).add(ndiv1_).add(ndiv2_).add(grid_.data(), grid_.size());
   }
@@ -554,6 +562,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const S idim1 = order_(ichk, 1);  // idim1 is an idim2 of a previous step
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
+          if (scores(idim1, idim2) < min_score_) continue;
           if (scores(idim1, idim2) > max_score) {
             max_score = scores(idim1, idim2);
             max_idim1 = idim1;
@@ -910,6 +919,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   /// parameters that controls the grid refinement
   T alpha_{0.75};
+  T min_score_{0.05};
 
   /// division for conditional PDF:  P(x2|x1)
   S ndiv1_;  // number of divisions of the grid along dim 1

@@ -192,7 +192,7 @@ int main() {
   /// initialize a `MyFunctor` object
   MyFunctor integrand{};
 
-  auto integrator = Vegas(2);  // 2 dimensions
+  auto integrator = Basin(2);  // 2 dimensions
   integrand.set_stage(0);      // warmup: switch off histogram filling
   integrator.integrate(integrand, {.neval = 50000, .niter = 7, .adapt = true});
   integrator.set_options({.adapt = false});  // freeze the grid -> production phase
