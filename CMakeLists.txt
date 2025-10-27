@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(kakuhen VERSION 0.0.1 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD 20)
+# set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 #> generate `compile_commands.json`
@@ -29,8 +29,8 @@ include(GNUInstallDirs)
 add_library(kakuhen INTERFACE)
 add_library(kakuhen::kakuhen ALIAS kakuhen)
 
-target_compile_features(kakuhen INTERFACE cxx_std_17)
-# target_compile_features(kakuhen INTERFACE cxx_std_20)
+# target_compile_features(kakuhen INTERFACE cxx_std_17)
+target_compile_features(kakuhen INTERFACE cxx_std_20)
 
 target_include_directories(kakuhen INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>

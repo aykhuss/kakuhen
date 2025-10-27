@@ -44,7 +44,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::ndim_;
   using Base::opts_;
 
-  explicit Vegas(S ndim, S ndiv = 512)
+  explicit Vegas(S ndim, S ndiv = 128)
       : Base(ndim), ndiv_{ndiv}, grid_({ndim, ndiv}), accumulator_({ndim, ndiv}) {
     assert(ndim > 0 && ndiv > 1);
     reset();

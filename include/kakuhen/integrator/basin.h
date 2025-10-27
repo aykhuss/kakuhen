@@ -44,7 +44,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::ndim_;
   using Base::opts_;
 
-  explicit Basin(S ndim, S ndiv1 = 16, S ndiv2 = 32)
+  explicit Basin(S ndim, S ndiv1 = 8, S ndiv2 = 16)
       : Base(ndim),
         ndiv1_{ndiv1},
         ndiv2_{ndiv2},
