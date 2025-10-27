@@ -45,7 +45,11 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::opts_;
 
   explicit Vegas(S ndim, S ndiv = 128)
-      : Base(ndim), ndiv_{ndiv}, grid_({ndim, ndiv}), accumulator_({ndim, ndiv}) {
+      : Base(ndim),
+        ndiv_{ndiv},
+        grid_({ndim, ndiv}),
+        accumulator_count_{0},
+        accumulator_({ndim, ndiv}) {
     assert(ndim > 0 && ndiv > 1);
     reset();
   };
@@ -87,6 +91,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       result_.accumulate(func, func2);
       /// accumulator for the grid
       const T acc = func2;
+      accumulator_count_++;
       for (S idim = 0; idim < ndim_; ++idim) {
         accumulator_(idim, grid_vec[idim]).accumulate(acc);
       }
@@ -112,7 +117,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
-    std::cout << "Adapting the grid on " << result_.count() << " collected samples.\n";
+    if (opts_.verbosity && *opts_.verbosity > 0) {
+      std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
+    }
 
     //> pre-allocate data structures
     NDArray<T, S> dval({ndiv_});
@@ -124,7 +131,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       /// initialize
       dval.fill(T(0));
       dsum = T(0);
+      U nsum{0};
       for (S ig = 0; ig < ndiv_; ++ig) {
+        nsum += accumulator_(idim, ig).count();
         if (accumulator_(idim, ig).count() == 0) {
           dval(ig) = T(0);
           continue;
@@ -133,6 +142,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         dval(ig) = accumulator_(idim, ig).value();
         dsum += dval(ig);
       }
+      assert(nsum == accumulator_count_);
 
       if (dsum <= T(0)) {
         std::cout << "no data collected to adapt the grid" << std::endl;
@@ -221,6 +231,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   void clear_data() {
+    accumulator_count_ = U(0);
     std::for_each(accumulator_.begin(), accumulator_.end(), [](auto& acc) { acc.reset(); });
     result_.reset();
   }
@@ -264,6 +275,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     serialize_one<S>(out, ndiv_);
     serialize_one<kakuhen::util::HashValue_t>(out, hash().value());
     result_.serialize(out);
+    serialize_one<U>(out, accumulator_count_);
     accumulator_.serialize(out);
   }
 
@@ -271,7 +283,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
     //> check that we won't overwrite existing data
-    if (result_.count() != 0) {
+    if (accumulator_count_ != 0) {
       throw std::runtime_error("result already has data");
     }
     for (S idim = 0; idim < ndim_; ++idim) {
@@ -316,6 +328,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     result_in.deserialize(in);
     result_.accumulate(result_in);
     //> accumulate grid data
+    U accumulator_count_in;
+    deserialize_one<U>(in, accumulator_count_in);
+    accumulator_count_ += accumulator_count_in;
     ndarray::NDArray<grid_acc_type, S> accumulator_in({ndim_, ndiv_});
     accumulator_in.deserialize(in);
     for (S idim = 0; idim < ndim_; ++idim) {
@@ -332,6 +347,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   S ndiv_;  // number of divisions of the grid along each dimension
   ndarray::NDArray<T, S> grid_;
   int_acc_type result_;
+  U accumulator_count_;
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 
   inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
