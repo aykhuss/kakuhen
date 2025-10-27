@@ -575,37 +575,37 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     result_.reset();
   }
 
-  // void print_grid(const std::string& prefix = "") {
-  //   /// long 1D grid
-  //   for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-  //     std::cout << fmt::format("{0}#dim{1}\n{0}", prefix, idim0);
-  //     for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-  //       std::cout << fmt::format(" {:12.7e}", grid0_(idim0, ig0));
-  //     }
-  //     std::cout << fmt::format("\n{0}\n{0}\n", prefix);
-  //   }
-  //   /// joint 2D grid
-  //   for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-  //     for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-  //       if (idim1 == idim2) continue;
-  //       std::cout << fmt::format("{0}#dim{1}{2}\n", prefix, idim1, idim2);
-  //       /// multiple short grids
-  //       for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
-  //         const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
-  //         const T x1_max = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
-  //         for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
-  //           const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
-  //           const T x2_max = grid_(idim1, idim2, ig1, ig2);
-  //           std::cout << fmt::format("{}  {:12.7e} {:12.7e}  {:12.7e} {:12.7e}\n", prefix,
-  //           x1_min,
-  //                                    x1_max, x2_min, x2_max);
-  //         }
-  //         std::cout << fmt::format("{}\n", prefix);
-  //       }
-  //       std::cout << fmt::format("{}\n", prefix);
-  //     }
-  //   }
-  // }
+  void print_grid(const std::string& prefix = "") {
+    /// long 1D grid
+    for (S idim0 = 0; idim0 < ndim_; ++idim0) {
+      std::cout << prefix << "#dim" << idim0 << "\n";
+      std::cout << prefix;
+      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+        std::cout << " " << grid0_(idim0, ig0);
+      }
+      std::cout << "\n" << prefix << "\n" << prefix << "\n";
+    }
+    /// joint 2D grid
+    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
+      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+        if (idim1 == idim2) continue;
+        std::cout << prefix << "#dim" << idim1 << idim2 << "\n";
+        /// multiple short grids
+        for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
+          const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
+          const T x1_max = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
+          for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
+            const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
+            const T x2_max = grid_(idim1, idim2, ig1, ig2);
+            std::cout << prefix << "  " << x1_min << " " << x1_max;
+            std::cout << "  " << x2_min << " " << x2_max << "\n";
+          }
+          std::cout << prefix << "\n";
+        }
+        std::cout << prefix << "\n";
+      }
+    }
+  }
 
   // void print_pdf() {
   //   /// diagonal
