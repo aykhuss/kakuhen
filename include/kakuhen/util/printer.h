@@ -17,6 +17,12 @@ class PrinterBase {
  public:
   explicit PrinterBase(std::ostream& os) : os_(os) {}
 
+  template <typename T>
+  PrinterBase& operator<<(const T& value) {
+    os_ << value;
+    return *this;
+  }
+
   void reset() {
     os_.clear();
   }
