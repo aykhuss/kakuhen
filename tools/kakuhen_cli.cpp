@@ -3,18 +3,31 @@
 #include <argparse/argparse.hpp>
 #include <filesystem>
 #include <iostream>
-#include <sstream>
+#include <variant>
 
 using namespace kakuhen::integrator;
 
+using Plain_t = Plain<>;
+using Vegas_t = Vegas<>;
+using Basin_t = Basin<>;
+// using IntegratorVariant = std::variant<Plain_t, Vegas_t, Basin_t>;
+using IntegratorVariant = std::variant<Vegas_t, Basin_t>;
+
+inline IntegratorVariant make_integrator(const IntegratorHeader& header) {
+  switch (header.id) {
+    // case IntegratorId::PLAIN:
+    //   return Plain_t(1);
+    case IntegratorId::VEGAS:
+      return Vegas_t(1);
+    case IntegratorId::BASIN:
+      return Basin_t(1);
+    default:
+      throw std::runtime_error("Unknown IntegratorId");
+  }
+}
+
 int main(int argc, char* argv[]) {
-
-  kakuhen::util::printer::JSONPrinter jp{std::cout, 2};
-
-  auto integrator = Basin(2,2,4);
-  //auto integrator = Vegas(2, 6);
-  integrator.print(jp);
-  std::cout << std::endl;
+  using namespace kakuhen::util::type;
 
   argparse::ArgumentParser program("kakuhen");
 
@@ -22,8 +35,10 @@ int main(int argc, char* argv[]) {
   argparse::ArgumentParser dump_cmd("dump");
   dump_cmd.add_description("dump the information of a kakuhen state file");
   dump_cmd.add_argument("file").help("kakuhen state file").nargs(1);  // exactly one file
-  // -i INDENT, --indent INDENT
-
+  dump_cmd.add_argument("-i", "--indent")
+      .help("number of spaces to use for JSON indentation (0 for compact output)")
+      .scan<'i', int>()   // parse as integer
+      .default_value(0);  // default indent level
   program.add_subparser(dump_cmd);
 
   try {
@@ -36,8 +51,16 @@ int main(int argc, char* argv[]) {
 
   if (program.is_subcommand_used("dump")) {
     auto file = dump_cmd.get<std::string>("file");
-    auto vegas = Vegas<num_traits_t<float>>(file);
-    vegas.print_grid();
+    auto indent = static_cast<uint8_t>(dump_cmd.get<int>("indent"));
+    kakuhen::util::printer::JSONPrinter jp{std::cout, indent};
+    auto vint = make_integrator(Plain_t::parse_header(file));
+    std::visit(
+        [&](auto&& integrator) {
+          integrator.load(file);
+          integrator.print(jp);
+          jp << "\n";
+        },
+        vint);
   }
 
   return 0;
