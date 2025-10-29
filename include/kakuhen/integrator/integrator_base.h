@@ -37,6 +37,14 @@ constexpr std::string_view to_string(IntegratorId id) noexcept {
   return "Unknown";
 }
 
+//> return object of `parse_header` to retrieve integrator info
+struct IntegratorHeader {
+  IntegratorId id;
+  kakuhen::util::type::TypeId value_type_id;
+  kakuhen::util::type::TypeId size_type_id;
+  kakuhen::util::type::TypeId count_type_id;
+};
+
 //> Default integrator parameters
 template <typename NT = num_traits_t<>>
 struct IntegratorDefaults {
@@ -219,9 +227,9 @@ class IntegratorBase {
       prt.print_one("count_type", get_type_name<count_type>());
       prt.print_one("ndim", ndim_);
       if constexpr (has_feature(IntegratorFeature::STATE)) {
-        //prt.template begin<C::OBJECT>("state");
+        // prt.template begin<C::OBJECT>("state");
         derived().print_state(prt);
-        //prt.template end<C::OBJECT>(true);
+        // prt.template end<C::OBJECT>(true);
       }
     }
     prt.template end<C::OBJECT>(true);
@@ -347,6 +355,49 @@ class IntegratorBase {
     read_rng_state_stream(ifs);
     if (!ifs) {
       throw std::ios_base::failure("Error reading RNG state file: " + filepath.string());
+    }
+  }
+
+  static IntegratorHeader parse_header_stream(std::istream& in) {
+    using namespace kakuhen::util::serialize;
+    using namespace kakuhen::util::type;
+
+    IntegratorHeader ret;
+
+    //> check the file signature
+    std::array<char, file_signature_size_> buf{};
+    read_bytes(in, buf.data(), file_signature_size_);
+    if (std::string_view(buf.data(), buf.size()) != file_signature_) {
+      throw std::runtime_error("Invalid kakuhen file signature");
+    }
+
+    deserialize_one<IntegratorId>(in, ret.id);
+
+    //> file type:  skipped in external API
+    FileType ftype_chk;
+    deserialize_one<FileType>(in, ftype_chk);
+
+    //> types
+    deserialize_one<TypeId>(in, ret.value_type_id);
+    deserialize_one<TypeId>(in, ret.size_type_id);
+    deserialize_one<TypeId>(in, ret.count_type_id);
+
+    return ret;
+  }
+
+  static IntegratorHeader parse_header(const std::filesystem::path& filepath) {
+    std::error_code ec;
+    if (std::filesystem::exists(filepath, ec)) {
+      if (ec) {
+        throw std::system_error(ec, "Failed to check if file exists: " + filepath.string());
+      }
+      std::ifstream ifs(filepath, std::ios::binary);
+      if (!ifs.is_open()) {
+        throw std::ios_base::failure("Failed to open kakuhen file: " + filepath.string());
+      }
+      return parse_header_stream(ifs);
+    } else {
+      throw std::ios_base::failure("Failed to open kakuhen file: " + filepath.string());
     }
   }
 
