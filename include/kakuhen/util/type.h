@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 #include <type_traits>
 
 #define KAKUHEN_TYPE_LIST(X) \
@@ -107,6 +108,30 @@ KAKUHEN_TYPE_LIST(DEFINE_ID_TO_TYPE)
 //> shorthand
 template <TypeId ID>
 using type_from_id_t = typename TypeFromId<ID>::type;
+
+//------------------------------------
+// TypeId -> string
+//------------------------------------
+constexpr std::string_view to_string(TypeId id) {
+  switch (id) {
+#define CASE_TYPE_TO_STRING(_, NAME) \
+  case TypeId::NAME:                 \
+    return #NAME;
+    KAKUHEN_TYPE_LIST(CASE_TYPE_TO_STRING)
+#undef CASE_TYPE_TO_STRING
+    default:
+      return "UNKNOWN";
+  }
+}
+
+//------------------------------------
+// type -> string
+//------------------------------------
+template <typename T>
+constexpr std::string_view get_type_name() {
+  constexpr TypeId id = get_type_id<T>();
+  return to_string(id);
+}
 
 }  // namespace kakuhen::util::type
 
