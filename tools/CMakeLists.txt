@@ -9,14 +9,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-#> library to handle JSON data structure
-FetchContent_Declare(
-  json
-  GIT_REPOSITORY https://github.com/nlohmann/json
-  # URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
-  # DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(json)
+# #> library to handle JSON data structure
+# FetchContent_Declare(
+#   json
+#   GIT_REPOSITORY https://github.com/nlohmann/json
+#   # URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+#   # DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+# )
+# FetchContent_MakeAvailable(json)
 
 #> fmt for pretty printing
 FetchContent_Declare(
@@ -32,7 +32,7 @@ target_link_libraries(kakuhen_cli
   PRIVATE
     kakuhen
     argparse
-    nlohmann_json::nlohmann_json
+    # nlohmann_json::nlohmann_json
     fmt::fmt
 )
 set_target_properties(kakuhen_cli PROPERTIES OUTPUT_NAME "kakuhen")

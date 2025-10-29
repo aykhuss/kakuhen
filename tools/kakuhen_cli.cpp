@@ -1,21 +1,28 @@
-#include "kakuhen/integrator/vegas.h"
+#include "kakuhen/kakuhen.h"
+#include "kakuhen/util/printer.h"
 #include <argparse/argparse.hpp>
 #include <filesystem>
 #include <iostream>
-#include <nlohmann/json.hpp>
+#include <sstream>
 
-using json = nlohmann::json;
 using namespace kakuhen::integrator;
 
 int main(int argc, char* argv[]) {
-  std::cout << "Hello, 世界!\n";
+
+  kakuhen::util::printer::JSONPrinter jp{std::cout, 2};
+
+  auto integrator = Basin(2,2,4);
+  //auto integrator = Vegas(2, 6);
+  integrator.print(jp);
+  std::cout << std::endl;
 
   argparse::ArgumentParser program("kakuhen");
 
   //> kakuhen dump subparser
   argparse::ArgumentParser dump_cmd("dump");
   dump_cmd.add_description("dump the information of a kakuhen state file");
-  dump_cmd.add_argument("file").help("kakuhen state file to dump").nargs(1);  // exactly one file
+  dump_cmd.add_argument("file").help("kakuhen state file").nargs(1);  // exactly one file
+  // -i INDENT, --indent INDENT
 
   program.add_subparser(dump_cmd);
 

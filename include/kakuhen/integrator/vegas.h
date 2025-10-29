@@ -240,6 +240,28 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     }
   }
 
+  template <typename P>
+  void print_state(P& prt) const {
+    using C = kakuhen::util::printer::Context;
+    using namespace kakuhen::util::type;
+    prt.print_one("ndiv", ndiv_);
+    prt.template begin<C::ARRAY>("grid1d");
+    prt.break_line();
+    {
+      std::vector<S> dims(1);
+      for (S idim = 0; idim < ndim_; ++idim) {
+        dims = {idim};
+        prt.template begin<C::OBJECT>();
+        {
+          prt.print_array("dims", dims);
+          prt.print_array("grid", &grid_(idim, 0), ndiv_, {T(0)});
+        }
+        prt.template end<C::OBJECT>(true);
+      }  // end for idim
+    }
+    prt.template end<C::ARRAY>(true);
+  }
+
   void write_state_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;

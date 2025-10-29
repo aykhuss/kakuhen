@@ -6,8 +6,11 @@
 #include "kakuhen/integrator/options.h"
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
+#include "kakuhen/util/printer.h"
 #include "kakuhen/util/serialize.h"
+#include "kakuhen/util/type.h"
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -200,6 +203,29 @@ class IntegratorBase {
 
   // helper integration routines for convenience
   // @ todo
+
+  /// implementation of the Printer interface
+  template <typename P>
+  void print(P& prt) const {
+    using C = kakuhen::util::printer::Context;
+    using namespace kakuhen::util::type;
+    prt.reset();
+    prt.template begin<C::OBJECT>();
+    {
+      prt.print_one("name", to_string(id()));
+      prt.print_one("id", static_cast<std::underlying_type_t<IntegratorId>>(id()));
+      prt.print_one("value_type", get_type_name<value_type>());
+      prt.print_one("size_type", get_type_name<size_type>());
+      prt.print_one("count_type", get_type_name<count_type>());
+      prt.print_one("ndim", ndim_);
+      if constexpr (has_feature(IntegratorFeature::STATE)) {
+        //prt.template begin<C::OBJECT>("state");
+        derived().print_state(prt);
+        //prt.template end<C::OBJECT>(true);
+      }
+    }
+    prt.template end<C::OBJECT>(true);
+  }
 
   // save state of the integrator to a file
   template <typename D = Derived, typename = std::enable_if_t<detail::has_state_stream<D>::value>>

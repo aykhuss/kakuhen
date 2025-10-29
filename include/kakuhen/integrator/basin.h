@@ -780,6 +780,58 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     return emd_val;
   }
 
+  template <typename P>
+  void print_state(P& prt) const {
+    using C = kakuhen::util::printer::Context;
+    using namespace kakuhen::util::type;
+    prt.print_one("ndiv0", ndiv0_);
+    prt.print_one("ndiv1", ndiv1_);
+    prt.print_one("ndiv2", ndiv2_);
+    prt.template begin<C::ARRAY>("grid1d");
+    prt.break_line();
+    {
+      std::vector<S> dims(1);
+      for (S idim = 0; idim < ndim_; ++idim) {
+        dims = {idim};
+        prt.template begin<C::OBJECT>();
+        {
+          prt.print_array("dims", dims);
+          prt.print_array("grid", &grid0_(idim, 0), ndiv0_, {T(0)});
+        }
+        prt.template end<C::OBJECT>(true);
+      }  // end for idim
+    }
+    prt.template end<C::ARRAY>(true);
+    prt.template begin<C::ARRAY>("grid2d");
+    prt.break_line();
+    {
+      std::vector<S> dims(2);
+      std::vector<T> bin1(2);
+      for (S idim1 = 0; idim1 < ndim_; ++idim1) {
+        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+          if (idim1 == idim2) continue;
+          dims = {idim1, idim2};
+          prt.template begin<C::OBJECT>();
+          {
+            prt.print_array("dims", dims);
+            prt.template begin<C::ARRAY>("grid");
+            for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
+              bin1.at(0) = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
+              bin1.at(1) = grid0_(idim2, (ig1 + 1) * ndiv2_ - 1);
+              prt.template begin<C::ARRAY>();
+              prt.print_array({}, bin1);
+              prt.print_array({}, &grid_(idim1, idim2, ig1, 0), ndiv2_, {T(0)});
+              prt.template end<C::ARRAY>();
+            }  // end for ig1
+            prt.template end<C::ARRAY>();
+          }
+          prt.template end<C::OBJECT>(true);
+        }  // end for idim2
+      }  // end for idim1
+    }
+    prt.template end<C::ARRAY>(true);
+  }
+
   void write_state_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
