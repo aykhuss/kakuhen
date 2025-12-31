@@ -817,7 +817,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             prt.template begin<C::ARRAY>("grid");
             for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
               bin1.at(0) = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
-              bin1.at(1) = grid0_(idim2, (ig1 + 1) * ndiv2_ - 1);
+              bin1.at(1) = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
               prt.template begin<C::ARRAY>();
               prt.print_array({}, bin1);
               prt.print_array({}, &grid_(idim1, idim2, ig1, 0), ndiv2_, {T(0)});
@@ -961,7 +961,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /// parameters that controls the grid refinement
   T alpha_{0.75};
   T weight_smooth_{3};
-  T min_score_{0.05};
+  T min_score_{0.007};
   T pentalty_fac_score_{2};
 
   /// division for conditional PDF:  P(x2|x1)
