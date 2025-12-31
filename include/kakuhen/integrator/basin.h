@@ -513,24 +513,24 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
     /// (b)  determine the order from the scores
     for (S iord = 0; iord < ndim_; ++iord) {
-      T max_score = T(0);
-      S max_idim1 = 0;
-      S max_idim2 = 0;
+      T max_score = T(-1);
+      S max_idim1 = -1;
+      S max_idim2 = -1;
 
       /// find highest avg score
       for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-        if (scores(idim1, idim1) <= 0) continue;  // already selected
+        if (scores(idim1, idim1) <= T(0)) continue;  // already selected
         T avg_score = T(0);
         S count = 0;
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
-          if (scores(idim1, idim2) <= 0) continue;
+          if (scores(idim1, idim2) <= T(0)) continue;
           avg_score += scores(idim1, idim2);
           count++;
         }
         /// we need to penalize sampling of new dimensions
         if (count > 0) avg_score /= pentalty_fac_score_ * T(count);
-        // std::cout << "score[" << idim1 << "," << idim1 << "] = ";
+        // std::cout << "<score>[" << idim1 << "," << idim1 << "] = ";
         // std::cout << avg_score * 100. << "% [" << count << "]\n";
         if (avg_score > max_score) {
           max_score = avg_score;
@@ -544,7 +544,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const S idim1 = order_(ichk, 1);  // idim1 is an idim2 of a previous step
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
-          if (scores(idim1, idim2) < min_score_) continue;
+          if (scores(idim1, idim2) < min_score_) {
+            // std::cout << "SKIP score[" << idim1 << "," << idim2 << "] = ";
+            // std::cout << scores(idim1, idim2) * 100. << "%  <  " << min_score_ * 100. << "%\n";
+            continue;
+          }
           // std::cout << "score[" << idim1 << "," << idim2 << "] = ";
           // std::cout << scores(idim1, idim2) * 100. << "%\n";
           if (scores(idim1, idim2) > max_score) {
@@ -566,6 +570,24 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
     }  // for iord
+
+#ifndef NDEBUG
+    /// check order that all dimensions are covered
+    bool all_dimensions_covered = true;
+    for (S idim = 0; idim < ndim_; ++idim) {
+      bool covered = false;
+      for (S iord = 0; iord < ndim_; ++iord) {
+        if (order_(iord, 1) == idim) {
+          covered = true;
+          break;
+        }
+      }
+      if (!covered) {
+        all_dimensions_covered = false;
+        std::cout << "Dimension " << idim << " not covered in order\n";
+      }
+    }
+#endif
 
     /// clear the accumulator to prepare for next iteration
     clear_data();
@@ -961,7 +983,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /// parameters that controls the grid refinement
   T alpha_{0.75};
   T weight_smooth_{3};
-  T min_score_{0.007};
+  T min_score_{0.05};
   T pentalty_fac_score_{2};
 
   /// division for conditional PDF:  P(x2|x1)
