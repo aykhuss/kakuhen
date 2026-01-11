@@ -3,49 +3,72 @@
 #include "numeric_traits.h"
 #include <vector>
 
-//> implement the Monte Carlo context that is passed as an argument
-//> to the integrand of the function/functor to be integrated
-
 namespace kakuhen::integrator {
 
-// template <typename T, typename S, typename U>
+/*!
+ * @brief Represents a sample point in the integration space.
+ *
+ * This struct encapsulates all the necessary information for a single sample
+ * point during a Monte Carlo integration. It is passed to the integrand
+ * function/functor.
+ *
+ * It owns the memory for the coordinates (`x`) using a `std::vector`.
+ *
+ * @tparam NT The numeric traits for the integrator, defining value_type,
+ * size_type, and count_type.
+ */
 template <typename NT = num_traits_t<>>
-// template <typename... Args>
 struct Point {
-  // using value_type = T;
-  // using size_type = S;
-  // using count_type = U;
-  // using value_type = typename Traits::value_type;
-  // using size_type = typename Traits::size_type;
-  // using count_type = typename Traits::count_type;
-  // using num_traits = typename num_traits<Args...>::type;
   using num_traits = NT;
   using value_type = typename num_traits::value_type;
   using size_type = typename num_traits::size_type;
   using count_type = typename num_traits::count_type;
 
-  Point(size_type ndim, void* user_data = nullptr)
-      : x(ndim, value_type(0)),
+  /*!
+   * @brief Constructs a Point with a specified dimensionality.
+   *
+   * @param dimensions The number of dimensions for the point.
+   * @param user_data Optional pointer to user-defined data.
+   */
+  explicit Point(size_type dimensions, void* user_data = nullptr)
+      : x(dimensions, value_type(0)),
         weight(value_type(1)),
-        ndim(ndim),
+        ndim(dimensions),
         sample_index(0),
         user_data(user_data) {}
 
-  std::vector<value_type> x;
-  value_type weight;
-  size_type ndim;
-  count_type sample_index;
-  void* user_data;
+  std::vector<value_type> x;  //!< The coordinates of the point in the integration space.
+  value_type weight;          //!< The weight associated with this point (e.g. importance sampling).
+  size_type ndim;             //!< The dimensionality of the integration space (matches x.size()).
+  count_type sample_index;    //!< The index of the current sample in the sequence.
+  void* user_data;            //!< Pointer to user-defined data passed to the integrand.
 };  // struct Point
 
-// helper alias
+/// @name Aliases & Traits
+/// @{
+
+/*!
+ * @brief Helper alias to create a Point type from variadic arguments.
+ *
+ * Example: `point_t<double>` creates `Point<NumericTraits<double, ...>>`.
+ *
+ * @tparam Args Arguments passed to `num_traits_of`.
+ */
 template <typename... Args>
 using point_t = Point<typename num_traits_of<Args...>::type>;
 
-// num_traits_of specialization: A Point with some Traits
+/*!
+ * @brief num_traits_of specialization for Point types.
+ *
+ * Allows extracting NumericTraits from a Point type directly.
+ *
+ * @tparam Args Template arguments of the Point (which is expected to be a NumericTraits).
+ */
 template <typename... Args>
 struct num_traits_of<Point<Args...>> {
   using type = typename num_traits_of<Args...>::type;
 };
+
+/// @}
 
 }  // namespace kakuhen::integrator
