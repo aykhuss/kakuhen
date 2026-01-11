@@ -21,7 +21,7 @@ TEST_CASE("NDArray fill and access", "[ndarray]") {
 
   kakuhen::ndarray::NDArray<int> arr({2, 3, 4});
   using size_type = decltype(arr)::size_type;
-  std::vector<size_type> shape = arr.shape();
+  auto shape = arr.shape();
   REQUIRE(shape.size() == 3);
   REQUIRE_THAT(shape, RangeEquals({2, 3, 4}));
   arr.fill(42);
@@ -36,7 +36,7 @@ TEST_CASE("NDView consistency", "[ndarray]") {
   kakuhen::ndarray::NDArray<int, uint16_t> arr({5, 7, 32});
   using size_type = decltype(arr)::size_type;
   STATIC_REQUIRE(std::is_same_v<size_type, uint16_t>);
-  std::vector<size_type> shape = arr.shape();
+  auto shape = arr.shape();
   arr.fill(-1);
 
   // std::cout << "---" << std::endl;
@@ -55,7 +55,7 @@ TEST_CASE("NDView consistency", "[ndarray]") {
   STATIC_REQUIRE(std::is_same_v<view_size_type, size_type>);
   REQUIRE(view.ndim() == 3);
   REQUIRE_THAT(view.shape(), RangeEquals({3, 4, 16}));
-  std::vector<size_type> vshape = view.shape();
+  auto vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
       for (auto i2 = 0; i2 < vshape[2]; ++i2) {
@@ -81,10 +81,10 @@ TEST_CASE("NDView slice and access", "[ndarray]") {
 
   kakuhen::ndarray::NDArray<int> arr({4, 5, 6, 7, 8});
   using size_type = decltype(arr)::size_type;
-  std::vector<size_type> shape = arr.shape();
+  auto shape = arr.shape();
   arr.fill(1);
   auto view = arr.slice({{1, 3}, {}, {_, 3}, {2, _}, {1, 7, 2}});
-  std::vector<size_type> vshape = view.shape();
+  auto vshape = view.shape();
 
   REQUIRE(view.ndim() == 5);
   REQUIRE_THAT(vshape, RangeEquals({2, 5, 3, 5, 3}));
@@ -185,7 +185,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   kakuhen::ndarray::NDArray<double, uint64_t> arr({5, 7, 32});
   using size_type = decltype(arr)::size_type;
   STATIC_REQUIRE(std::is_same_v<size_type, uint64_t>);
-  std::vector<size_type> shape = arr.shape();
+  auto shape = arr.shape();
   arr.fill(77.7);
 
   auto view = arr.slice({{2, _}, {_, 4}, {_, _, 2}});
@@ -193,7 +193,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   STATIC_REQUIRE(std::is_same_v<view_size_type, size_type>);
   REQUIRE(view.ndim() == 3);
   REQUIRE_THAT(view.shape(), RangeEquals({3, 4, 16}));
-  std::vector<size_type> vshape = view.shape();
+  auto vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
       for (auto i2 = 0; i2 < vshape[2]; ++i2) {
@@ -207,7 +207,7 @@ TEST_CASE("NDView slice of slice", "[ndarray]") {
   STATIC_REQUIRE(std::is_same_v<vview_size_type, size_type>);
   REQUIRE(vview.ndim() == 3);
   REQUIRE_THAT(vview.shape(), RangeEquals({2, 2, 2}));
-  std::vector<size_type> vvshape = vview.shape();
+  auto vvshape = vview.shape();
   for (auto i0 = 0; i0 < vvshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vvshape[1]; ++i1) {
       for (auto i2 = 0; i2 < vvshape[2]; ++i2) {
@@ -235,13 +235,13 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
 
   kakuhen::ndarray::NDArray<int> arr({3, 3, 2});
   using size_type = decltype(arr)::size_type;
-  std::vector<size_type> shape = arr.shape();
+  auto shape = arr.shape();
   arr.fill(1);
 
   auto view = arr.slice({{}, {}, {}});
   REQUIRE(view.ndim() == 3);
   REQUIRE_THAT(view.shape(), RangeEquals({3, 3, 2}));
-  std::vector<size_type> vshape = view.shape();
+  auto vshape = view.shape();
   for (auto i0 = 0; i0 < vshape[0]; ++i0) {
     for (auto i1 = 0; i1 < vshape[1]; ++i1) {
       for (auto i2 = 0; i2 < vshape[2]; ++i2) {
@@ -255,7 +255,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   STATIC_REQUIRE(std::is_same_v<view2d_size_type, size_type>);
   REQUIRE(view2d.ndim() == 2);
   REQUIRE_THAT(view2d.shape(), RangeEquals({3, 6}));
-  std::vector<size_type> shape2d = view2d.shape();
+  auto shape2d = view2d.shape();
   for (auto i0 = 0; i0 < shape2d[0]; ++i0) {
     for (auto i1 = 0; i1 < shape2d[1]; ++i1) {
       REQUIRE(view2d(i0, i1) == i0 * 100 + (i1 / 2) * 10 + (i1 % 2));
@@ -267,7 +267,7 @@ TEST_CASE("NDView reshape & diagonal", "[ndarray]") {
   STATIC_REQUIRE(std::is_same_v<viewd_size_type, size_type>);
   REQUIRE(viewd.ndim() == 2);
   REQUIRE_THAT(viewd.shape(), RangeEquals({3, 2}));
-  std::vector<size_type> shaped = viewd.shape();
+  auto shaped = viewd.shape();
   for (auto i0 = 0; i0 < shaped[0]; ++i0) {
     for (auto i1 = 0; i1 < shaped[1]; ++i1) {
       REQUIRE(viewd(i0, i1) == view(i0, i0, i1));
