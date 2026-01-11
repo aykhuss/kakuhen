@@ -18,8 +18,10 @@ class NDArray;  // forward declaration
  *
  * This class provides a view into a potentially multi-dimensional array
  * without owning the underlying data. It allows for flexible manipulation
- * and slicing of array data without copying. Changes made through an `NDView`
- * directly affect the underlying `NDArray` data.
+ * and slicing of array data without copying the data itself.
+ *
+ * Optimization: Metadata (shape and strides) are stored in a single
+ * contiguous memory block to minimize allocations.
  *
  * @tparam T The type of the elements in the array.
  * @tparam S The type of the indices and dimensions.
@@ -35,28 +37,41 @@ class NDView {
    *
    * Creates an empty `NDView` with 0 dimensions and no data.
    */
-  NDView() : ndim_(0), total_size_(0), shape_(nullptr), strides_(nullptr), data_(nullptr) {}
+  NDView()
+      : ndim_(0),
+        total_size_(0),
+        metadata_block_(nullptr),
+        shape_(nullptr),
+        strides_(nullptr),
+        data_(nullptr) {}
 
   /*!
-   * @brief Constructs an `NDView` from raw pointers and shape/stride information.
+   * @brief Constructs an `NDView` by copying shape and strides.
    *
-   * This constructor is typically used internally or when creating a view
-   * from external contiguous memory.
+   * Allocates a single block for metadata and copies the provided shape and strides.
    *
    * @param data A raw pointer to the start of the data.
-   * @param shape A unique pointer to an array containing the shape of the view.
-   * @param strides A unique pointer to an array containing the strides of the view.
+   * @param shape Pointer to the shape array.
+   * @param strides Pointer to the strides array.
    * @param ndim The number of dimensions.
    */
-  NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides, S ndim)
-      : ndim_(ndim),
-        total_size_(1),
-        shape_(std::move(shape)),
-        strides_(std::move(strides)),
-        data_(data) {
-    total_size_ = 1;
-    for (S i = ndim_; i-- > 0;) {
-      total_size_ *= shape_[i];
+  NDView(T* data, const S* shape, const S* strides, S ndim) : ndim_(ndim), data_(data) {
+    if (ndim_ > 0) {
+      metadata_block_ = std::make_unique<S[]>(2 * ndim_);
+      shape_ = metadata_block_.get();
+      strides_ = metadata_block_.get() + ndim_;
+
+      std::copy_n(shape, ndim_, shape_);
+      std::copy_n(strides, ndim_, strides_);
+
+      total_size_ = 1;
+      for (S i = 0; i < ndim_; ++i) {
+        total_size_ *= shape_[i];
+      }
+    } else {
+      total_size_ = 0;
+      shape_ = nullptr;
+      strides_ = nullptr;
     }
   }
 
@@ -72,8 +87,37 @@ class NDView {
 
   /// @name Lifecycle
   /// @{
-  NDView(NDView&&) noexcept = default;
-  NDView& operator=(NDView&&) noexcept = default;
+  NDView(NDView&& other) noexcept
+      : ndim_(other.ndim_),
+        total_size_(other.total_size_),
+        metadata_block_(std::move(other.metadata_block_)),
+        shape_(other.shape_),
+        strides_(other.strides_),
+        data_(other.data_) {
+    other.ndim_ = 0;
+    other.total_size_ = 0;
+    other.shape_ = nullptr;
+    other.strides_ = nullptr;
+    other.data_ = nullptr;
+  }
+
+  NDView& operator=(NDView&& other) noexcept {
+    if (this != &other) {
+      ndim_ = other.ndim_;
+      total_size_ = other.total_size_;
+      metadata_block_ = std::move(other.metadata_block_);
+      shape_ = other.shape_;
+      strides_ = other.strides_;
+      data_ = other.data_;
+
+      other.ndim_ = 0;
+      other.total_size_ = 0;
+      other.shape_ = nullptr;
+      other.strides_ = nullptr;
+      other.data_ = nullptr;
+    }
+    return *this;
+  }
 
   NDView(const NDView&) = delete;
   NDView& operator=(const NDView&) = delete;
@@ -93,7 +137,8 @@ class NDView {
    * @return A span containing the size of each dimension.
    */
   [[nodiscard]] inline std::span<const S> shape() const noexcept {
-    return {shape_.get(), static_cast<size_t>(ndim_)};
+    if (!shape_) return {};
+    return {shape_, static_cast<size_t>(ndim_)};
   }
 
   /*!
@@ -102,7 +147,8 @@ class NDView {
    * @return A span containing the stride of each dimension.
    */
   [[nodiscard]] inline std::span<const S> strides() const noexcept {
-    return {strides_.get(), static_cast<size_t>(ndim_)};
+    if (!strides_) return {};
+    return {strides_, static_cast<size_t>(ndim_)};
   }
 
   /*!
@@ -135,7 +181,7 @@ class NDView {
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
   }
 
   /*!
@@ -151,7 +197,7 @@ class NDView {
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
   }
 
   /*!
@@ -160,6 +206,7 @@ class NDView {
    * @param value The value to fill the view with.
    */
   void fill(const T& value) {
+    if (!data_) return;
     std::fill(data_, data_ + total_size_, value);
   }
 
@@ -173,8 +220,11 @@ class NDView {
   [[nodiscard]] NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
     assert(slices.size() == ndim_);
 
-    auto new_shape = std::make_unique<S[]>(ndim_);
-    auto new_strides = std::make_unique<S[]>(ndim_);
+    // Allocate single block for new metadata
+    auto metadata = std::make_unique<S[]>(2 * ndim_);
+    S* new_shape = metadata.get();
+    S* new_strides = metadata.get() + ndim_;
+
     S base_offset = 0;
 
     for (S i = 0; i < ndim_; ++i) {
@@ -191,7 +241,7 @@ class NDView {
       base_offset += begin * strides_[i];
     }
 
-    return NDView<T, S>(data_ + base_offset, std::move(new_shape), std::move(new_strides), ndim_);
+    return NDView<T, S>(data_ + base_offset, std::move(metadata), ndim_);
   }
 
   /*!
@@ -228,19 +278,20 @@ class NDView {
     }
     assert(contiguous && "reshape only works on contiguous views");
 
-    auto new_shape = std::make_unique<S[]>(shape.size());
-    auto new_strides = std::make_unique<S[]>(shape.size());
+    S new_ndim = static_cast<S>(shape.size());
+    auto metadata = std::make_unique<S[]>(2 * new_ndim);
+    S* new_shape = metadata.get();
+    S* new_strides = metadata.get() + new_ndim;
 
     // Compute row-major strides for the new shape
     S stride = 1;
-    for (S i = shape.size(); i-- > 0;) {
+    for (S i = new_ndim; i-- > 0;) {
       new_shape[i] = shape[i];
       new_strides[i] = stride;
       stride *= shape[i];
     }
 
-    return NDView<T, S>(data_, std::move(new_shape), std::move(new_strides),
-                        static_cast<S>(shape.size()));
+    return NDView<T, S>(data_, std::move(metadata), new_ndim);
   }
 
   /*!
@@ -261,8 +312,9 @@ class NDView {
     assert(shape_[dim1] == shape_[dim2]);  // must be square along those axes
 
     auto new_ndim = ndim_ - 1;
-    auto new_shape = std::make_unique<S[]>(new_ndim);
-    auto new_strides = std::make_unique<S[]>(new_ndim);
+    auto metadata = std::make_unique<S[]>(2 * new_ndim);
+    S* new_shape = metadata.get();
+    S* new_strides = metadata.get() + new_ndim;
 
     // Fill new shape/strides
     S idx = 0;
@@ -281,15 +333,36 @@ class NDView {
       }
     }
 
-    return NDView<T, S>(data_, std::move(new_shape), std::move(new_strides), new_ndim);
+    return NDView<T, S>(data_, std::move(metadata), new_ndim);
   }
 
  private:
+  /*!
+   * @brief Internal constructor taking ownership of a metadata block.
+   */
+  NDView(T* data, std::unique_ptr<S[]> metadata, S ndim)
+      : ndim_(ndim), metadata_block_(std::move(metadata)), data_(data) {
+    if (ndim_ > 0 && metadata_block_) {
+      shape_ = metadata_block_.get();
+      strides_ = metadata_block_.get() + ndim_;
+
+      total_size_ = 1;
+      for (S i = 0; i < ndim_; ++i) {
+        total_size_ *= shape_[i];
+      }
+    } else {
+      total_size_ = 0;
+      shape_ = nullptr;
+      strides_ = nullptr;
+    }
+  }
+
   S ndim_;
   S total_size_;
-  std::unique_ptr<S[]> shape_;
-  std::unique_ptr<S[]> strides_;
-  T* data_;
+  std::unique_ptr<S[]> metadata_block_;  // Holds shape + strides
+  S* shape_ = nullptr;
+  S* strides_ = nullptr;
+  T* data_ = nullptr;
 
 };  // class NDView
 

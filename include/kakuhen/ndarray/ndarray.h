@@ -18,18 +18,17 @@ namespace kakuhen::ndarray {
  * @brief An owning multi-dimensional array class.
  *
  * This class provides a multi-dimensional array, similar to NumPy's ndarray.
- * It owns the underlying data, storing elements of a single type in a
- * contiguous block of memory. The data is managed with a `std::unique_ptr`,
- * so `NDArray` has unique ownership semantics (it cannot be copied, only moved).
+ * It uses a **Single Allocation Strategy** where metadata (shape, strides)
+ * and the data elements are stored in a single contiguous memory block.
+ * This minimizes heap allocations and improves cache locality.
  *
- * The array can be accessed using both flat (linear) indices and
- * multi-dimensional indices.
+ * The array owns the data and is movable but not copyable to prevent
+ * accidental deep copies of large datasets.
  *
  * @tparam T The type of the elements in the array.
  * @tparam S The type of the indices and dimensions.
  */
-template <typename T,
-          typename S = uint32_t>  // index up to 4'294'967'295 should suffice?
+template <typename T, typename S = uint32_t>
 class NDArray {
  public:
   using value_type = T;
@@ -44,42 +43,109 @@ class NDArray {
   /*!
    * @brief Default constructor.
    *
-   * Creates an empty NDArray with 0 dimensions.
+   * Creates an empty NDArray with 0 dimensions and no allocated memory.
    */
-  NDArray() : NDArray(0, {}) {}
+  NDArray() : ndim_(0), total_size_(0), memory_block_(nullptr) {}
 
   /*!
-   * @brief Construct a new NDArray object.
+   * @brief Construct a new NDArray from dimensions and a shape array.
    *
    * @param ndim The number of dimensions of the array.
-   * @param shape An array containing the size of each dimension.
+   * @param shape A pointer to an array containing the size of each dimension.
    */
-  NDArray(S ndim, const S* shape) : ndim_(ndim), shape_(new S[ndim]), strides_(new S[ndim]) {
-    for (S i = 0; i < ndim; ++i) {
-      shape_[i] = shape[i];
-    }
-    compute_strides();
-    data_ = std::make_unique_for_overwrite<T[]>(total_size_);
+  NDArray(S ndim, const S* shape) {
+    init(ndim, shape);
   }
 
   /*!
-   * @brief Construct a new NDArray object.
+   * @brief Construct a new NDArray from a vector of shapes.
    *
    * @param shape A vector containing the size of each dimension.
    */
-  NDArray(const std::vector<S>& shape) : NDArray(shape.size(), shape.data()) {}
+  NDArray(const std::vector<S>& shape) : NDArray(static_cast<S>(shape.size()), shape.data()) {}
+
   /*!
-   * @brief Construct a new NDArray object.
+   * @brief Construct a new NDArray from an initializer list of shapes.
    *
    * @param shape An initializer list containing the size of each dimension.
    */
-  NDArray(std::initializer_list<S> shape) : NDArray(std::vector<S>(shape)) {}
+  NDArray(std::initializer_list<S> shape)
+      : NDArray(static_cast<S>(shape.size()), std::data(shape)) {}
+
+  /*!
+   * @brief Destructor.
+   *
+   * Manually destructs elements if T is not trivially destructible.
+   * The memory block is automatically released by the unique_ptr.
+   */
+  ~NDArray() {
+    if constexpr (!std::is_trivially_destructible_v<T>) {
+      if (data_) {
+        std::destroy_n(data_, static_cast<size_t>(total_size_));
+      }
+    }
+  }
 
   /// @name Lifecycle
   /// @{
-  NDArray(NDArray&&) noexcept = default;
-  NDArray& operator=(NDArray&&) noexcept = default;
 
+  /*!
+   * @brief Move constructor.
+   *
+   * Transfers ownership of the memory block and metadata from `other` to `this`.
+   * `other` is left in an empty/reset state.
+   *
+   * @param other The array to move from.
+   */
+  NDArray(NDArray&& other) noexcept
+      : ndim_(other.ndim_),
+        total_size_(other.total_size_),
+        memory_block_(std::move(other.memory_block_)),
+        shape_(other.shape_),
+        strides_(other.strides_),
+        data_(other.data_) {
+    other.ndim_ = 0;
+    other.total_size_ = 0;
+    other.shape_ = nullptr;
+    other.strides_ = nullptr;
+    other.data_ = nullptr;
+  }
+
+  /*!
+   * @brief Move assignment operator.
+   *
+   * Replaces the current contents with those of `other`.
+   * The previous data is destructed (if needed) and memory released.
+   *
+   * @param other The array to move from.
+   * @return A reference to `this`.
+   */
+  NDArray& operator=(NDArray&& other) noexcept {
+    if (this != &other) {
+      // Destroy current elements if non-trivial
+      if constexpr (!std::is_trivially_destructible_v<T>) {
+        if (data_) {
+          std::destroy_n(data_, static_cast<size_t>(total_size_));
+        }
+      }
+
+      ndim_ = other.ndim_;
+      total_size_ = other.total_size_;
+      memory_block_ = std::move(other.memory_block_);
+      shape_ = other.shape_;
+      strides_ = other.strides_;
+      data_ = other.data_;
+
+      other.ndim_ = 0;
+      other.total_size_ = 0;
+      other.shape_ = nullptr;
+      other.strides_ = nullptr;
+      other.data_ = nullptr;
+    }
+    return *this;
+  }
+
+  // Disable copy semantics to enforce unique ownership
   NDArray(const NDArray&) = delete;
   NDArray& operator=(const NDArray&) = delete;
   /// @}
@@ -92,13 +158,15 @@ class NDArray {
   [[nodiscard]] inline S ndim() const noexcept {
     return ndim_;
   }
+
   /*!
    * @brief Get the shape of the array.
    *
    * @return A span containing the size of each dimension.
    */
   [[nodiscard]] inline std::span<const S> shape() const noexcept {
-    return {shape_.get(), static_cast<size_t>(ndim_)};
+    if (!shape_) return {};
+    return {shape_, static_cast<size_t>(ndim_)};
   }
 
   /*!
@@ -107,7 +175,8 @@ class NDArray {
    * @return A span containing the stride of each dimension.
    */
   [[nodiscard]] inline std::span<const S> strides() const noexcept {
-    return {strides_.get(), static_cast<size_t>(ndim_)};
+    if (!strides_) return {};
+    return {strides_, static_cast<size_t>(ndim_)};
   }
 
   /*!
@@ -118,8 +187,9 @@ class NDArray {
   [[nodiscard]] inline S size() const noexcept {
     return total_size_;
   }
+
   /*!
-   * @brief Check if the array is empty.
+   * @brief Check if the array is empty (has zero total elements).
    *
    * @return True if the array is empty, false otherwise.
    */
@@ -133,15 +203,16 @@ class NDArray {
    * @return A pointer to the underlying data.
    */
   [[nodiscard]] inline T* data() noexcept {
-    return data_.get();
+    return data_;
   }
+
   /*!
    * @brief Get a const pointer to the underlying data.
    *
    * @return A const pointer to the underlying data.
    */
   [[nodiscard]] inline const T* data() const noexcept {
-    return data_.get();
+    return data_;
   }
 
   /// @name Iterators
@@ -153,7 +224,7 @@ class NDArray {
    * @return An iterator to the beginning of the array.
    */
   [[nodiscard]] inline T* begin() noexcept {
-    return data_.get();
+    return data_;
   }
   /*!
    * @brief Get a const iterator to the beginning of the array.
@@ -161,7 +232,7 @@ class NDArray {
    * @return A const iterator to the beginning of the array.
    */
   [[nodiscard]] inline const T* begin() const noexcept {
-    return data_.get();
+    return data_;
   }
   /*!
    * @brief Get a const iterator to the beginning of the array.
@@ -169,7 +240,7 @@ class NDArray {
    * @return A const iterator to the beginning of the array.
    */
   [[nodiscard]] inline const T* cbegin() const noexcept {
-    return data_.get();
+    return data_;
   }
   /*!
    * @brief Get an iterator to the end of the array.
@@ -177,7 +248,7 @@ class NDArray {
    * @return An iterator to the end of the array.
    */
   [[nodiscard]] inline T* end() noexcept {
-    return data_.get() + total_size_;
+    return data_ + total_size_;
   }
   /*!
    * @brief Get a const iterator to the end of the array.
@@ -185,7 +256,7 @@ class NDArray {
    * @return A const iterator to the end of the array.
    */
   [[nodiscard]] inline const T* end() const noexcept {
-    return data_.get() + total_size_;
+    return data_ + total_size_;
   }
   /*!
    * @brief Get a const iterator to the end of the array.
@@ -193,7 +264,7 @@ class NDArray {
    * @return A const iterator to the end of the array.
    */
   [[nodiscard]] inline const T* cend() const noexcept {
-    return data_.get() + total_size_;
+    return data_ + total_size_;
   }
 
   /// @}
@@ -208,7 +279,7 @@ class NDArray {
    * @return A reference to the element.
    */
   inline T& operator[](S idx) noexcept {
-    assert(idx < total_size_);  // optional bound check
+    assert(idx >= 0 && idx < total_size_);
     return data_[idx];
   }
 
@@ -240,7 +311,7 @@ class NDArray {
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
   }
 
   /*!
@@ -256,7 +327,7 @@ class NDArray {
     assert(sizeof...(indices) == ndim_);
     assert(((indices >= 0) && ...));
     S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
+    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
   }
 
   /*!
@@ -265,7 +336,8 @@ class NDArray {
    * @param value The value to fill the array with.
    */
   void fill(const T& value) {
-    std::fill(data_.get(), data_.get() + total_size_, value);
+    if (!data_) return;
+    std::fill(data_, data_ + total_size_, value);
   }
 
   /*!
@@ -274,13 +346,8 @@ class NDArray {
    * @return An `NDView` that points to this array's data.
    */
   [[nodiscard]] inline NDView<T, S> view() const {
-    auto shape_copy = std::make_unique<S[]>(ndim_);
-    auto strides_copy = std::make_unique<S[]>(ndim_);
-
-    std::copy_n(shape_.get(), ndim_, shape_copy.get());
-    std::copy_n(strides_.get(), ndim_, strides_copy.get());
-
-    return NDView<T, S>(data_.get(), std::move(shape_copy), std::move(strides_copy), ndim_);
+    if (ndim_ == 0) return NDView<T, S>();
+    return NDView<T, S>(data_, shape_, strides_, ndim_);
   }
 
   /*!
@@ -328,9 +395,11 @@ class NDArray {
       kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
     }
     kakuhen::util::serialize::serialize_one<S>(out, ndim_);
-    kakuhen::util::serialize::serialize_array<S>(out, shape_.get(), ndim_);
-    kakuhen::util::serialize::serialize_one<S>(out, total_size_);
-    kakuhen::util::serialize::serialize_array<T>(out, data_.get(), total_size_);
+    if (ndim_ > 0) {
+      kakuhen::util::serialize::serialize_array<S>(out, shape_, static_cast<size_t>(ndim_));
+      kakuhen::util::serialize::serialize_one<S>(out, total_size_);
+      kakuhen::util::serialize::serialize_array<T>(out, data_, static_cast<size_t>(total_size_));
+    }
   }
 
   /*!
@@ -353,35 +422,100 @@ class NDArray {
         throw std::runtime_error("type or size mismatch for typename S");
       }
     }
-    kakuhen::util::serialize::deserialize_one<S>(in, ndim_);
-    shape_ = std::make_unique<S[]>(ndim_);
-    kakuhen::util::serialize::deserialize_array<S>(in, shape_.get(), ndim_);
-    strides_ = std::make_unique<S[]>(ndim_);
-    compute_strides();  // populates `strides_` & computes `total_size_`
-    S total_size_in;
-    kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
-    assert(total_size_in == total_size_);
-    data_ = std::make_unique<T[]>(total_size_);
-    kakuhen::util::serialize::deserialize_array<T>(in, data_.get(), total_size_);
+    S ndim_in;
+    kakuhen::util::serialize::deserialize_one<S>(in, ndim_in);
+
+    if (ndim_in > 0) {
+      // Read shape temporarily to re-init
+      std::vector<S> shape_in(static_cast<size_t>(ndim_in));
+      kakuhen::util::serialize::deserialize_array<S>(in, shape_in.data(),
+                                                     static_cast<size_t>(ndim_in));
+
+      // Re-initialize with new shape
+      init(ndim_in, shape_in.data());
+
+      S total_size_in;
+      kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
+      assert(total_size_in == total_size_);
+
+      kakuhen::util::serialize::deserialize_array<T>(in, data_, static_cast<size_t>(total_size_));
+    } else {
+      init(0, nullptr);
+    }
   }
 
  private:
   S ndim_;
   S total_size_;
-  std::unique_ptr<S[]> shape_;
-  std::unique_ptr<S[]> strides_;
-  std::unique_ptr<T[]> data_;
+
+  std::unique_ptr<std::byte[]> memory_block_;
+  S* shape_ = nullptr;
+  S* strides_ = nullptr;
+  T* data_ = nullptr;
+
+  void init(S ndim, const S* shape) {
+    // 1. Cleanup existing if any
+    if constexpr (!std::is_trivially_destructible_v<T>) {
+      if (data_) std::destroy_n(data_, static_cast<size_t>(total_size_));
+    }
+
+    // Reset state
+    memory_block_.reset();
+    shape_ = nullptr;
+    strides_ = nullptr;
+    data_ = nullptr;
+    ndim_ = ndim;
+    total_size_ = 0;
+
+    if (ndim == 0) {
+      return;
+    }
+
+    // 2. Calculate sizes and alignment
+    size_t shape_bytes = static_cast<size_t>(ndim) * sizeof(S);
+    size_t strides_bytes = static_cast<size_t>(ndim) * sizeof(S);
+    size_t metadata_bytes = shape_bytes + strides_bytes;
+
+    size_t data_align = alignof(T);
+    size_t padding = 0;
+    if (metadata_bytes % data_align != 0) {
+      padding = data_align - (metadata_bytes % data_align);
+    }
+    size_t data_offset = metadata_bytes + padding;
+
+    // 3. Calculate total size
+    S count = 1;
+    for (S i = 0; i < ndim; ++i)
+      count *= shape[i];
+    total_size_ = count;
+
+    size_t total_bytes = data_offset + (static_cast<size_t>(total_size_) * sizeof(T));
+
+    // 4. Allocate single block
+    memory_block_.reset(new std::byte[total_bytes]);
+
+    // 5. Setup pointers
+    std::byte* base = memory_block_.get();
+    shape_ = reinterpret_cast<S*>(base);
+    strides_ = reinterpret_cast<S*>(base + shape_bytes);
+    data_ = reinterpret_cast<T*>(base + data_offset);
+
+    // 6. Initialize metadata
+    std::copy_n(shape, static_cast<size_t>(ndim), shape_);
+    compute_strides();
+
+    // 7. Initialize data
+    if constexpr (!std::is_trivially_constructible_v<T>) {
+      std::uninitialized_default_construct_n(data_, static_cast<size_t>(total_size_));
+    }
+  }
 
   void compute_strides() {
-    // row-major layout
     S stride = 1;
-    // unsigned "underflows" to large positive number
-    // for (S i = ndim_ - 1; i >= 0 && i < ndim_; --i) {
     for (S i = ndim_; i-- > 0;) {
       strides_[i] = stride;
       stride *= shape_[i];
     }
-    total_size_ = stride;
   }
 
 };  // class NDArray
