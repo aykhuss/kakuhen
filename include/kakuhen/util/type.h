@@ -19,9 +19,15 @@
 
 namespace kakuhen::util::type {
 
-///------------------------------------
-/// the enum class with all id's
-///------------------------------------
+/// @name Type Identification
+/// @{
+
+/*!
+ * @brief Enum class defining identifiers for various supported types.
+ *
+ * This enum lists all the types supported by the type identification system.
+ * The `UNKNOWN` value is used for types that are not explicitly supported.
+ */
 enum class TypeId : uint8_t {
   UNKNOWN = 0,
 #define DEFINE_ENUM_ENTRY(_, NAME) NAME,
@@ -29,25 +35,15 @@ enum class TypeId : uint8_t {
 #undef DEFINE_ENUM_ENTRY
 };
 
-///------------------------------------
-/// type -> TypeId
-///------------------------------------
-
-/// //> default: cannot recognize
-/// template <typename T>
-/// constexpr TypeId get_type_id() {
-///   return TypeId::UNKNOWN;
-/// }
-///
-/// //> specializations
-/// #define DEFINE_TYPE_TO_ID(TYPE, NAME)    \
-///   template <>                            \
-///   constexpr TypeId get_type_id<TYPE>() { \
-///     return TypeId::NAME;                 \
-///   }
-/// KAKUHEN_TYPE_LIST(DEFINE_TYPE_TO_ID)
-/// #undef DEFINE_TYPE_TO_ID
-
+/*!
+ * @brief Gets the `TypeId` corresponding to a given type `T`.
+ *
+ * This function maps a C++ type to its corresponding `TypeId` enum value.
+ * It supports standard arithmetic types and their fixed-width integer equivalents.
+ *
+ * @tparam T The type to identify.
+ * @return The `TypeId` corresponding to `T`, or `TypeId::UNKNOWN` if not found.
+ */
 template <typename T>
 constexpr TypeId get_type_id() {
 #define DEFINE_TYPE_TO_ID(TYPE, NAME) \
@@ -74,8 +70,20 @@ constexpr TypeId get_type_id() {
   return TypeId::UNKNOWN;
 }
 
-//> In case I don't recognize the type, use the size of the type (negative)
-//> to get some compatibility information for serialization
+/*!
+ * @brief Gets the `TypeId` as a signed 16-bit integer, or the negative size of the type.
+ *
+ * If the type is recognized, its `TypeId` is returned as a positive integer.
+ * If the type is unknown, its size (in bytes) is returned as a negative integer.
+ * This is useful for basic compatibility checking during serialization.
+ *
+ * @note This function returns an `int16_t`. If the type is unknown and its size
+ * exceeds 32767 bytes (32 KB), the result will overflow/wrap, potentially leading
+ * to incorrect compatibility checks.
+ *
+ * @tparam T The type to query.
+ * @return The `TypeId` or negative size of `T`.
+ */
 template <typename T>
 constexpr int16_t get_type_or_size() {
   constexpr TypeId type_id = get_type_id<T>();
@@ -86,17 +94,25 @@ constexpr int16_t get_type_or_size() {
   }
 }
 
-///------------------------------------
-/// TypeId -> type
-///------------------------------------
+/// @}
 
-//> default: cannot recognize
+/// @name Type Mapping
+/// @{
+
+/*!
+ * @brief Helper struct to map a `TypeId` back to a C++ type.
+ *
+ * The `type` member alias will be `void` if the ID is unknown or `TypeId::UNKNOWN`.
+ * Specializations are generated for each supported type.
+ *
+ * @tparam ID The `TypeId` to map.
+ */
 template <TypeId>
 struct TypeFromId {
   using type = void;
 };
 
-//> specializations
+// specializations
 #define DEFINE_ID_TO_TYPE(TYPE, NAME) \
   template <>                         \
   struct TypeFromId<TypeId::NAME> {   \
@@ -105,13 +121,25 @@ struct TypeFromId {
 KAKUHEN_TYPE_LIST(DEFINE_ID_TO_TYPE)
 #undef DEFINE_ID_TO_TYPE
 
-//> shorthand
+/*!
+ * @brief Alias helper for `TypeFromId<ID>::type`.
+ *
+ * @tparam ID The `TypeId` to map.
+ */
 template <TypeId ID>
 using type_from_id_t = typename TypeFromId<ID>::type;
 
-//------------------------------------
-// TypeId -> string
-//------------------------------------
+/// @}
+
+/// @name String Conversion
+/// @{
+
+/*!
+ * @brief Converts a `TypeId` to its string representation.
+ *
+ * @param id The `TypeId` to convert.
+ * @return A string view of the type name (e.g., "INT32"), or "UNKNOWN".
+ */
 constexpr std::string_view to_string(TypeId id) {
   switch (id) {
 #define CASE_TYPE_TO_STRING(_, NAME) \
@@ -124,14 +152,21 @@ constexpr std::string_view to_string(TypeId id) {
   }
 }
 
-//------------------------------------
-// type -> string
-//------------------------------------
+/*!
+ * @brief Gets the string name of a type `T`.
+ *
+ * This function is a convenience wrapper around `get_type_id` and `to_string`.
+ *
+ * @tparam T The type to query.
+ * @return A string view of the type name.
+ */
 template <typename T>
 constexpr std::string_view get_type_name() {
   constexpr TypeId id = get_type_id<T>();
   return to_string(id);
 }
+
+/// @}
 
 }  // namespace kakuhen::util::type
 

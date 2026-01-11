@@ -20,6 +20,8 @@ set(TEST_SOURCES
   test_result.cpp
   test_vegas.cpp
   test_basin.cpp
+  test_math.cpp
+  test_printer.cpp
 )
 
 add_executable(unit_tests ${TEST_SOURCES})
