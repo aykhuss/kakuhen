@@ -198,6 +198,7 @@ int main() {
   integrator.set_options({.adapt = false});  // freeze the grid -> production phase
   integrand.set_stage(1);                    // production with histogram filling
   integrand.reset_histogram();               // for good measure
+  integrator.save();
   auto result = integrator.integrate(integrand, {.neval = 1000000, .niter = 3, .verbosity = 1});
   std::cout << "integral = " << result.value() << " +/- " << result.error() << "\n";
   integrand.print_histogram();

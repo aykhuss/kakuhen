@@ -1,9 +1,3 @@
-// basin - Blockwise Adaptive Sampling with Interdimensional Nesting
-// ▗▄▄▖  ▗▄▖  ▗▄▄▖▗▄▄▄▖▗▖  ▗▖
-// ▐▌ ▐▌▐▌ ▐▌▐▌     █  ▐▛▚▖▐▌
-// ▐▛▀▚▖▐▛▀▜▌ ▝▀▚▖  █  ▐▌ ▝▜▌
-// ▐▙▄▞▘▐▌ ▐▌▗▄▄▞▘▗▄█▄▖▐▌  ▐▌
-
 #pragma once
 
 #include "kakuhen/integrator/grid_accumulator.h"
@@ -14,6 +8,7 @@
 #include "kakuhen/ndarray/ndview.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/serialize.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -23,6 +18,24 @@
 
 namespace kakuhen::integrator {
 
+/*!
+ * @brief An integrator based on Blockwise Adaptive Sampling with Interdimensional Nesting (BASIN).
+ *
+ * This class implements a sophisticated adaptive Monte Carlo integration algorithm
+ * that models correlations between integration dimensions. It uses a nested
+ * grid structure where each dimension's grid is conditioned on the value of
+ * another, allowing it to adapt to complex integrand shapes.
+ *
+ * The algorithm first adapts one-dimensional marginal grids and then uses the
+ * Earth Mover's Distance (EMD) to score the correlations between dimensions,
+ * determining an optimal sampling order for subsequent iterations. This can
+ * significantly improve efficiency for integrands with strong inter-dimensional
+ * dependencies.
+ *
+ * @tparam NT The numeric traits for the integrator.
+ * @tparam RNG The random number generator to use.
+ * @tparam DIST The random number distribution to use.
+ */
 template <typename NT = num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
@@ -31,7 +44,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   static constexpr IntegratorFeature features =
       IntegratorFeature::STATE | IntegratorFeature::DATA | IntegratorFeature::ADAPT;
 
-  //> dependent class: need to explicitly load things from the Base
+  // dependent class: need to explicitly load things from the Base
   using Base = IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST>;
   using typename Base::count_type;
   using typename Base::int_acc_type;
@@ -40,16 +53,24 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
-  // using typename Base::result_type;
-  //> some shorthands to save typing
+
+  // shorthands to save typing
   using S = typename Base::size_type;
   using T = typename Base::value_type;
   using U = typename Base::count_type;
   using grid_acc_type = GridAccumulator<T, U>;
+
   //  member variables
   using Base::ndim_;
   using Base::opts_;
 
+  /*!
+   * @brief Construct a new Basin object.
+   *
+   * @param ndim The number of dimensions of the integration.
+   * @param ndiv1 The number of divisions for the coarse grid along each dimension.
+   * @param ndiv2 The number of divisions for the fine grid along each dimension.
+   */
   explicit Basin(S ndim, S ndiv1 = 8, S ndiv2 = 16)
       : Base(ndim),
         ndiv1_{ndiv1},
@@ -63,48 +84,103 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     grid0_ = grid_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
     accumulator0_ = accumulator_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
     reset();
-    // print_grid("init ");
-    // print_pdf();
   };
 
+  /*!
+   * @brief Construct a new Basin object by loading its state from a file.
+   *
+   * @param filepath The path to the file containing the integrator's state.
+   */
   explicit Basin(const std::filesystem::path& filepath) : Base(0) {
     Base::load(filepath);
   }
 
+  /*!
+   * @brief Set the alpha parameter for grid adaptation.
+   *
+   * @param alpha The new value for the alpha parameter.
+   */
   inline void set_alpha(const T& alpha) noexcept {
     assert(alpha >= T(0));
     alpha_ = alpha;
   }
-  inline T alpha() const noexcept {
+  /*!
+   * @brief Get the alpha parameter for grid adaptation.
+   *
+   * @return The current value of the alpha parameter.
+   */
+  [[nodiscard]] inline T alpha() const noexcept {
     return alpha_;
   }
 
+  /*!
+   * @brief Set the weight for smoothing the grid adaptation.
+   *
+   * @param weight_smooth The new value for the weight smoothing parameter.
+   */
   inline void set_weight_smooth(const T& weight_smooth) noexcept {
     assert(weight_smooth >= T(1));
     weight_smooth_ = weight_smooth;
   }
-  inline T weight_smooth() const noexcept {
+  /*!
+   * @brief Get the weight for smoothing the grid adaptation.
+   *
+   * @return The current value of the weight smoothing parameter.
+   */
+  [[nodiscard]] inline T weight_smooth() const noexcept {
     return weight_smooth_;
   }
 
+  /*!
+   * @brief Set the minimum score for dimension correlation.
+   *
+   * @param min_score The new value for the minimum score.
+   */
   inline void set_min_score(const T& min_score) noexcept {
     assert((min_score >= T(0)) && (min_score < T(1)));
     min_score_ = min_score;
   }
-  inline T min_score() const noexcept {
+  /*!
+   * @brief Get the minimum score for dimension correlation.
+   *
+   * @return The current value of the minimum score.
+   */
+  [[nodiscard]] inline T min_score() const noexcept {
     return min_score_;
   }
 
-  inline kakuhen::util::Hash hash() const {
+  /*!
+   * @brief Computes a hash of the current grid state.
+   *
+   * @return A `kakuhen::util::Hash` object representing the state of the grid.
+   */
+  [[nodiscard]] inline kakuhen::util::Hash hash() const {
     return kakuhen::util::Hash().add(ndim_).add(ndiv1_).add(ndiv2_).add(grid_.data(), grid_.size());
   }
 
-  inline std::string prefix(bool with_hash = false) const noexcept {
+  /*!
+   * @brief Generates a prefix string for filenames.
+   *
+   * @param with_hash If true, the hash of the grid is included in the prefix.
+   * @return A prefix string for filenames.
+   */
+  [[nodiscard]] inline std::string prefix(bool with_hash = false) const noexcept {
     std::string pref = "basin_" + std::to_string(ndim_) + "d";
     if (with_hash) pref += "_" + hash().encode_hex();
     return pref;
   }
 
+  /// @name Integration Implementation
+  /// @{
+
+  /*!
+   * @brief Implementation of the integration loop for a single iteration.
+   *
+   * @tparam I The type of the integrand function.
+   * @param integrand The function to integrate.
+   * @param neval The number of evaluations to perform.
+   * @return An `int_acc_type` containing the accumulated results for this iteration.
+   */
   template <typename I>
   int_acc_type integrate_impl(I&& integrand, U neval) {
     result_.reset();
@@ -147,6 +223,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     return result_;
   }
 
+  /*!
+   * @brief Resets the grid and all accumulators to their initial state.
+   */
   void reset() {
     grid_.fill(T(0));
     /// the diagonal entries (1D grids)
@@ -182,8 +261,15 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     clear_data();
   }
 
+  /*!
+   * @brief Adapts the nested grids based on the accumulated data.
+   *
+   * This method performs the core logic of the BASIN algorithm. It refines
+   * the diagonal (1D) and off-diagonal (2D) grids based on the variance
+   * of the integrand and then determines the optimal sampling order for the
+   * next iteration based on dimension correlations.
+   */
   void adapt() {
-    using kakuhen::ndarray::_;
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
@@ -199,14 +285,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
     }
 
-    //> pre-allocate data structures we need (ndiv0_ = ndiv1_*ndiv2_)
+    // pre-allocate data structures we need (ndiv0_ = ndiv1_*ndiv2_)
     NDArray<T, S> dval({ndiv0_});
     NDArray<T, S> d({ndiv0_});
     NDArray<T, S> grid_new({ndiv0_});
     T dsum, davg, dacc;
-    //> weight table
+    // weight table
     NDArray<T, S> wgt11({ndiv1_, ndiv1_});
-    //> merged grids for ndim2_ PDFs
+    // merged grids for ndim2_ PDFs
     NDArray<T, S> grid_mrg({ndiv0_});
     S grid_mrg_size;
 
@@ -245,7 +331,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           if (d0(ig0) < eps) d0(ig0) = eps;
           dacc += d0(ig0);
         }  // for ig0
-        // std::copy_n(&d0val(0), ndiv0_, &d0(0)); // DEBUG: no smearing
       }
 
       /// dampen (w/o assuming normalization & stable for `eps`)
@@ -263,30 +348,31 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       davg = dsum / T(ndiv0_);
       dacc = T(0);
       S ig0_new = 0;
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        dacc += d0(ig0);
-        while (dacc >= davg) {
-          dacc -= davg;
-          const T rat = dacc / d0(ig0);
-          assert(rat >= T(0) && rat <= T(1));
-          const T x_low = ig0 > 0 ? grid0_(idim1, ig0 - 1) : T(0);
-          const T x_upp = grid0_(idim1, ig0);
-          grid0_new(ig0_new) = x_low * rat + x_upp * (T(1) - rat);
-          //> accumulate the weight for this bin (rat = *remainder*)
-          // prepare for next
+
+      if (davg > std::numeric_limits<T>::min()) {
+        for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+          dacc += d0(ig0);
+          while (dacc >= davg && ig0_new < ndiv0_) {
+            dacc -= davg;
+            const T rat = (d0(ig0) > T(0)) ? (dacc / d0(ig0)) : T(0);
+            const T safe_rat = std::clamp(rat, T(0), T(1));
+
+            const T x_low = ig0 > 0 ? grid0_(idim1, ig0 - 1) : T(0);
+            const T x_upp = grid0_(idim1, ig0);
+            grid0_new(ig0_new) = x_low * safe_rat + x_upp * (T(1) - safe_rat);
+            ig0_new++;
+          }
+        }
+        while (ig0_new < ndiv0_) {
+          grid0_new(ig0_new) = T(1);
           ig0_new++;
         }
-      }  // for ig0
+      }
       grid0_new(ndiv0_ - 1) = T(1);
-      ///< check ---
-      // std::cout << "grid0 old -> new: \n";
-      // for (S ig0 = 0; ig0 < ndiv0_; ++ig0)
-      //   std::cout << fmt::format("  {:7.3f} -> {:7.3f}\n", grid0_(idim1, ig0), grid0_new(ig0));
-      // std::cout << std::endl;
+
       assert(grid0_new(0) > T(0));
       for (S ig0 = 1; ig0 < ndiv0_; ++ig0)
         assert(grid0_new(ig0) >= grid0_new(ig0 - 1));
-      ///--- check>
 
       /// compute ig1_new <-> ig1 weight table
       for (S ig1_new = 0; ig1_new < ndiv1_; ++ig1_new) {
@@ -349,7 +435,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
               if (d12(ig1, ig2) < eps) d12(ig1, ig2) = eps;
               dacc += d12(ig1, ig2);
             }  // for ig2
-            // std::copy_n(&d12val(ig1, 0), ndiv2_, &d12(ig1, 0)); // DEBUG: no smearing
           }
 
           /// dampen (w/o assuming normalization & stable for `eps`)
@@ -377,23 +462,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           grid_mrg_size = 0;
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
             if (wgt11(ig1_new, ig1) <= T(0)) continue;
-            // ///---<debug
-            // std::cout << fmt::format("grid in[{}]:", ig1);
-            // for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            //   std::cout << fmt::format(" {:7.3f}", grid_(idim1, idim2, ig1, ig2));
-            // }
-            // std::cout << std::endl;
-            // ///---debug>
             std::copy_n(&grid_(idim1, idim2, ig1, 0), ndiv2_, grid_mrg.data() + grid_mrg_size);
             grid_mrg_size += ndiv2_;
           }  // for ig1
           std::sort(grid_mrg.data(), grid_mrg.data() + grid_mrg_size);
           /// checks
           if (grid_mrg_size > 0) {
-            // std::cout << "grid_mrg[" << ig1_new << "]: ";
-            // for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg)
-            //   std::cout << grid_mrg(ig_mrg) << " ";
-            // std::cout << std::endl;
             assert(grid_mrg(0) > T(0));
             assert(grid_mrg(grid_mrg_size - 1) == T(1));
             for (S ig_mrg = 1; ig_mrg < grid_mrg_size; ++ig_mrg)
@@ -405,13 +479,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           dsum = T(0);
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
             if (wgt11(ig1_new, ig1) <= T(0)) continue;
-            // /// < check ---
-            // std::cout << fmt::format("[{}] {:7.3f} x dIN[{}]: ", ig1_new, wgt11(ig1_new, ig1),
-            // ig1); for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            //   std::cout << fmt::format(" {:7.3f}", d12(ig1, ig2));
-            // }
-            // std::cout << std::endl;
-            // /// --- check >
             S ig2 = 0;
             T del_x;
             for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
@@ -446,29 +513,30 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           davg = dsum / T(ndiv2_);
           dacc = T(0);
           S ig2_new = 0;
-          for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
-            dacc += d_mrg(ig_mrg);
-            while (dacc >= davg) {
-              dacc -= davg;
-              const T rat = dacc / d_mrg(ig_mrg);
-              assert(rat >= T(0) && rat <= T(1));
-              const T x_low = ig_mrg > 0 ? grid_mrg(ig_mrg - 1) : T(0);
-              const T x_upp = grid_mrg(ig_mrg);
-              grid12_new(ig1_new, ig2_new) = x_low * rat + x_upp * (1 - rat);
+          if (davg > std::numeric_limits<T>::min()) {
+            for (S ig_mrg = 0; ig_mrg < grid_mrg_size; ++ig_mrg) {
+              dacc += d_mrg(ig_mrg);
+              while (dacc >= davg && ig2_new < ndiv2_) {
+                dacc -= davg;
+                const T rat = (d_mrg(ig_mrg) > T(0)) ? (dacc / d_mrg(ig_mrg)) : T(0);
+                const T safe_rat = std::clamp(rat, T(0), T(1));
+
+                const T x_low = ig_mrg > 0 ? grid_mrg(ig_mrg - 1) : T(0);
+                const T x_upp = grid_mrg(ig_mrg);
+                grid12_new(ig1_new, ig2_new) = x_low * safe_rat + x_upp * (T(1) - safe_rat);
+                ig2_new++;
+              }
+            }
+            while (ig2_new < ndiv2_) {
+              grid12_new(ig1_new, ig2_new) = T(1);
               ig2_new++;
             }
           }
           grid12_new(ig1_new, ndiv2_ - 1) = T(1);
 
-          ///< check ---
-          // std::cout << fmt::format("grid12[{}]: ", ig1_new);
-          // for (S ig2 = 0; ig2 < ndiv2_; ++ig2)
-          //   std::cout << fmt::format("  {:7.3f}", grid12_new(ig1_new, ig2));
-          // std::cout << std::endl;
           assert(grid12_new(ig1_new, 0) > T(0));
           for (S ig2 = 1; ig2 < ndiv2_; ++ig2)
             assert(grid12_new(ig1_new, ig2) >= grid12_new(ig1_new, ig2 - 1));
-          ///--- check >
 
         }  // for ig1_new
 
@@ -491,23 +559,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       for (S idim2 = 0; idim2 < ndim_; ++idim2) {
         if (idim1 == idim2) continue;
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          // std::cout << "CALL emd " << idim1 << ", " << idim2 << ", " << ig1 << std::endl;
-          // std::cout << "FINE: ";
-          // for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-          //   std::cout << " " << grid0_(idim2, ig0);
-          // }
-          // std::cout << std::endl;
-          // std::cout << "COARSE: ";
-          // for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-          //   std::cout << " " << grid_(idim1, idim2, ig1, ig2);
-          // }
-          // std::cout << std::endl;
           scores(idim1, idim2) += emd(grid_.slice({{idim2}, {idim2}, {}, {}}).reshape({ndiv0_}),
                                       grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
         }
         scores(idim1, idim2) /= T(ndiv1_);
-        // std::cout << "score[" << idim1 << "," << idim2 << "] = ";
-        // std::cout << scores(idim1, idim2) * 100. << "%\n";
       }  // for idim2
     }  // for idim1
 
@@ -530,8 +585,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         }
         /// we need to penalize sampling of new dimensions
         if (count > 0) avg_score /= pentalty_fac_score_ * T(count);
-        // std::cout << "<score>[" << idim1 << "," << idim1 << "] = ";
-        // std::cout << avg_score * 100. << "% [" << count << "]\n";
         if (avg_score > max_score) {
           max_score = avg_score;
           max_idim1 = idim1;
@@ -545,12 +598,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
           if (scores(idim1, idim2) < min_score_) {
-            // std::cout << "SKIP score[" << idim1 << "," << idim2 << "] = ";
-            // std::cout << scores(idim1, idim2) * 100. << "%  <  " << min_score_ * 100. << "%\n";
             continue;
           }
-          // std::cout << "score[" << idim1 << "," << idim2 << "] = ";
-          // std::cout << scores(idim1, idim2) * 100. << "%\n";
           if (scores(idim1, idim2) > max_score) {
             max_score = scores(idim1, idim2);
             max_idim1 = idim1;
@@ -560,8 +609,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
       /// register the order and invalidate the scores
-      // std::cout << "order[" << iord << "] = (" << max_idim1 << ", " << max_idim2 << ")";
-      // std::cout << " with score " << max_score * 100 << "%\n";
       order_(iord, 0) = max_idim1;
       order_(iord, 1) = max_idim2;
       scores(max_idim2, max_idim2) = T(-1);
@@ -588,21 +635,30 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }
 #endif
-
     /// clear the accumulator to prepare for next iteration
     clear_data();
-
-    // print_grid("chk ");
-    // print_pdf();
   }  // adpat
 
+  /*!
+   * @brief Clears accumulated integration data.
+   */
   void clear_data() {
     accumulator_count_ = U(0);
     std::for_each(accumulator_.begin(), accumulator_.end(), [](auto& acc) { acc.reset(); });
     result_.reset();
   }
 
-  void print_grid(const std::string& prefix = "") {
+  /// @}
+
+  /// @name Utilities
+  /// @{
+
+  /*!
+   * @brief Prints the current grid structure to standard output.
+   *
+   * @param prefix A string prefix to prepend to each line of output.
+   */
+  void print_grid(const std::string& prefix = "") const {
     /// long 1D grid
     for (S idim0 = 0; idim0 < ndim_; ++idim0) {
       std::cout << prefix << "#dim" << idim0 << "\n";
@@ -618,10 +674,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         if (idim1 == idim2) continue;
         std::cout << prefix << "#dim" << idim1 << idim2 << "\n";
         /// multiple short grids
-        for (auto ig1 = 0; ig1 < ndiv1_; ++ig1) {
+        for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
           const T x1_min = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
           const T x1_max = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
-          for (auto ig2 = 0; ig2 < ndiv2_; ++ig2) {
+          for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
             const T x2_min = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
             const T x2_max = grid_(idim1, idim2, ig1, ig2);
             std::cout << prefix << "  " << x1_min << " " << x1_max;
@@ -634,47 +690,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
   }
 
-  // void print_pdf() {
-  //   /// diagonal
-  //   for (S idim0 = 0; idim0 < ndim_; ++idim0) {
-  //     std::cout << fmt::format("\n#dim: {}\n", idim0);
-  //     std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", 0, 0., 0., 0.);
-  //     for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-  //       const T dx = ig0 > 0 ? (grid0_(idim0, ig0) - grid0_(idim0, ig0 - 1)) : grid0_(idim0, ig0);
-  //       const T pdf = T(1) / (dx * T(ndiv0_));
-  //       const T cdf = T(ig0 + 1) / T(ndiv0_);
-  //       std::cout << fmt::format("{:>6}  {:12.6g}  {:12.6e} {:12.6e} \n", ig0 + 1,
-  //                                grid0_(idim0, ig0), pdf, cdf);
-  //     }
-  //     std::cout << "\n";
-  //   }  // for idim0
-  //   /// joint distributions
-  //   for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-  //     for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-  //       if (idim1 == idim2) continue;
-  //       std::cout << fmt::format("\n#dim: {} {}\n", idim1, idim2);
-  //       std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", 0, 0, 0., 0., 0.);
-  //       for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-  //         for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-  //           const T dx1 =
-  //               ig1 > 0 ? grid0_(idim1, (ig1 + 1) * ndiv2_ - 1) - grid0_(idim1, ig1 * ndiv2_ - 1)
-  //                       : grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
-  //           const T dx2 = ig2 > 0
-  //                             ? grid_(idim1, idim2, ig1, ig2) - grid_(idim1, idim2, ig1, ig2 - 1)
-  //                             : grid_(idim1, idim2, ig1, ig2);
-  //           const T pdf = T(1) / (dx1 * dx2 * T(ndiv0_));
-  //           std::cout << fmt::format("{:>6} {:>6}  {:12.6g} {:12.6g}  {:12.6e} \n", ig1 + 1,
-  //                                    ig2 + 1, grid0_(idim1, (ig1 + 1) * ndiv2_ - 1),
-  //                                    grid_(idim1, idim2, ig1, ig2), pdf);
-  //         }
-  //       }
-  //       std::cout << "\n";
-  //     }  // for idim2
-  //   }  // for idim1
-  // }
-
+  /*!
+   * @brief Debug helper to visualize nested grids.
+   *
+   * @param grid1 The first 1D grid view.
+   * @param grid2 The second 1D grid view.
+   */
   void nest_grid(const kakuhen::ndarray::NDView<T, S>& grid1,
-                 const kakuhen::ndarray::NDView<T, S>& grid2) {
+                 const kakuhen::ndarray::NDView<T, S>& grid2) const {
     assert(grid1.ndim() == 1 && grid2.ndim() == 1);
 
     S ig1 = 0;
@@ -722,85 +745,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     assert(ig2 == grid2.size());
   }
 
-  T emd(const kakuhen::ndarray::NDView<T, S>& grid1, const kakuhen::ndarray::NDView<T, S>& grid2) {
-    assert(grid1.ndim() == 1 && grid2.ndim() == 1);
+  /// @}
 
-    T emd_val = 0;
-
-    S ig1 = 0;
-    S ig2 = 0;
-    T cdf1 = 0;
-    T cdf2 = 0;
-    T x = 0;
-
-    //> nested
-    while (ig1 < grid1.size() && ig2 < grid2.size()) {
-      assert(ig1 > 0 ? grid1(ig1) >= grid1(ig1 - 1) : grid1(ig1) >= 0);
-      assert(ig2 > 0 ? grid2(ig2) >= grid2(ig2 - 1) : grid2(ig2) >= 0);
-
-      T x_nxt = 0;
-      T cdf1_nxt = 0;
-      T cdf2_nxt = 0;
-      bool advance_ig1 = false;
-      bool advance_ig2 = false;
-
-      if (grid1(ig1) < grid2(ig2)) {
-        x_nxt = grid1(ig1);
-        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
-        const T x2_low = ig2 > 0 ? grid2(ig2 - 1) : T(0);
-        const T x2_upp = grid2(ig2);
-        assert(x_nxt >= x2_low && x_nxt <= x2_upp);
-        cdf2_nxt = (ig2 + (x_nxt - x2_low) / (x2_upp - x2_low)) / T(grid2.size());
-        advance_ig1 = true;
-      } else if (grid1(ig1) > grid2(ig2)) {
-        x_nxt = grid2(ig2);
-        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
-        const T x1_low = ig1 > 0 ? grid1(ig1 - 1) : T(0);
-        const T x1_upp = grid1(ig1);
-        assert(x_nxt >= x1_low && x_nxt <= x1_upp);
-        cdf1_nxt = (ig1 + (x_nxt - x1_low) / (x1_upp - x1_low)) / T(grid1.size());
-        advance_ig2 = true;
-      } else {
-        // equal
-        x_nxt = grid1(ig1);
-        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
-        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
-        advance_ig1 = true;
-        advance_ig2 = true;
-      }
-      assert(x_nxt >= x);
-
-      //> accumulate EMD; need to check for sign flips
-      const T dcdf = cdf1 - cdf2;
-      const T dcdf_nxt = cdf1_nxt - cdf2_nxt;
-      bool sign_flip = dcdf * dcdf_nxt < T(0);
-      if (!sign_flip) {
-        /// no sign flip; just accumulate
-        emd_val += 0.5 * std::abs(dcdf + dcdf_nxt) * (x_nxt - x);
-      } else {
-        /// sign flip; need to find the crossing point
-        const T x_cross = (dcdf * x_nxt - dcdf_nxt * x) / (dcdf - dcdf_nxt);
-        assert(x_cross >= x && x_cross <= x_nxt);
-        // accumulate two triangles
-        emd_val +=
-            0.5 * std::abs(dcdf) * (x_cross - x) + 0.5 * std::abs(dcdf_nxt) * (x_nxt - x_cross);
-      }
-
-      x = x_nxt;
-      cdf1 = cdf1_nxt;
-      cdf2 = cdf2_nxt;
-      if (advance_ig1) ig1++;
-      if (advance_ig2) ig2++;
-      // std::cout << fmt::format("{:12.6g}  {:12.6e}  {:12.6e}\n", x, cdf1, cdf2);
-
-    }  // while
-
-    //> since both grids must end with a `1`, better not have any remainders
-    assert(ig1 == grid1.size() && grid1(ig1 - 1) == T(1));
-    assert(ig2 == grid2.size() && grid2(ig2 - 1) == T(1));
-
-    return emd_val;
-  }
+  /// @name Output & Serialization Implementation
+  /// @{
 
   template <typename P>
   void print_state(P& prt) const {
@@ -874,7 +822,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     grid_ = ndarray::NDArray<T, S>({ndim_, ndim_, ndiv1_, ndiv2_});
     grid_.deserialize(in);
     grid0_ = grid_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
-    if (accumulator_.shape() != grid_.shape() || accumulator0_.shape() != grid0_.shape()) {
+    if (!std::ranges::equal(accumulator_.shape(), grid_.shape()) ||
+        !std::ranges::equal(accumulator0_.shape(), grid0_.shape())) {
       accumulator_ = ndarray::NDArray<grid_acc_type, S>({ndim_, ndim_, ndiv1_, ndiv2_});
       accumulator0_ = accumulator_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
     }
@@ -938,21 +887,31 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     if (ndiv2_chk != ndiv2_) {
       throw std::runtime_error("ndiv2 mismatch");
     }
-    if (grid_.shape() != std::vector<S>({ndim_, ndim_, ndiv1_, ndiv2_})) {
+
+    // Optimized shape checks
+    auto grid_sh = grid_.shape();
+    if (grid_sh.size() != 4 || grid_sh[0] != ndim_ || grid_sh[1] != ndim_ || grid_sh[2] != ndiv1_ ||
+        grid_sh[3] != ndiv2_) {
       throw std::runtime_error("grid shape mismatch");
     }
-    if (grid0_.shape() != std::vector<S>({ndim_, ndiv0_})) {
+    auto grid0_sh = grid0_.shape();
+    if (grid0_sh.size() != 2 || grid0_sh[0] != ndim_ || grid0_sh[1] != ndiv0_) {
       throw std::runtime_error("grid0 shape mismatch");
     }
-    if (accumulator_.shape() != std::vector<S>({ndim_, ndim_, ndiv1_, ndiv2_})) {
+    auto acc_sh = accumulator_.shape();
+    if (acc_sh.size() != 4 || acc_sh[0] != ndim_ || acc_sh[1] != ndim_ || acc_sh[2] != ndiv1_ ||
+        acc_sh[3] != ndiv2_) {
       throw std::runtime_error("accumulator shape mismatch");
     }
-    if (accumulator0_.shape() != std::vector<S>({ndim_, ndiv0_})) {
+    auto acc0_sh = accumulator0_.shape();
+    if (acc0_sh.size() != 2 || acc0_sh[0] != ndim_ || acc0_sh[1] != ndiv0_) {
       throw std::runtime_error("accumulator0 shape mismatch");
     }
-    if (order_.shape() != std::vector<S>({ndim_, 2})) {
+    auto order_sh = order_.shape();
+    if (order_sh.size() != 2 || order_sh[0] != ndim_ || order_sh[1] != 2) {
       throw std::runtime_error("order shape mismatch");
     }
+
     kakuhen::util::HashValue_t hash_val;
     deserialize_one<kakuhen::util::HashValue_t>(in, hash_val);
     if (hash().value() != hash_val) {
@@ -978,6 +937,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }
   }
+
+  /// @}
 
  private:
   /// parameters that controls the grid refinement
@@ -1008,7 +969,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       if (order_(iord, 0) == order_(iord, 1)) {
         /// (a) diagnoal map
         const S idim0 = order_(iord, 0);
-        // std::cout << "/// (a) diagnoal map " << idim0 << "\n";
         //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
         const S ig0 = S(rand * ndiv0_);  // 0 .. (ndiv0_-1)
         assert(ig0 >= 0 && ig0 < ndiv0_);
@@ -1027,7 +987,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         /// (b) conditional map
         const S idim1 = order_(iord, 0);
         const S idim2 = order_(iord, 1);
-        // std::cout << "/// (b) conditional map " << idim2 << "|" << idim1 << "\n";
         /// check that the 1st dimension is set properly
         assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
         assert(grid_vec[idim1] >= 0 && grid_vec[idim1] < ndiv0_);
@@ -1065,6 +1024,95 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
   }
 
-};  // class Basin
+  /*!
+   * @brief Computes the Earth Mover's Distance (EMD) between two 1D grids.
+   *
+   * This function calculates the Wasserstein-1 distance between two probability
+   * distributions represented by their cumulative grid boundaries. The grids
+   * are assumed to span [0, 1] and be monotonically increasing.
+   *
+   * @param grid1 The first grid view (must be 1D).
+   * @param grid2 The second grid view (must be 1D).
+   * @return The Earth Mover's Distance between the two distributions.
+   */
+  [[nodiscard]] T emd(const kakuhen::ndarray::NDView<T, S>& grid1,
+                      const kakuhen::ndarray::NDView<T, S>& grid2) {
+    assert(grid1.ndim() == 1 && grid2.ndim() == 1);
+
+    T emd_val = 0;
+
+    S ig1 = 0;
+    S ig2 = 0;
+    T cdf1 = 0;
+    T cdf2 = 0;
+    T x = 0;
+
+    //> nested
+    while (ig1 < grid1.size() && ig2 < grid2.size()) {
+      assert(ig1 > 0 ? grid1(ig1) >= grid1(ig1 - 1) : grid1(ig1) >= 0);
+      assert(ig2 > 0 ? grid2(ig2) >= grid2(ig2 - 1) : grid2(ig2) >= 0);
+
+      T x_nxt = 0;
+      T cdf1_nxt = 0;
+      T cdf2_nxt = 0;
+      bool advance_ig1 = false;
+      bool advance_ig2 = false;
+
+      if (grid1(ig1) < grid2(ig2)) {
+        x_nxt = grid1(ig1);
+        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
+        const T x2_low = ig2 > 0 ? grid2(ig2 - 1) : T(0);
+        const T x2_upp = grid2(ig2);
+        assert(x_nxt >= x2_low && x_nxt <= x2_upp);
+        cdf2_nxt = (ig2 + (x_nxt - x2_low) / (x2_upp - x2_low)) / T(grid2.size());
+        advance_ig1 = true;
+      } else if (grid1(ig1) > grid2(ig2)) {
+        x_nxt = grid2(ig2);
+        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
+        const T x1_low = ig1 > 0 ? grid1(ig1 - 1) : T(0);
+        const T x1_upp = grid1(ig1);
+        assert(x_nxt >= x1_low && x_nxt <= x1_upp);
+        cdf1_nxt = (ig1 + (x_nxt - x1_low) / (x1_upp - x1_low)) / T(grid1.size());
+        advance_ig2 = true;
+      } else {
+        // equal
+        x_nxt = grid1(ig1);
+        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
+        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
+        advance_ig1 = true;
+        advance_ig2 = true;
+      }
+      assert(x_nxt >= x);
+
+      //> accumulate EMD; need to check for sign flips
+      const T dcdf = cdf1 - cdf2;
+      const T dcdf_nxt = cdf1_nxt - cdf2_nxt;
+      bool sign_flip = dcdf * dcdf_nxt < T(0);
+      if (!sign_flip) {
+        /// no sign flip; just accumulate
+        emd_val += 0.5 * std::abs(dcdf + dcdf_nxt) * (x_nxt - x);
+      } else {
+        /// sign flip; need to find the crossing point
+        const T x_cross = (dcdf * x_nxt - dcdf_nxt * x) / (dcdf - dcdf_nxt);
+        assert(x_cross >= x && x_cross <= x_nxt);
+        // accumulate two triangles
+        emd_val +=
+            0.5 * std::abs(dcdf) * (x_cross - x) + 0.5 * std::abs(dcdf_nxt) * (x_nxt - x_cross);
+      }
+
+      x = x_nxt;
+      cdf1 = cdf1_nxt;
+      cdf2 = cdf2_nxt;
+      if (advance_ig1) ig1++;
+      if (advance_ig2) ig2++;
+    }  // while
+
+    //> since both grids must end with a `1`, better not have any remainders
+    assert(ig1 == grid1.size() && grid1(ig1 - 1) == T(1));
+    assert(ig2 == grid2.size() && grid2(ig2 - 1) == T(1));
+
+    return emd_val;
+  }
+};
 
 }  // namespace kakuhen::integrator
