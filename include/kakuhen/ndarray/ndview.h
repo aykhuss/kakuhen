@@ -1,9 +1,11 @@
 #pragma once
 #include "kakuhen/ndarray/detail.h"
 #include "kakuhen/ndarray/slice.h"
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace kakuhen::ndarray {
@@ -11,14 +13,41 @@ namespace kakuhen::ndarray {
 template <typename T, typename S>
 class NDArray;  // forward declaration
 
+/*!
+ * @brief A non-owning view into an NDArray.
+ *
+ * This class provides a view into a potentially multi-dimensional array
+ * without owning the underlying data. It allows for flexible manipulation
+ * and slicing of array data without copying. Changes made through an `NDView`
+ * directly affect the underlying `NDArray` data.
+ *
+ * @tparam T The type of the elements in the array.
+ * @tparam S The type of the indices and dimensions.
+ */
 template <typename T, typename S>
 class NDView {
  public:
   using value_type = T;
   using size_type = S;
 
+  /*!
+   * @brief Default constructor.
+   *
+   * Creates an empty `NDView` with 0 dimensions and no data.
+   */
   NDView() : ndim_(0), total_size_(0), shape_(nullptr), strides_(nullptr), data_(nullptr) {}
 
+  /*!
+   * @brief Constructs an `NDView` from raw pointers and shape/stride information.
+   *
+   * This constructor is typically used internally or when creating a view
+   * from external contiguous memory.
+   *
+   * @param data A raw pointer to the start of the data.
+   * @param shape A unique pointer to an array containing the shape of the view.
+   * @param strides A unique pointer to an array containing the strides of the view.
+   * @param ndim The number of dimensions.
+   */
   NDView(T* data, std::unique_ptr<S[]> shape, std::unique_ptr<S[]> strides, S ndim)
       : ndim_(ndim),
         total_size_(1),
@@ -31,40 +60,72 @@ class NDView {
     }
   }
 
-  /// implicit conversion constructor
+  /*!
+   * @brief Implicit conversion constructor from an `NDArray`.
+   *
+   * This allows an `NDView` to be easily created from an `NDArray` instance,
+   * effectively creating a view of the entire array.
+   *
+   * @param arr The `NDArray` to create a view of.
+   */
   NDView(NDArray<T, S>& arr);  // only declaration; definition after NDArray
 
-  /// move
+  /// @name Lifecycle
+  /// @{
   NDView(NDView&&) noexcept = default;
   NDView& operator=(NDView&&) noexcept = default;
 
-  /// no copy
   NDView(const NDView&) = delete;
   NDView& operator=(const NDView&) = delete;
+  /// @}
 
-  inline S ndim() const noexcept {
+  /*!
+   * @brief Get the number of dimensions of the view.
+   *
+   * @return The number of dimensions.
+   */
+  [[nodiscard]] inline S ndim() const noexcept {
     return ndim_;
   }
-  inline std::vector<S> shape() const {
-    return std::vector<S>(shape_.get(), shape_.get() + ndim_);
+  /*!
+   * @brief Get the shape of the view.
+   *
+   * @return A span containing the size of each dimension.
+   */
+  [[nodiscard]] inline std::span<const S> shape() const noexcept {
+    return {shape_.get(), static_cast<size_t>(ndim_)};
   }
-  // inline const S* shape() const noexcept {
-  //   return shape_.get();
-  // }
-  // inline const S* strides() const noexcept {
-  //   return strides_.get();
-  // }
-  inline S size() const noexcept {
+
+  /*!
+   * @brief Get the strides of the view.
+   *
+   * @return A span containing the stride of each dimension.
+   */
+  [[nodiscard]] inline std::span<const S> strides() const noexcept {
+    return {strides_.get(), static_cast<size_t>(ndim_)};
+  }
+
+  /*!
+   * @brief Get the total number of elements in the view.
+   *
+   * @return The total number of elements.
+   */
+  [[nodiscard]] inline S size() const noexcept {
     return total_size_;
   }
-  inline bool empty() const noexcept {
+  /*!
+   * @brief Check if the view is empty.
+   *
+   * @return True if the view is empty, false otherwise.
+   */
+  [[nodiscard]] inline bool empty() const noexcept {
     return total_size_ == 0;
   }
 
-  inline T* data() noexcept {
+  [[nodiscard]] inline T* data() noexcept {
     return data_;
   }
-  inline const T* data() const noexcept {
+  [[nodiscard]] inline const T* data() const noexcept {
     return data_;
   }
 
@@ -77,6 +138,13 @@ class NDView {
     return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
+  /*!
+   * @brief Access an element of the view using multi-dimensional indices.
+   *
+   * @tparam Indices The types of the indices.
+   * @param indices The indices of the element to access.
+   * @return A const reference to the element.
+   */
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
@@ -86,11 +154,23 @@ class NDView {
     return data_[detail::flat_index<S>(idx, strides_.get(), shape_.get(), ndim_)];
   }
 
+  /*!
+   * @brief Fills the entire view with a specified value.
+   *
+   * @param value The value to fill the view with.
+   */
   void fill(const T& value) {
     std::fill(data_, data_ + total_size_, value);
   }
 
-  NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
+  /*!
+   * @brief Creates a new `NDView` representing a slice of the current view.
+   *
+   * @param slices A vector of `Slice` objects, one for each dimension,
+   * defining the slicing parameters.
+   * @return A new `NDView` representing the specified slice.
+   */
+  [[nodiscard]] NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
     assert(slices.size() == ndim_);
 
     auto new_shape = std::make_unique<S[]>(ndim_);
@@ -114,7 +194,17 @@ class NDView {
     return NDView<T, S>(data_ + base_offset, std::move(new_shape), std::move(new_strides), ndim_);
   }
 
-  NDView<T, S> reshape(const std::vector<S>& shape) const {
+  /*!
+   * @brief Creates a new `NDView` with a reshaped view of the underlying data.
+   *
+   * This operation requires the total number of elements to remain the same.
+   * Currently, it only works on contiguous views.
+   *
+   * @param shape A vector specifying the new shape of the view.
+   * @return A new `NDView` with the reshaped dimensions.
+   * @throws std::runtime_error if the view is not contiguous or total size changes.
+   */
+  [[nodiscard]] NDView<T, S> reshape(const std::vector<S>& shape) const {
     S old_size = 1;
     for (S i = 0; i < ndim_; ++i)
       old_size *= shape_[i];
@@ -125,7 +215,7 @@ class NDView {
 
     assert(old_size == new_size);
 
-    //> check if view is contiguous (row-major layout)
+    // check if view is contiguous (row-major layout)
     bool contiguous = true;
     S expected_stride = 1;
     for (S i = ndim_; i-- > 0;) {
@@ -153,7 +243,20 @@ class NDView {
                         static_cast<S>(shape.size()));
   }
 
-  NDView<T, S> diagonal(S dim1, S dim2) const {
+  /*!
+   * @brief Extracts a diagonal from the view.
+   *
+   * This creates a new `NDView` that represents the diagonal elements
+   * formed by two specified dimensions. The two dimensions must have
+   * the same size.
+   *
+   * @param dim1 The first dimension to form the diagonal.
+   * @param dim2 The second dimension to form the diagonal.
+   * @return A new `NDView` representing the diagonal.
+   * @throws std::runtime_error if `dim1` or `dim2` are out of bounds,
+   * or if the shapes of `dim1` and `dim2` are not equal.
+   */
+  [[nodiscard]] NDView<T, S> diagonal(S dim1, S dim2) const {
     assert(dim1 >= 0 && dim1 < ndim_ && dim2 >= 0 && dim2 < ndim_);
     assert(shape_[dim1] == shape_[dim2]);  // must be square along those axes
 
