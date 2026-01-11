@@ -26,7 +26,8 @@ TEST_CASE("write/load state and data", "[vegas]") {
   REQUIRE(veg.hash().value() == veg_alt.hash().value());
 
   /// another warmup:  no adaption; save data
-  ss.clear();
+  ss.str(""); // clear content
+  ss.clear(); // clear flags
   veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = false});
   veg.write_data_stream(ss);
   veg.adapt();
