@@ -5,7 +5,6 @@
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
-#include <cmath>
 #include <cstddef>
 #include <type_traits>
 

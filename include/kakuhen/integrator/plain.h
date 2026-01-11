@@ -1,4 +1,3 @@
-// Plain - a naive integrator
 #pragma once
 
 #include "kakuhen/integrator/integrator_base.h"
@@ -9,6 +8,20 @@
 
 namespace kakuhen::integrator {
 
+/*!
+ * @brief A naive Monte Carlo integrator.
+ *
+ * This class implements a simple (naive) Monte Carlo integration algorithm.
+ * It samples points uniformly within the unit hypercube and accumulates the
+ * function values. This integrator is straightforward but less efficient than
+ * adaptive methods for many integrands, as it does not attempt to concentrate
+ * samples in important regions. It does not support any special features like
+ * adaptation or state serialization.
+ *
+ * @tparam NT The numeric traits for the integrator.
+ * @tparam RNG The random number generator to use.
+ * @tparam DIST The random number distribution to use.
+ */
 template <typename NT = num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
@@ -25,15 +38,31 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
-  // using typename Base::result_type;
+
   //  member variables
   using Base::ndim_;
   using Base::opts_;
 
+  /*!
+   * @brief Construct a new Plain object.
+   *
+   * @param ndim The number of dimensions of the integration.
+   */
   explicit Plain(size_type ndim) : Base(ndim) {
     assert(ndim > 0);
   };
 
+  /// @name Integration Implementation
+  /// @{
+
+  /*!
+   * @brief Implementation of the integration loop for a single iteration.
+   *
+   * @tparam I The type of the integrand function.
+   * @param integrand The function to integrate.
+   * @param neval The number of evaluations to perform.
+   * @return An `int_acc_type` containing the accumulated results for this iteration.
+   */
   template <typename I>
   int_acc_type integrate_impl(I&& integrand, count_type neval) {
     result_.reset();
@@ -49,6 +78,8 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
 
     return result_;
   }
+
+  /// @}
 
  private:
   int_acc_type result_;

@@ -5,31 +5,67 @@
 
 namespace kakuhen::integrator::detail {
 
-// ----- helper: function traits for lambdas / functors -----
+/// @name Function Traits
+/// @{
+
+/*!
+ * @brief Helper struct to extract argument and return types from function objects.
+ *
+ * This primary template is undefined and will cause a compile-time error if
+ * instantiated with a type that is not a pointer to member function.
+ *
+ * @tparam T The type to inspect.
+ */
 template <typename T>
 struct function_traits;
 
-// specialization: const-qualified operator()
+/*!
+ * @brief Specialization for const-qualified member functions (e.g., lambdas).
+ *
+ * @tparam C The class type.
+ * @tparam R The return type.
+ * @tparam Arg The argument type.
+ */
 template <typename C, typename R, typename Arg>
 struct function_traits<R (C::*)(Arg) const> {
   using argument_type = Arg;
   using return_type = R;
 };
 
-// specialization: non-const operator()
+/*!
+ * @brief Specialization for non-const member functions.
+ *
+ * @tparam C The class type.
+ * @tparam R The return type.
+ * @tparam Arg The argument type.
+ */
 template <typename C, typename R, typename Arg>
 struct function_traits<R (C::*)(Arg)> {
   using argument_type = Arg;
   using return_type = R;
 };
 
-// ----- remove_cvref_t replacement for C++17 -----
-template <typename T>
-using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+/// @}
 
-// ----- Helper alias -----
+/// @name Traits Deduction
+/// @{
+
+/*!
+ * @brief Helper alias to deduce NumericTraits from a functor's argument type.
+ *
+ * This alias inspects the `operator()` of the given functor type `F`, extracts
+ * its argument type, removes const/volatile/reference qualifiers, and then
+ * uses `num_traits_t` to determine the corresponding `NumericTraits`.
+ *
+ * This is used to automatically deduce numeric traits from the integrand
+ * function passed to the integrator.
+ *
+ * @tparam F The functor type (e.g., lambda or struct with operator()).
+ */
 template <typename F>
-using num_traits_arg_t =
-    num_traits_t<remove_cvref_t<typename function_traits<decltype(&F::operator())>::argument_type>>;
+using num_traits_arg_t = num_traits_t<
+    std::remove_cvref_t<typename function_traits<decltype(&F::operator())>::argument_type>>;
+
+/// @}
 
 }  // namespace kakuhen::integrator::detail
