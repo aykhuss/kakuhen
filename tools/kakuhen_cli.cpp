@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     auto file = dump_cmd.get<std::string>("file");
     auto indent = static_cast<uint8_t>(dump_cmd.get<int>("indent"));
     kakuhen::util::printer::JSONPrinter jp{std::cout, indent};
-    auto vint = make_integrator(Plain_t::parse_header(file));
+    auto vint = make_integrator(parse_header(file));
     std::visit(
         [&](auto&& integrator) {
           integrator.load(file);
