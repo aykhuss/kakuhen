@@ -12,7 +12,7 @@ TEST_CASE("Hash for different Plain Data", "[hash]") {
   HashValue_t hash_dble = Hash().add<double>(1e23).value();
   REQUIRE(hash_dble == HashValue_t(3556694915024222193ull));
 
-  HashValue_t hash_comp = Hash().add<float>(3.3).add<uint64_t>(99).add<bool>(false).value();
+  HashValue_t hash_comp = Hash().add<float>(3.3f).add<uint64_t>(99).add<bool>(false).value();
   REQUIRE(hash_comp == HashValue_t(7636397818777378217ull));
 }
 
@@ -26,4 +26,16 @@ TEST_CASE("Hash for arrays and vectors", "[hash]") {
 
   HashValue_t hash_vec = Hash().add(std::vector<int>{1, 2, 3, 4}).value();
   REQUIRE(hash_vec == HashValue_t(9566659391000707361ull));
+}
+
+TEST_CASE("Hash to HEX representation", "[hash]") {
+  using kakuhen::util::Hash;
+  using kakuhen::util::HashValue_t;
+
+  Hash h = Hash().add<double>(2.3).add<uint64_t>(666).add<bool>(true).add(std::vector<int>{4, 2});
+
+  HashValue_t hash_comp = h.value();
+  std::string hex = h.encode_hex();
+  REQUIRE(hash_comp == HashValue_t(1325280494992402884ull));
+  REQUIRE(hex == "12645796abc6a9c4");
 }
