@@ -37,6 +37,7 @@
 # Build & Install
 build
 install
+docs/sphinx/_build
 
 # Playgrounds
 playground

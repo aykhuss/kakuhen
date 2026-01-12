@@ -12,6 +12,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(KAKUHEN_BUILD_TESTING "Enable creation of kakuhen tests." OFF)
 #> enable building CLI tool
 option(KAKUHEN_BUILD_CLI "Build kakuhen CLI tool" OFF)
+#> enable building documentation
+option(KAKUHEN_BUILD_DOCS "Build project documentation" OFF)
 
 #> default build type is: Release
 if (NOT CMAKE_BUILD_TYPE)
@@ -25,6 +27,12 @@ add_compile_definitions($<IF:$<CONFIG:Debug>,DEBUG,NDEBUG>)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(CompilerWarnings)
+
+add_library(kakuhen_warnings INTERFACE)
+set_project_warnings(kakuhen_warnings)
 
 add_library(kakuhen INTERFACE)
 add_library(kakuhen::kakuhen ALIAS kakuhen)
@@ -87,3 +95,58 @@ if(KAKUHEN_BUILD_TESTING)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+if(KAKUHEN_BUILD_DOCS)
+  find_package(Doxygen QUIET)
+  if(Doxygen_FOUND)
+    message(STATUS "Doxygen found, configuring documentation targets.")
+
+    # Configure Doxyfile from Doxyfile.in
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile.in
+      ${CMAKE_CURRENT_BINARY_DIR}/docs/Doxyfile # Output Doxyfile to build directory
+      @ONLY
+    )
+
+    # Doxygen target
+    add_custom_target(generate_doxygen_xml
+      COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/docs/Doxyfile # Use the generated Doxyfile
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Generating Doxygen XML documentation"
+      VERBATIM
+    )
+
+    find_package(Sphinx QUIET)
+    if(Sphinx_FOUND)
+      message(STATUS "sphinx-build found: ${SPHINX_EXECUTABLE}")
+
+      # Configure Sphinx conf.py from conf.py.in
+      configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/sphinx/conf.py.in
+        ${CMAKE_CURRENT_BINARY_DIR}/docs/sphinx/conf.py
+        @ONLY
+      )
+
+      # Sphinx target
+      add_custom_target(build_sphinx_html ALL
+        COMMAND Sphinx::Build -b html
+                -c ${CMAKE_CURRENT_BINARY_DIR}/docs/sphinx # Location of conf.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/sphinx # Source directory
+                ${CMAKE_CURRENT_SOURCE_DIR}/docs/sphinx/_build/html # Output directory
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Generating Sphinx HTML documentation"
+        DEPENDS generate_doxygen_xml # Sphinx depends on Doxygen XML output
+        VERBATIM
+      )
+      # Make sure sphinx_docs depends on doxygen_docs
+      add_dependencies(build_sphinx_html generate_doxygen_xml)
+
+      install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs/sphinx/_build/html/ DESTINATION share/doc/${PROJECT_NAME} COMPONENT Documentation)
+
+    else()
+      message(WARNING "sphinx-build not found. Sphinx documentation will not be built.")
+    endif()
+  else()
+    message(WARNING "Doxygen not found. Documentation targets will not be configured.")
+  endif()
+endif() # End KAKUHEN_BUILD_DOCS

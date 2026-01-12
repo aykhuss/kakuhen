@@ -1,0 +1,65 @@
+# Configuration file for the Sphinx documentation builder.
+#
+# For the full list of built-in configuration values, see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+
+# -- Project information -----------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+
+project = "kakuhen"
+copyright = "2026, Alexander Huss"
+author = "Alexander Huss"
+version = "@PROJECT_VERSION@"
+release = "@PROJECT_VERSION@"
+
+# -- General configuration ---------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+
+extensions = [
+    "breathe",
+    # "myst_parser",
+    "sphinx.ext.viewcode",
+]
+
+templates_path = ["_templates"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+
+# -- Breathe configuration ---------------------------------------------------
+
+breathe_projects = {"kakuhen": "@CMAKE_CURRENT_BINARY_DIR@/doxygen/xml"}
+breathe_default_project = "kakuhen"
+
+breathe_domain_by_extension = {
+    "hpp": "cpp",
+    "h": "cpp",
+}
+
+breathe_show_define_initializer = True
+breathe_show_enum_values = True
+breathe_show_include_files = True
+breathe_member_order = 'alphabetical'
+
+
+# -- Myst configuration ---------------------------------------------------
+
+# myst_enable_extensions = [
+#     "colon_fence",      # ::: blocks
+#     "deflist",          # definition lists
+#     "tasklist",         # - [ ] tasks
+#     "linkify",          # auto-links
+#     "substitution",
+# ]
+
+
+# -- Options for HTML output -------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
+
+# html_theme = "alabaster"
+html_theme = "furo"
+html_static_path = ["@CMAKE_CURRENT_SOURCE_DIR@/docs/sphinx/_static"]
+
+
+# -- C++ domain ---------------------------------------------------------
+primary_domain = "cpp"
+highlight_language = "cpp"

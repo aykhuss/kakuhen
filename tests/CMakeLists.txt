@@ -1,5 +1,3 @@
-enable_testing()
-
 include(FetchContent)
 
 #> Catch2 for our test framework
@@ -25,7 +23,7 @@ set(TEST_SOURCES
 )
 
 add_executable(unit_tests ${TEST_SOURCES})
-target_link_libraries(unit_tests PRIVATE kakuhen Catch2::Catch2WithMain)
+target_link_libraries(unit_tests PRIVATE kakuhen kakuhen_warnings Catch2::Catch2WithMain)
 
 include(CTest)
 include(Catch)
