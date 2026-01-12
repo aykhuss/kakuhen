@@ -30,7 +30,7 @@ int main() {
 
   // we can also parallelize the warmup accross independent runs
   std::vector<std::filesystem::path> data_files{};
-  for (auto i = 100; i < 110; ++i) {
+  for (size_t i = 100; i < 110; ++i) {
     std::cout << "warmup run " << i << "...\n";
     auto vegas_int_i = Vegas(veg_file);
     vegas_int_i.set_seed(i);

@@ -36,6 +36,8 @@ class MyFunctor {
   /// the funciton in 2D to be integrated
   double operator()(const Point<>& point) {
     assert(point.ndim == 2);
+    using size_type = Point<>::size_type;
+
     const auto& x = point.x;  // shorthand
 
     const std::vector<double> r1 = {0.15, 0.2};
@@ -43,7 +45,7 @@ class MyFunctor {
 
     double dr1 = 0.;
     double dr2 = 0.;
-    for (auto i = 0; i < 2; ++i) {
+    for (size_type i = 0; i < 2; ++i) {
       dr1 += (x[i] - r1[i]) * (x[i] - r1[i]);
       dr2 += (x[i] - r2[i]) * (x[i] - r2[i]);
     }
@@ -82,23 +84,23 @@ class MyFunctor {
     count_++;
     /// populate histogram (a)
     /// x[0] from 0,1 in 10 bins, offset = 0
-    auto ibin = 10 * x[0];
+    size_t ibin = size_t(10 * x[0]);
     histogram_data_.at(ibin).value += val;
     histogram_data_.at(ibin).valuesq += valsq;
     /// populate histogram (b)
     /// x[1] from 0,1 in 10 bins, offset = 10
-    ibin = 10 + 10 * x[1];
+    ibin = size_t(10 + 10 * x[1]);
     histogram_data_.at(ibin).value += val;
     histogram_data_.at(ibin).valuesq += valsq;
     /// populate histogram (c)
     /// y == (x[0]+x[1]) from 0,2 in 20 bins, offset = 20
     const double y = x[0] + x[1];
-    ibin = 20 + 20 * (y / 2);
+    ibin = size_t(20 + 20 * (y / 2));
     histogram_data_.at(ibin).value += val;
     histogram_data_.at(ibin).valuesq += valsq;
     /// populate "histogram" (d)
     /// total integral
-    ibin = 40;
+    ibin = size_t(40);
     histogram_data_.at(ibin).value += val;
     histogram_data_.at(ibin).valuesq += valsq;
   }
@@ -107,7 +109,7 @@ class MyFunctor {
     /// loop over all histogram data bins in one go
     double sum_val = 0.;
     double sum_err = 0.;
-    for (auto ibin = 0; ibin < histogram_data_.size(); ++ibin) {
+    for (size_t ibin = 0; ibin < histogram_data_.size(); ++ibin) {
       /// histogram headers:
       if (ibin == 0) std::cout << "\n\n# histogram (a) --- x[0]\n";
       if (ibin == 10) std::cout << "\n\n# histogram (b) --- x[1]\n";
@@ -118,7 +120,7 @@ class MyFunctor {
         sum_err = 0.;
       }
       /// compute x-values of the bin (lower & upper edges) & offsets
-      int jbin;
+      size_t jbin;
       double xlow, xupp;
       if (ibin < 10) {
         jbin = ibin;

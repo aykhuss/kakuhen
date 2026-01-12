@@ -570,8 +570,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     /// (b)  determine the order from the scores
     for (S iord = 0; iord < ndim_; ++iord) {
       T max_score = T(-1);
-      S max_idim1 = -1;
-      S max_idim2 = -1;
+      S max_idim1 = ndim_;  // invalid value for init (-1: not allowed as unsigned)
+      S max_idim2 = ndim_;
 
       /// find highest avg score
       for (S idim1 = 0; idim1 < ndim_; ++idim1) {
@@ -635,6 +635,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         std::cout << "Dimension " << idim << " not covered in order\n";
       }
     }
+    assert(all_dimensions_covered);
 #endif
     /// clear the accumulator to prepare for next iteration
     clear_data();

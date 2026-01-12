@@ -287,7 +287,7 @@ class IntegratorBase {
       //   break;
       // }
 
-      //> adapt the grid if requested
+      // adapt the grid if requested
       if constexpr (has_feature(IntegratorFeature::ADAPT)) {
         if (opts_.adapt && *opts_.adapt) {
           derived().adapt();
@@ -353,6 +353,8 @@ class IntegratorBase {
    * This method serializes the internal state of the integrator to the
    * specified file. This allows the integration to be resumed later.
    *
+   * @note Available only if `IntegratorFeature::STATE` is supported.
+   *
    * @param filepath The path to the file where the state should be saved.
    */
   template <typename D = Derived>
@@ -389,6 +391,8 @@ class IntegratorBase {
    * This method deserializes the internal state of the integrator from the
    * specified file. This allows the integration to be resumed from a previous
    * state.
+   *
+   * @note Available only if `IntegratorFeature::STATE` is supported.
    *
    * @param filepath The path to the file from which the state should be
    * loaded.
@@ -434,6 +438,8 @@ class IntegratorBase {
    * This method is for integrators that support data accumulation. It serializes
    * the accumulated sample data to the specified file.
    *
+   * @note Available only if `IntegratorFeature::DATA` is supported.
+   *
    * @param filepath The path to the file where the data should be saved.
    */
   template <typename D = Derived>
@@ -470,6 +476,8 @@ class IntegratorBase {
    * This method deserializes accumulated sample data from a file and adds it
    * to the integrator's internal data accumulator, allowing for the combination
    * of data from multiple independent runs.
+   *
+   * @note Available only if `IntegratorFeature::DATA` is supported.
    *
    * @param filepath The path to the file from which to append the data.
    */
@@ -646,9 +654,10 @@ class IntegratorBase {
       throw std::runtime_error("type or size mismatch for typename U");
     }
   }
-};  // class IntegratorBase
+};
 
-/// this are special functions for parsing just the header of kakuhen files.
+/// @name Header Utilities
+/// @{
 
 /// @brief Header structure returned by `parse_header` containing integrator metadata.
 struct IntegratorHeader {
@@ -724,5 +733,7 @@ struct IntegratorHeader {
     throw std::ios_base::failure("Failed to open kakuhen file: " + filepath.string());
   }
 }
+
+/// @}
 
 }  // namespace kakuhen::integrator

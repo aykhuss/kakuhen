@@ -58,7 +58,7 @@ TEST_CASE("Write and read container of POD values", "[serialize]") {
   std::vector<double> read_arr(5);
   deserialize_container(ss, read_arr);
 
-  for (auto i = 0; i < arr.size(); ++i) {
+  for (size_t i = 0; i < arr.size(); ++i) {
     REQUIRE(read_arr[i] == arr[i]);
   }
 }
