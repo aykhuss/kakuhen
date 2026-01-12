@@ -375,6 +375,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         assert(grid0_new(ig0) >= grid0_new(ig0 - 1));
 
       /// compute ig1_new <-> ig1 weight table
+      wgt11.fill(T(0));
       for (S ig1_new = 0; ig1_new < ndiv1_; ++ig1_new) {
         const T x1_low_new = ig1_new > 0 ? grid0_new(ig1_new * ndiv2_ - 1) : T(0);
         const T x1_upp_new = grid0_new((ig1_new + 1) * ndiv2_ - 1);
@@ -750,6 +751,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /// @name Output & Serialization Implementation
   /// @{
 
+  /*!
+   * @brief Prints the internal state of the integrator.
+   *
+   * @tparam P The printer type.
+   * @param prt The printer object.
+   */
   template <typename P>
   void print_state(P& prt) const {
     using C = kakuhen::util::printer::Context;
@@ -802,6 +809,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     prt.template end<C::ARRAY>(true);
   }
 
+  /*!
+   * @brief Writes the internal state to a stream.
+   * @param out The output stream.
+   */
   void write_state_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
@@ -812,6 +823,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     order_.serialize(out);
   }
 
+  /*!
+   * @brief Reads the internal state from a stream.
+   * @param in The input stream.
+   */
   void read_state_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
@@ -833,6 +848,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     clear_data();
   }
 
+  /*!
+   * @brief Writes accumulated data to a stream.
+   * @param out The output stream.
+   */
   void write_data_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
@@ -845,6 +864,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     accumulator_.serialize(out);
   }
 
+  /*!
+   * @brief Reads accumulated data from a stream.
+   * @param in The input stream.
+   */
   void read_data_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
@@ -868,6 +891,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     accumulate_data_stream(in);
   }
 
+  /*!
+   * @brief Accumulates data from a stream into the current integrator.
+   * @param in The input stream.
+   */
   void accumulate_data_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
     using namespace kakuhen::util::type;
