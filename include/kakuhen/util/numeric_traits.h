@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <type_traits>
 
-namespace kakuhen::integrator {
+namespace kakuhen::util {
 
 /*!
- * @brief Defines the numeric types used throughout the integrator classes.
+ * @brief Defines the numeric types used throughout the kakuhen classes.
  *
  * This struct serves as a central place to define the primary data types
  * for numerical calculations, sizing of dimensions, and counting of
@@ -79,4 +79,4 @@ using num_traits_t = typename num_traits_of<Args...>::type;
 
 /// @}
 
-}  // namespace kakuhen::integrator
+}  // namespace kakuhen::util

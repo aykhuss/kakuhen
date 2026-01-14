@@ -281,7 +281,7 @@ class NeumaierAccumulator final : public AccumulatorBase<NeumaierAccumulator<T>,
 template <typename T>
 class TwoSumAccumulator final : public AccumulatorBase<TwoSumAccumulator<T>, T> {
  public:
-  static inline constexpr T epsilon = std::numeric_limits<T>::epsilon() * 10;
+  // static inline constexpr T epsilon = std::numeric_limits<T>::epsilon() * 10;
 
   constexpr explicit TwoSumAccumulator(const T& initial = T(0)) noexcept
       : sum_(initial), c_(T(0)) {}

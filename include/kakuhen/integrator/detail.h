@@ -1,6 +1,6 @@
 #pragma once
 
-#include "kakuhen/integrator/numeric_traits.h"
+#include "kakuhen/util/numeric_traits.h"
 #include <type_traits>
 
 namespace kakuhen::integrator::detail {
@@ -63,7 +63,7 @@ struct function_traits<R (C::*)(Arg)> {
  * @tparam F The functor type (e.g., lambda or struct with operator()).
  */
 template <typename F>
-using num_traits_arg_t = num_traits_t<
+using num_traits_arg_t = kakuhen::util::num_traits_t<
     std::remove_cvref_t<typename function_traits<decltype(&F::operator())>::argument_type>>;
 
 /// @}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "numeric_traits.h"
+#include "kakuhen/util/numeric_traits.h"
 #include <vector>
 
 namespace kakuhen::integrator {
@@ -17,7 +17,7 @@ namespace kakuhen::integrator {
  * @tparam NT The numeric traits for the integrator, defining value_type,
  * size_type, and count_type.
  */
-template <typename NT = num_traits_t<>>
+template <typename NT = kakuhen::util::num_traits_t<>>
 struct Point {
   using num_traits = NT;
   using value_type = typename num_traits::value_type;
@@ -55,7 +55,13 @@ struct Point {
  * @tparam Args Arguments passed to `num_traits_of`.
  */
 template <typename... Args>
-using point_t = Point<typename num_traits_of<Args...>::type>;
+using point_t = Point<typename kakuhen::util::num_traits_of<Args...>::type>;
+
+/// @}
+
+}  // namespace kakuhen::integrator
+
+namespace kakuhen::util {
 
 /*!
  * @brief num_traits_of specialization for Point types.
@@ -65,10 +71,8 @@ using point_t = Point<typename num_traits_of<Args...>::type>;
  * @tparam Args Template arguments of the Point (which is expected to be a NumericTraits).
  */
 template <typename... Args>
-struct num_traits_of<Point<Args...>> {
+struct num_traits_of<kakuhen::integrator::Point<Args...>> {
   using type = typename num_traits_of<Args...>::type;
 };
 
-/// @}
-
-}  // namespace kakuhen::integrator
+}  // namespace kakuhen::util

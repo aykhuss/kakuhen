@@ -2,10 +2,10 @@
 
 #include "kakuhen/integrator/integral_accumulator.h"
 #include "kakuhen/integrator/integrator_feature.h"
-#include "kakuhen/integrator/numeric_traits.h"
 #include "kakuhen/integrator/options.h"
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/result.h"
+#include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
@@ -53,7 +53,7 @@ constexpr std::string_view suffix_data = ".khd";
 }  // namespace detail
 
 /// @brief Default type definitions for integrator template parameters.
-template <typename NT = num_traits_t<>>
+template <typename NT = util::num_traits_t<>>
 struct IntegratorDefaults {
   using rng_type = std::mt19937_64;
   using dist_type = std::uniform_real_distribution<typename NT::value_type>;
@@ -75,7 +75,7 @@ struct IntegratorDefaults {
  * @tparam RNG The random number generator to use.
  * @tparam DIST The random number distribution to use.
  */
-template <typename Derived, typename NT = num_traits_t<>,
+template <typename Derived, typename NT = util::num_traits_t<>,
           typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class IntegratorBase {

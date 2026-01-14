@@ -2,12 +2,9 @@
 
 #include "kakuhen/integrator/grid_accumulator.h"
 #include "kakuhen/integrator/integrator_base.h"
-#include "kakuhen/integrator/numeric_traits.h"
-#include "kakuhen/integrator/point.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/ndarray/ndview.h"
 #include "kakuhen/util/hash.h"
-#include "kakuhen/util/serialize.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -36,7 +33,7 @@ namespace kakuhen::integrator {
  * @tparam RNG The random number generator to use.
  * @tparam DIST The random number distribution to use.
  */
-template <typename NT = num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
+template <typename NT = util::num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  public:

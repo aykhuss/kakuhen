@@ -158,7 +158,7 @@ Docs will be generated in `build/docs/sphinx/_build/html`.
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the Apache-2.0 License. See `LICENSE` for more information.
 
 ---
 

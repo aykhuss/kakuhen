@@ -4,7 +4,8 @@
 
 namespace kakuhen::integrator {
 
-/// @todo Update with algo in https://arxiv.org/pdf/2206.10662
+/// @note considered switching to Welford algo: Decided against it as division is 10x-20x slower
+/// than addition and compensated summation is more performant and provides the necessry precision
 /// @todo Also write an accum function add(f) and add(f,f2)
 
 /*!
