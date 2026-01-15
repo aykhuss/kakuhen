@@ -13,7 +13,18 @@ option(KAKUHEN_BUILD_TESTING "Enable creation of kakuhen tests." OFF)
 #> enable building CLI tool
 option(KAKUHEN_BUILD_CLI "Build kakuhen CLI tool" OFF)
 #> enable building documentation
-option(KAKUHEN_BUILD_DOCS "Build project documentation" OFF) # New option
+option(KAKUHEN_BUILD_DOCS "Build project documentation" OFF)
+#> enable code coverage
+option(KAKUHEN_ENABLE_COVERAGE "Enable code coverage generation" OFF)
+
+if(KAKUHEN_ENABLE_COVERAGE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(--coverage)
+    add_link_options(--coverage)
+  else()
+    message(WARNING "Code coverage is only supported for GCC and Clang")
+  endif()
+endif() # End KAKUHEN_ENABLE_COVERAGE
 
 #> default build type is: Release
 if (NOT CMAKE_BUILD_TYPE)

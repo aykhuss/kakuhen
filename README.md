@@ -4,6 +4,7 @@
 
 ![Standard](https://img.shields.io/badge/standard-C%2B%2B20-blue.svg?logo=c%2B%2B)
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
+[![codecov](https://codecov.io/github/aykhuss/kakuhen/graph/badge.svg?token=RMQXCWQ4XL)](https://codecov.io/github/aykhuss/kakuhen)
 
 **kakuhen** provides efficient, type-safe implementations of adaptive Monte Carlo integration algorithms for high-dimensional functions. Designed for performance and ease of use, it allows seamless state serialization, enabling checkpointing and parallelization of integration tasks.
 

@@ -1,5 +1,3 @@
-# This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
-# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
 name: CMake on multiple platforms
 
 on:
@@ -16,15 +14,10 @@ jobs:
       # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
 
-      # Set up a matrix to run the following 3 configurations:
-      # 1. <Windows, Release, latest MSVC compiler toolchain on the default runner image, default generator>
-      # 2. <Linux, Release, latest GCC compiler toolchain on the default runner image, default generator>
-      # 3. <Linux, Release, latest Clang compiler toolchain on the default runner image, default generator>
-      #
-      # To add more build types (Release, Debug, RelWithDebInfo, etc.) customize the build_type list.
+      # Set up a matrix to run different configurations:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        build_type: [Release]
+        build_type: [Debug, Release]
         c_compiler: [gcc, clang, cl]
         include:
           - os: windows-latest
@@ -66,6 +59,7 @@ jobs:
           -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DKAKUHEN_BUILD_TESTING=ON
+          -DKAKUHEN_ENABLE_COVERAGE=ON
           -DKAKUHEN_BUILD_CLI=ON
           -S ${{ github.workspace }}
 
@@ -78,6 +72,16 @@ jobs:
         # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
         run: ctest --build-config ${{ matrix.build_type }}
+
+      - name: Coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Debug' && matrix.c_compiler == 'gcc'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # Required for private repos, optional for public
+          directory: ${{ steps.strings.outputs.build-output-dir }}
+          fail_ci_if_error: true
+          verbose: true
+          gcov: true
 
   build_docs:
     runs-on: ubuntu-latest
@@ -92,7 +96,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install documentation dependencies
         run: |
