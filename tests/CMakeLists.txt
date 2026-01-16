@@ -10,16 +10,19 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(catch2)
 
 set(TEST_SOURCES
-  test_ndarray.cpp
+  test_accumulator.cpp
+  test_basin.cpp
   test_hash.cpp
+  test_histogram.cpp
+  test_histogram_registry.cpp
+  test_histogram_view.cpp
+  test_math.cpp
+  test_ndarray.cpp
+  test_printer.cpp
+  test_result.cpp
   test_serialize.cpp
   test_user_data.cpp
-  test_accumulator.cpp
-  test_result.cpp
   test_vegas.cpp
-  test_basin.cpp
-  test_math.cpp
-  test_printer.cpp
 )
 
 add_executable(unit_tests ${TEST_SOURCES})
