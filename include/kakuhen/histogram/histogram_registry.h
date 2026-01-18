@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -44,24 +45,73 @@ class HistogramRegistry {
   using AxisVariant = std::variant<std::monostate, UniformAxis<T, S>, VariableAxis<T, S>>;
 
   /*!
-   * @brief Books a new histogram (View only, no axis).
+   * @brief Creates and registers a new axis.
+   *
+   * @tparam AxisType The type of axis (UniformAxis or VariableAxis).
+   * @param args Constructor arguments for the axis (excluding AxisData).
+   * @return The ID of the registered axis.
    */
-  [[nodiscard]] Id book(std::string_view name, S n_bins, S n_values_per_bin = 1) {
-    return book_impl(name, std::monostate{}, n_bins, n_values_per_bin);
+  template <typename AxisType, typename... Args>
+  [[nodiscard]] AxId create_axis(Args&&... args)
+    requires(std::is_same_v<AxisType, UniformAxis<T, S>> ||
+             std::is_same_v<AxisType, VariableAxis<T, S>>)
+  {
+    axes_.emplace_back(std::in_place_type<AxisType>, axis_data_, std::forward<Args>(args)...);
+    return AxId{static_cast<S>(axes_.size() - 1)};
   }
 
   /*!
-   * @brief Books a new histogram with an axis.
-   *
-   * @param name Unique name.
-   * @param axis The axis view object (constructed with registry.axis_data()).
+   * @brief Creates and registers a new axis using an initializer list.
+   * Useful for VariableAxis edges.
    */
   template <typename AxisType>
-  [[nodiscard]] Id book(std::string_view name, AxisType axis, S n_values_per_bin = 1)
-    requires(!std::is_integral_v<AxisType>)
+  [[nodiscard]] AxId create_axis(std::initializer_list<T> list)
+    requires(std::is_same_v<AxisType, VariableAxis<T, S>>)
   {
-    S n_bins = axis.n_bins();  // Capture size before move
-    return book_impl(name, std::move(axis), n_bins, n_values_per_bin);
+    return create_axis<AxisType>(std::vector<T>(list));
+  }
+
+  /*!
+   * @brief Books a new histogram using an existing axis ID.
+   *
+   * @param name A unique identifier for the histogram.
+   * @param axis_id The ID of the registered axis.
+   * @param n_values_per_bin The number of values per bin.
+   * @return A `HistogramId` handle.
+   */
+  [[nodiscard]] Id book(std::string_view name, AxId axis_id, S n_values_per_bin = 1) {
+    if (axis_id.id() >= axes_.size()) {
+      throw std::out_of_range("Invalid AxisId");
+    }
+
+    const auto& axis_var = axes_[axis_id.id()];
+
+    S n_bins = std::visit(
+        [](const auto& ax) -> S {
+          if constexpr (std::is_same_v<std::decay_t<decltype(ax)>, std::monostate>) {
+            throw std::invalid_argument(
+                "Cannot book histogram with monostate axis using this method.");
+          } else {
+            return ax.n_bins();
+          }
+        },
+        axis_var);
+
+    return book_with_id(name, axis_id, n_bins, n_values_per_bin);
+  }
+
+  /*!
+   * @brief Books a new histogram (View only, no axis).
+   *
+   * @param name A unique identifier for the histogram.
+   * @param n_bins The number of bins.
+   * @param n_values_per_bin The number of values per bin (default 1).
+   * @return A `HistogramId` handle to the booked histogram.
+   */
+  [[nodiscard]] Id book(std::string_view name, S n_bins, S n_values_per_bin = 1) {
+    axes_.emplace_back(std::monostate{});
+    AxId ax_id{static_cast<S>(axes_.size() - 1)};
+    return book_with_id(name, ax_id, n_bins, n_values_per_bin);
   }
 
   /*!
@@ -93,15 +143,10 @@ class HistogramRegistry {
           using Type = std::decay_t<decltype(ax)>;
 
           if constexpr (!std::is_same_v<Type, std::monostate>) {
-            // Safe implementation:
-            // We need to pass axis_data_ to index.
-            // AxisView::index signature expects AxisData&, but we are const.
-            // Since we know index() doesn't mutate data (based on implementation),
-            // const_cast is acceptable here to bridge the API mismatch.
-            int bin_idx = ax.index(const_cast<AxisData<T, S>&>(axis_data_), x);
+            S bin_idx = ax.index(axis_data_, x);
 
-            if (bin_idx >= 0 && static_cast<S>(bin_idx) < ax.n_bins()) {
-              entry.view.fill(buffer, static_cast<S>(bin_idx), value);
+            if (bin_idx < ax.n_bins()) {
+              entry.view.fill(buffer, bin_idx, value);
             }
           }
         },
@@ -169,14 +214,9 @@ class HistogramRegistry {
     View view;
   };
 
-  Id book_impl(std::string_view name, AxisVariant axis, S n_bins, S n_values) {
+  Id book_with_id(std::string_view name, AxId axis_id, S n_bins, S n_values) {
     names_.emplace_back(name);
-    // Register axis
-    axes_.emplace_back(std::move(axis));
-    AxId ax_id{static_cast<S>(axes_.size() - 1)};
-
-    // Register histogram
-    entries_.push_back({ax_id, View(data_, n_bins, n_values)});
+    entries_.push_back({axis_id, View(data_, n_bins, n_values)});
     return Id{static_cast<S>(entries_.size() - 1)};
   }
 

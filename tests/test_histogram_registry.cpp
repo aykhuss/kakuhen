@@ -28,6 +28,7 @@ TEST_CASE("HistogramRegistry booking and filling", "[HistogramRegistry]") {
   registry.fill(buffer, h2_id, 0, v2); // Global idx 10, 11 (start of h2)
 
   // Test scalar fill overload
+  // Cast index to uint32_t to resolve ambiguity with (id, x, val) overload
   registry.fill(buffer, h1_id, static_cast<uint32_t>(1), 200.0); // Global idx 1
 
   // 4. Flush
@@ -43,22 +44,22 @@ TEST_CASE("HistogramRegistry booking and filling", "[HistogramRegistry]") {
 TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   HistogramRegistry<> registry;
 
-  // 1. Create Axes using Registry's data
-  UniformAxis<double, uint32_t> u_axis(registry.axis_data(), 10, 0.0, 100.0);
-  VariableAxis<double, uint32_t> v_axis(registry.axis_data(), {0.0, 10.0, 100.0});
+  // 1. Create Axes using Registry's create_axis helper
+  auto u_id = registry.create_axis<UniformAxis<double, uint32_t>>(10, 0.0, 100.0);
+  auto v_id = registry.create_axis<VariableAxis<double, uint32_t>>({0.0, 10.0, 100.0});
 
-  // 2. Book Histograms with Axes
-  auto h_u = registry.book("h_uniform", u_axis);
-  auto h_v = registry.book("h_variable", v_axis);
+  // 2. Book Histograms with Axes via IDs
+  auto h_u = registry.book("h_uniform", u_id);
+  auto h_v = registry.book("h_variable", v_id);
 
   auto buffer = registry.create_buffer();
 
   // 3. Fill using x-values
-  registry.fill(buffer, h_u, 5.0, 1.0);   // bin 0 [0,10)
-  registry.fill(buffer, h_u, 15.0, 2.0);  // bin 1 [10,20)
+  registry.fill(buffer, h_u, 5.0, 1.0);   // bin 0 [0,10) -> index 1
+  registry.fill(buffer, h_u, 15.0, 2.0);  // bin 1 [10,20) -> index 2
   
-  registry.fill(buffer, h_v, 5.0, 1.0);   // bin 0 [0,10)
-  registry.fill(buffer, h_v, 50.0, 2.0);  // bin 1 [10,100)
+  registry.fill(buffer, h_v, 5.0, 1.0);   // bin 0 [0,10) -> index 13
+  registry.fill(buffer, h_v, 50.0, 2.0);  // bin 1 [10,100) -> index 14
 
   registry.flush(buffer);
 

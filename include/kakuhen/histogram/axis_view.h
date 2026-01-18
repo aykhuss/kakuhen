@@ -47,7 +47,7 @@ class AxisView {
    * @param x The coordinate value.
    * @return The bin index.
    */
-  [[nodiscard]] S index(AxisData<T, S>& axis_data, const T& x) const {
+  [[nodiscard]] S index(const AxisData<T, S>& axis_data, const T& x) const {
     return static_cast<const Derived*>(this)->index_impl(axis_data, x);
   }
 
@@ -85,7 +85,7 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
     if (min >= max) throw std::invalid_argument("min must be < max");
   }
 
-  [[nodiscard]] S index_impl(AxisData<T, S>& axis_data, const T& x) const noexcept {
+  [[nodiscard]] S index_impl(const AxisData<T, S>& axis_data, const T& x) const noexcept {
     // Data layout: [min, max, scale]
     const T& min_val = axis_data[offset_];
     const T& max_val = axis_data[offset_ + 1];
@@ -129,7 +129,7 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
     }
   }
 
-  [[nodiscard]] S index_impl(AxisData<T, S>& axis_data, const T& x) const {
+  [[nodiscard]] S index_impl(const AxisData<T, S>& axis_data, const T& x) const {
     auto begin = axis_data.data().begin() + offset_;
     auto end = begin + size_;
 
