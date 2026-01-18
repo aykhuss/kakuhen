@@ -1,5 +1,7 @@
 #pragma once
 
+#include <compare>
+
 namespace kakuhen::histogram {
 
 /*!
@@ -21,13 +23,14 @@ class HistogramId {
    */
   [[nodiscard]] constexpr S id() const noexcept { return id_; }
 
-  friend constexpr bool operator==(const HistogramId& lhs, const HistogramId& rhs) noexcept {
-    return lhs.id_ == rhs.id_;
-  }
+  /*!
+   * @brief Conversion operator to the underlying size type.
+   * Allows the ID to be used as an index directly.
+   */
+  constexpr operator S() const noexcept { return id_; }
 
-  friend constexpr bool operator!=(const HistogramId& lhs, const HistogramId& rhs) noexcept {
-    return lhs.id_ != rhs.id_;
-  }
+  // Default comparison operators (C++20)
+  auto operator<=>(const HistogramId&) const = default;
 
  private:
   S id_;
