@@ -31,7 +31,9 @@ class HistogramId {
     return id_;
   }
 
-  // Default comparison operators (C++20)
+  /*!
+   * @brief Default three-way comparison operator.
+   */
   auto operator<=>(const HistogramId&) const = default;
 
  private:

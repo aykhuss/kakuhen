@@ -22,23 +22,37 @@ class AxisView {
  public:
   using value_type = T;
   using size_type = S;
-  // using data_type = AxisData<T, S>;
 
+  /*!
+   * @brief Constructs an AxisView.
+   *
+   * @param axis_data The shared axis data storage.
+   * @param offset The starting index in axis_data.
+   * @param size The number of elements used in axis_data.
+   * @param n_bins The number of bins.
+   */
   AxisView(AxisData<T, S>& axis_data, S offset, S size, S n_bins)
-      : offset_{offset}, size_{size}, n_bins_{n_bins} {}
+      : offset_{offset}, size_{size}, n_bins_{n_bins} {
+    (void)axis_data; // Unused in base, but required for derived class initialization logic
+  }
 
   /*!
    * @brief Maps a coordinate to a bin index.
    *
+   * Indexing convention:
+   * - 0: Underflow (x < min)
+   * - 1 .. N: Regular bins
+   * - N + 1: Overflow (x >= max)
+   *
    * @param x The coordinate value.
-   * @return The bin index, or -1 for underflow, size() for overflow.
+   * @return The bin index.
    */
-  [[nodiscard]] int index(AxisData<T, S>& axis_data, const T& x) const {
+  [[nodiscard]] S index(AxisData<T, S>& axis_data, const T& x) const {
     return static_cast<const Derived*>(this)->index_impl(axis_data, x);
   }
 
   /*!
-   * @brief Get the number of bins.
+   * @brief Get the total number of bins (including underflow/overflow).
    */
   [[nodiscard]] S n_bins() const noexcept {
     return n_bins_;
@@ -66,20 +80,22 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
   using Base::size_;
 
   UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max)
-      : Base(data, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3), n_bins) {
+      : Base(data, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3), n_bins + 2) {
     if (n_bins == 0) throw std::invalid_argument("n_bins must be > 0");
     if (min >= max) throw std::invalid_argument("min must be < max");
   }
 
-  [[nodiscard]] int index_impl(AxisData<T, S>& axis_data, const T& x) const noexcept {
+  [[nodiscard]] S index_impl(AxisData<T, S>& axis_data, const T& x) const noexcept {
     // Data layout: [min, max, scale]
     const T& min_val = axis_data[offset_];
     const T& max_val = axis_data[offset_ + 1];
     const T& scale_val = axis_data[offset_ + 2];
 
-    if (x < min_val) return -1;
-    if (x >= max_val) return static_cast<int>(n_bins_);
-    return static_cast<int>((x - min_val) * scale_val);
+    if (x < min_val) return 0; // Underflow
+    if (x >= max_val) return n_bins_ - 1; // Overflow
+    
+    // Regular bins start at 1
+    return static_cast<S>(1 + (x - min_val) * scale_val);
   }
 };
 
@@ -106,22 +122,23 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
    */
   VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges)
       : Base(data, data.add_data(edges), static_cast<S>(edges.size()),
-             static_cast<S>(edges.size() - 1)) {
+             static_cast<S>(edges.size() + 1)) {
     if (edges.size() < 2) throw std::invalid_argument("VariableAxis requires at least 2 edges");
     if (!std::is_sorted(edges.begin(), edges.end())) {
       throw std::invalid_argument("Edges must be sorted");
     }
   }
 
-  [[nodiscard]] int index_impl(AxisData<T, S>& axis_data, const T& x) const {
+  [[nodiscard]] S index_impl(AxisData<T, S>& axis_data, const T& x) const {
     auto begin = axis_data.data().begin() + offset_;
     auto end = begin + size_;
 
-    if (x < *begin) return -1;
-    if (x >= *(end - 1)) return static_cast<int>(n_bins_);
+    if (x < *begin) return 0; // Underflow
+    if (x >= *(end - 1)) return n_bins_ - 1; // Overflow
 
     auto it = std::upper_bound(begin, end, x);
-    return static_cast<int>(std::distance(begin, it) - 1);
+    // distance gives 1-based index effectively because *begin <= x < *begin+1 gives it=begin+1 -> dist=1
+    return static_cast<S>(std::distance(begin, it));
   }
 };
 

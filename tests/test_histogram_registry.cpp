@@ -63,15 +63,19 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   registry.flush(buffer);
 
   // 4. Verify
-  // h_u starts at 0.
-  REQUIRE(registry.data().bins()[0].weight() == Approx(1.0));
-  REQUIRE(registry.data().bins()[1].weight() == Approx(2.0));
+  // h_u starts at 0. Size 12 (10 + 2).
+  // bin 0: underflow
+  // bin 1: [0, 10) -> 5.0 -> weight 1.0
+  // bin 2: [10, 20) -> 15.0 -> weight 2.0
+  REQUIRE(registry.data().bins()[1].weight() == Approx(1.0));
+  REQUIRE(registry.data().bins()[2].weight() == Approx(2.0));
 
-  // h_v starts at 10.
-  // h_v bin 0 -> global 10
-  // h_v bin 1 -> global 11
-  REQUIRE(registry.data().bins()[10].weight() == Approx(1.0));
-  REQUIRE(registry.data().bins()[11].weight() == Approx(2.0));
+  // h_v starts at 12. Size 4 (2 + 2).
+  // bin 0 (global 12): underflow
+  // bin 1 (global 13): [0, 10) -> 5.0 -> weight 1.0
+  // bin 2 (global 14): [10, 100) -> 50.0 -> weight 2.0
+  REQUIRE(registry.data().bins()[13].weight() == Approx(1.0));
+  REQUIRE(registry.data().bins()[14].weight() == Approx(2.0));
 }
 
 TEST_CASE("HistogramRegistry name lookup", "[HistogramRegistry]") {

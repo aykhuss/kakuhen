@@ -31,7 +31,9 @@ class AxisId {
     return id_;
   }
 
-  // Default comparison operators (C++20)
+  /*!
+   * @brief Default three-way comparison operator.
+   */
   auto operator<=>(const AxisId&) const = default;
 
  private:
