@@ -3,18 +3,18 @@
 namespace kakuhen::histogram {
 
 /*!
- * @brief A strongly-typed identifier for a registered histogram.
+ * @brief A strongly-typed identifier for a registered axis.
  *
- * Wraps an index to the internal registry storage.
+ * Wraps an index to the internal axis storage.
  *
  * @tparam S The size type used for indexing (e.g., uint32_t).
  */
 template <typename S>
-class HistogramId {
+class AxisId {
  public:
   using size_type = S;
 
-  constexpr explicit HistogramId(S id) noexcept : id_(id) {}
+  constexpr explicit AxisId(S id) noexcept : id_(id) {}
 
   /*!
    * @brief Get the underlying integer index.
@@ -32,7 +32,7 @@ class HistogramId {
   }
 
   // Default comparison operators (C++20)
-  auto operator<=>(const HistogramId&) const = default;
+  auto operator<=>(const AxisId&) const = default;
 
  private:
   S id_;

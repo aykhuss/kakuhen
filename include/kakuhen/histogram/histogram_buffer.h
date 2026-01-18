@@ -1,12 +1,10 @@
 #pragma once
 
-#include "kakuhen/histogram/bin_accumulator.h"
 #include "kakuhen/histogram/histogram_data.h"
 #include "kakuhen/util/accumulator.h"
 #include "kakuhen/util/numeric_traits.h"
 #include <algorithm>
 #include <bit>
-#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>

@@ -2,9 +2,6 @@
 
 #include "kakuhen/histogram/axis_data.h"
 #include <algorithm>
-#include <cmath>
-#include <concepts>
-#include <span>
 #include <stdexcept>
 #include <vector>
 
