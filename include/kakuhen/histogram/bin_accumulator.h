@@ -100,7 +100,7 @@ struct BinAccumulator {
   /// @name Accessors
   /// @{
 
-  /*!
+  /**
    * @brief Get the accumulated sum of weights.
    * @return The sum of weights ($W$).
    */
@@ -108,7 +108,7 @@ struct BinAccumulator {
     return acc_wgt_.result();
   }
 
-  /*!
+  /**
    * @brief Get the accumulated sum of squared weights.
    * @return The sum of squared weights ($W^2$).
    */
@@ -121,7 +121,7 @@ struct BinAccumulator {
   /// @name Serialization
   /// @{
 
-  /*!
+  /**
    * @brief Serializes the bin accumulator to an output stream.
    * @param out The output stream.
    */
@@ -130,9 +130,10 @@ struct BinAccumulator {
     acc_wgt_sq_.serialize(out);
   }
 
-  /*!
+  /**
    * @brief Deserializes the bin accumulator from an input stream.
    * @param in The input stream.
+   * @throws std::runtime_error If deserialization fails.
    */
   void deserialize(std::istream& in) {
     acc_wgt_.deserialize(in);

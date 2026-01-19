@@ -171,21 +171,43 @@ class HistogramRegistry {
     return buffer;
   }
 
-  HistogramData<NT>& data() noexcept {
-    return data_;
-  }
-  const HistogramData<NT>& data() const noexcept {
+  /**
+   * @brief Access the underlying global bin storage.
+   * @return A reference to the `HistogramData` object.
+   */
+  [[nodiscard]] HistogramData<NT>& data() noexcept {
     return data_;
   }
 
-  AxisData<T, S>& axis_data() noexcept {
-    return axis_data_;
+  /**
+   * @brief Access the underlying global bin storage (const).
+   * @return A const reference to the `HistogramData` object.
+   */
+  [[nodiscard]] const HistogramData<NT>& data() const noexcept {
+    return data_;
   }
-  const AxisData<T, S>& axis_data() const noexcept {
+
+  /**
+   * @brief Access the underlying axis parameter storage.
+   * @return A reference to the `AxisData` object.
+   */
+  [[nodiscard]] AxisData<T, S>& axis_data() noexcept {
     return axis_data_;
   }
 
-  std::vector<Id> ids() const {
+  /**
+   * @brief Access the underlying axis parameter storage (const).
+   * @return A const reference to the `AxisData` object.
+   */
+  [[nodiscard]] const AxisData<T, S>& axis_data() const noexcept {
+    return axis_data_;
+  }
+
+  /**
+   * @brief Retrieve the list of all registered histogram IDs.
+   * @return A vector containing the `HistogramId` for each booked histogram.
+   */
+  [[nodiscard]] std::vector<Id> ids() const {
     std::vector<Id> result;
     result.reserve(entries_.size());
     for (S i = 0; i < static_cast<S>(entries_.size()); ++i) {
@@ -194,14 +216,35 @@ class HistogramRegistry {
     return result;
   }
 
-  View get_view(Id id) const {
+  /**
+   * @brief Retrieve the view handle for a specific histogram.
+   * @param id The unique histogram ID.
+   * @return The `HistogramView` for the histogram.
+   */
+  [[nodiscard]] View get_view(Id id) const {
     return entries_[id.id()].view;
   }
-  std::string_view get_name(Id id) const {
+
+  /**
+   * @brief Retrieve the human-readable name for a specific histogram.
+   * @param id The unique histogram ID.
+   * @return The name string view.
+   */
+  [[nodiscard]] std::string_view get_name(Id id) const {
     return names_[id.id()];
   }
 
-  Id get_id(std::string_view name) const {
+  /**
+   * @brief Look up a histogram's unique ID by its registered name.
+   * 
+   * @param name The name to search for.
+   * @return The `HistogramId` of the matching histogram.
+   * @throws std::runtime_error If the name is not found in the registry.
+   * 
+   * @note This lookup is O(N) and should be used during setup or analysis,
+   *       not in high-frequency loops.
+   */
+  [[nodiscard]] Id get_id(std::string_view name) const {
     for (size_t i = 0; i < names_.size(); ++i) {
       if (names_[i] == name) return Id{static_cast<S>(i)};
     }
@@ -209,23 +252,27 @@ class HistogramRegistry {
   }
 
  private:
+  /// @brief Internal structure mapping a histogram handle to its components.
   struct Entry {
-    AxId axis_id;
-    View view;
+    AxId axis_id;  //!< ID of the axis definition used.
+    View view;     //!< Handle to the physical bin storage.
   };
 
+  /**
+   * @brief Internal helper to finalize the booking of a histogram.
+   */
   Id book_with_id(std::string_view name, AxId axis_id, S n_bins, S n_values) {
     names_.emplace_back(name);
     entries_.push_back({axis_id, View(data_, n_bins, n_values)});
     return Id{static_cast<S>(entries_.size() - 1)};
   }
 
-  HistogramData<NT> data_;
-  AxisData<T, S> axis_data_;
+  HistogramData<NT> data_;      //!< Physical storage for all bins.
+  AxisData<T, S> axis_data_;    //!< Storage for axis edges and parameters.
 
-  std::vector<Entry> entries_;
-  std::vector<AxisVariant> axes_;
-  std::vector<std::string> names_;
+  std::vector<Entry> entries_;   //!< Map of HistogramId to axis and view.
+  std::vector<AxisVariant> axes_; //!< Registry of axis definitions.
+  std::vector<std::string> names_; //!< Registry of histogram names.
 };
 
 }  // namespace kakuhen::histogram

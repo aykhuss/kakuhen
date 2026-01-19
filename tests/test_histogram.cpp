@@ -114,7 +114,7 @@ TEST_CASE("HistogramBuffer logic", "[histogram]") {
 
   // Setup 100 global bins
   size_t n_bins = 100;
-  data.allocate(n_bins);
+  data.allocate(static_cast<uint32_t>(n_bins));
   buffer.init(static_cast<uint32_t>(n_bins));
 
   SECTION("Basic fill and flush") {
@@ -175,15 +175,15 @@ TEST_CASE("HistogramBuffer logic", "[histogram]") {
     // or running billions of loops.
     // However, we can verify that repeated flushing works correctly.
 
-    for (int i = 0; i < 100; ++i) {
+    for (uint32_t i = 0; i < 100; ++i) {
       buffer.fill(i % 10, 1.0);
       buffer.flush(data);
     }
 
     REQUIRE(data.count() == 100);
-    for (int i = 0; i < 10; ++i) {
+    for (uint32_t i = 0; i < 10; ++i) {
       // Each bin 0..9 filled 10 times with 1.0
-      REQUIRE(data.bins()[i].weight() == Approx(10.0));
+      REQUIRE(data.bins()[static_cast<size_t>(i)].weight() == Approx(10.0));
     }
   }
 }

@@ -49,7 +49,6 @@ class HistogramData {
   S allocate(S n_bins) {
     S start_index = size();
     bins_.resize(start_index + n_bins, bin_type{});
-    bins_.shrink_to_fit();
     return start_index;
   }
 
@@ -96,7 +95,7 @@ class HistogramData {
     n_count_++;
   }
 
-  /*!
+  /**
    * @brief Access the underlying vector of bins.
    *
    * This is used by `HistogramBuffer::flush` to write aggregated data.
@@ -107,7 +106,7 @@ class HistogramData {
     return bins_;
   }
 
-  /*!
+  /**
    * @brief Access the underlying vector of bins (const).
    *
    * @return A const reference to the vector of bin accumulators.
@@ -116,21 +115,23 @@ class HistogramData {
     return bins_;
   }
 
-  /*!
-   * @brief Get the number of bins.
+  /**
+   * @brief Get the number of bins in storage.
+   * @return Total bin count.
    */
   [[nodiscard]] inline S size() const noexcept {
     return static_cast<S>(bins_.size());
   }
 
-  /*!
-   * @brief Get the total number of accumulated events.
+  /**
+   * @brief Get the total number of accumulated events (flushes).
+   * @return Total event count.
    */
   [[nodiscard]] inline U count() const noexcept {
     return n_count_;
   }
 
-  /*!
+  /**
    * @brief Serializes the histogram data to an output stream.
    * @param out The output stream.
    */
@@ -140,21 +141,22 @@ class HistogramData {
     kakuhen::util::serialize::serialize_container(out, bins_);
   }
 
-  /*!
+  /**
    * @brief Deserializes the histogram data from an input stream.
    * @param in The input stream.
+   * @throws std::runtime_error If deserialization fails.
    */
   void deserialize(std::istream& in) {
     kakuhen::util::serialize::deserialize_one<U>(in, n_count_);
     S size_in;
     kakuhen::util::serialize::deserialize_one<S>(in, size_in);
-    bins_.resize(size_in);
+    bins_.resize(static_cast<std::size_t>(size_in));
     kakuhen::util::serialize::deserialize_container(in, bins_);
   }
 
  private:
-  std::vector<bin_type> bins_;
-  U n_count_ = U(0);
+  std::vector<bin_type> bins_;  //!< Flattened storage for all histogram bins.
+  U n_count_ = U(0);            //!< Total number of events contributed.
 };
 
 }  // namespace kakuhen::histogram

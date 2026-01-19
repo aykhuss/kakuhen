@@ -50,19 +50,22 @@ class HistogramBuffer {
   using T = value_type;
   using U = count_type;
 
-  /*!
-   * @brief Configures the buffer for a specific global storage size.
+  /**
+   * @brief Initializes and configures the buffer for a specific global storage size.
    *
-   * Must be called once before any filling occurs. It calculates the optimal
-   * bit allocation for the packed generation index based on the total number
-   * of global bins.
+   * This method must be called once before any filling occurs. It calculates the optimal
+   * bit allocation for the packed generation index based on the total number of global bins
+   * to maximize the time between mandatory map clears.
    *
-   * @param n_total_bins The total number of bins in the global storage.
-   * @param reserve_size Initial capacity for the local dense buffers.
-   * @throws std::runtime_error If the index type S is too small to accommodate
-   * the bin index and at least 4 bits for the generation counter.
+   * @param n_total_bins The total number of bins in the global `HistogramData` storage.
+   * @param reserve_size Initial capacity for the thread-local dense buffers to avoid reallocations.
+   * @throws std::runtime_error If the index type `S` is too small to accommodate the bin
+   *         index and the minimum required generation counter bits (4).
+   *
+   * @note The `sparse_map_` is initialized with zeros. A value of 0 in the map indicates
+   *       that the bin has never been touched in the current generation.
    */
-  void init(S n_total_bins, S reserve_size = 1024) {
+  void init(S n_total_bins, std::size_t reserve_size = 1024) {
     if (n_total_bins == 0) return;
 
     // Determine total bits available in the index type S
@@ -70,7 +73,7 @@ class HistogramBuffer {
 
     // Calculate bits needed for the buffer index
     const unsigned int index_bits =
-        std::bit_width(static_cast<std::make_unsigned_t<S>>(n_total_bins));
+        static_cast<unsigned int>(std::bit_width(static_cast<std::make_unsigned_t<S>>(n_total_bins)));
 
     // Ensure we have at least 4 bits for generation index
     constexpr unsigned int min_gen_bits = 4;
@@ -82,49 +85,54 @@ class HistogramBuffer {
                                std::to_string(total_bits) + " are available.");
     }
 
-    shift_amount_ = index_bits;
+    shift_amount_ = static_cast<S>(index_bits);
     // Create mask: (1 << index_bits) - 1.
-    index_mask_ = (S(1) << index_bits) - 1;
+    index_mask_ = static_cast<S>((S(1) << index_bits) - 1);
 
     // Max generation: remaining bits.
-    unsigned int gen_bits = total_bits - index_bits;
-    max_gen_ = (S(1) << gen_bits) - 1;
+    const unsigned int gen_bits = total_bits - index_bits;
+    max_gen_ = static_cast<S>((S(1) << gen_bits) - 1);
 
     // Initialize map with 0
-    sparse_map_.assign(n_total_bins, 0);
+    sparse_map_.assign(static_cast<std::size_t>(n_total_bins), S(0));
 
     // Heuristic reserve
-    reserve_size = std::min(n_total_bins, reserve_size);
+    reserve_size = std::min(static_cast<std::size_t>(n_total_bins), reserve_size);
     dense_ids_.reserve(reserve_size);
     dense_acc_.reserve(reserve_size);
 
     current_gen_ = 1;
   }
 
-  /*!
-   * @brief Accumulate a weight into a global bin index.
+  /**
+   * @brief Accumulates a weight into a global bin index.
    *
-   * This is the hot path function. It updates the thread-local buffer.
-   * Weights are summed linearly.
+   * This is the performance-critical hot path function. It updates the thread-local
+   * buffer using a sparse-set inspired O(1) validity check. Weights are summed
+   * linearly within an event to ensure correct error propagation during flushes.
    *
-   * @param global_idx The flattened global index of the bin.
+   * @param global_idx The flattened global index of the bin in `HistogramData`.
    * @param w The weight to accumulate.
+   *
+   * @note If the bin was already touched in the current event (generation), the
+   *       weight is added to the existing accumulator. Otherwise, a new entry
+   *       is created in the dense buffer.
    */
   inline void fill(S global_idx, const T& w) noexcept {
     // 1. Read the packed value (Generation | BufferIndex)
-    const S packed = sparse_map_[global_idx];
+    const S packed = sparse_map_[static_cast<std::size_t>(global_idx)];
 
     // 2. Validity Check
     // If the high bits match current_gen_, the lower bits are a valid index
     if ((packed >> shift_amount_) == current_gen_) [[likely]] {
       const S idx = packed & index_mask_;
-      dense_acc_[idx].add(w);
+      dense_acc_[static_cast<std::size_t>(idx)].add(w);
     } else {
       // 3. Miss: New entry for this event
       const S new_idx = static_cast<S>(dense_ids_.size());
 
       // Update map: Store (CurrentGen << Shift) | NewIndex
-      sparse_map_[global_idx] = (current_gen_ << shift_amount_) | new_idx;
+      sparse_map_[static_cast<std::size_t>(global_idx)] = (current_gen_ << shift_amount_) | new_idx;
 
       // Track this bin for flushing
       dense_ids_.push_back(global_idx);
@@ -134,15 +142,18 @@ class HistogramBuffer {
     }
   }
 
-  /*!
+  /**
    * @brief Flushes the buffered results to the global storage.
    *
-   * This must be called at the end of each event. It computes the
-   * net weight for each bin touched in the event and adds it to the
-   * global storage. The squared net weight is added to the global
-   * variance accumulator.
+   * This must be called at the end of each event (or whenever event-level
+   * consolidation is required). It computes the net weight for each bin touched
+   * in the event and adds it to the global storage.
    *
-   * @param hist_data The global histogram data storage.
+   * The variance contribution is calculated as the square of the net weight
+   * accumulated within the event, which is the standard procedure for handling
+   * correlated weights or cancellations in Monte Carlo event generation.
+   *
+   * @param hist_data The global histogram data storage to receive the results.
    */
   void flush(HistogramData<NT>& hist_data) {
     // Iterate only over the bins touched in this event
@@ -170,7 +181,7 @@ class HistogramBuffer {
 
     // Check for generation overflow
     if (current_gen_ > max_gen_) {
-      std::fill(sparse_map_.begin(), sparse_map_.end(), 0);
+      std::fill(sparse_map_.begin(), sparse_map_.end(), S(0));
       current_gen_ = 1;
     }
   }

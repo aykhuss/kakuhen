@@ -41,7 +41,7 @@ class HistogramView {
         n_bins_(n_bins),
         stride_(n_values_per_bin) {}
 
-  /*!
+  /**
    * @brief Fills the histogram buffer with a vector of values for a specific bin.
    *
    * This method maps the local bin index and the vector of values to the
@@ -52,6 +52,8 @@ class HistogramView {
    * @param buffer The thread-local histogram buffer to fill.
    * @param local_bin_idx The local index of the bin (0 to n_bins - 1).
    * @param values The values to accumulate into the bin. Must have size == n_values_per_bin.
+   *
+   * @note If `local_bin_idx` or the size of `values` is incorrect, this will assert in debug builds.
    */
   template <typename Buffer, typename Range>
   void fill(Buffer& buffer, S local_bin_idx, const Range& values) const {
@@ -59,7 +61,7 @@ class HistogramView {
     assert(std::size(values) == stride_ && "Value count mismatch");
 
     const S base_global_idx = offset_ + local_bin_idx * stride_;
-    
+
     // Using an index-based loop to support both std::vector and std::span
     // and to easily calculate the global index.
     S i = 0;
@@ -69,11 +71,12 @@ class HistogramView {
     }
   }
 
-  /*!
+  /**
    * @brief Fills the histogram buffer with a single value (scalar).
    *
-   * Optimized path for histograms with 1 value per bin.
+   * Optimized path for histograms with 1 value per bin (stride == 1).
    *
+   * @tparam Buffer The type of the histogram buffer.
    * @param buffer The thread-local histogram buffer.
    * @param local_bin_idx The local index of the bin.
    * @param value The value to accumulate.
@@ -85,18 +88,21 @@ class HistogramView {
     buffer.fill(offset_ + local_bin_idx, value); // stride is 1, so idx is offset + local
   }
 
-  /*!
-   * @brief Get the global offset for this view.
+  /**
+   * @brief Get the global offset for this view in `HistogramData`.
+   * @return Starting index.
    */
   [[nodiscard]] S offset() const noexcept { return offset_; }
 
-  /*!
+  /**
    * @brief Get the number of bins in this view.
+   * @return Bin count.
    */
   [[nodiscard]] S n_bins() const noexcept { return n_bins_; }
 
-  /*!
-   * @brief Get the number of values per bin.
+  /**
+   * @brief Get the number of values per bin (stride).
+   * @return Values per bin.
    */
   [[nodiscard]] S stride() const noexcept { return stride_; }
 

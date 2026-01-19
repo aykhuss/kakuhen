@@ -3,19 +3,21 @@
 #include <concepts>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace kakuhen::histogram {
 
 /*!
- * @brief Storage for axis binning data.
+ * @brief Centralized storage for axis binning parameters and edges.
  *
- * Stores continuous arrays of bin edges (or other data) for variable binning axes.
- * This improves data locality by keeping all edge definitions in a single
- * contiguous block of memory.
+ * Stores continuous arrays of bin edges (for variable axes) or parameters
+ * (for uniform axes) in a single contiguous block of memory. This design
+ * improves data locality and simplifies serialization of axis definitions.
  *
- * @tparam T The coordinate value type (e.g., double).
+ * @tparam T The coordinate and parameter value type (e.g., double).
  * @tparam S The size/index type (e.g., uint32_t).
  */
 template <typename T, typename S>
@@ -35,7 +37,8 @@ class AxisData {
    *
    * @tparam Range The range type.
    * @param range The range of values to append.
-   * @return The offset index where the appended data begins.
+   * @return The starting offset index of the appended data.
+   * @throws std::length_error If the new size exceeds the capacity of the index type S.
    */
   template <typename Range>
     requires requires(const Range& r) {
@@ -43,20 +46,24 @@ class AxisData {
       std::end(r);
     }
   [[nodiscard]] S add_data(const Range& range) {
-    S offset = static_cast<S>(data_.size());
-    auto first = std::begin(range);
-    auto last = std::end(range);
+    const std::size_t offset = data_.size();
+    const auto first = std::begin(range);
+    const auto last = std::end(range);
+    const std::size_t count = static_cast<std::size_t>(std::distance(first, last));
+
+    if (offset + count > static_cast<std::size_t>(std::numeric_limits<S>::max())) {
+      throw std::length_error("AxisData size exceeds capacity of index type S");
+    }
+
     data_.insert(data_.end(), first, last);
-    return offset;
+    return static_cast<S>(offset);
   }
 
   /*!
    * @brief Appends data from an initializer list.
    *
-   * Example: `axis_data.add_data({0.0, 1.0, 2.5, 5.0});`
-   *
    * @param data The initializer list of values.
-   * @return The offset index where the appended data begins.
+   * @return The starting offset index of the appended data.
    */
   [[nodiscard]] S add_data(std::initializer_list<T> data) {
     return add_data<std::initializer_list<T>>(data);
@@ -65,19 +72,22 @@ class AxisData {
   /*!
    * @brief Appends individual values to the storage (Variadic).
    *
-   * Example: `axis_data.add_data(0.0, 1.0, 2.5, 5.0);`
-   *
    * @tparam Args Variadic argument types (must be convertible to T).
    * @param args The values to append.
-   * @return The offset index where the appended data begins.
+   * @return The starting offset index of the appended data.
+   * @throws std::length_error If the new size exceeds the capacity of the index type S.
    */
   template <typename... Args>
     requires(sizeof...(Args) > 0) && (std::convertible_to<Args, T> && ...)
   [[nodiscard]] S add_data(Args&&... args) {
-    S offset = static_cast<S>(data_.size());
-    data_.reserve(data_.size() + sizeof...(Args));
+    const std::size_t offset = data_.size();
+    if (offset + sizeof...(Args) > static_cast<std::size_t>(std::numeric_limits<S>::max())) {
+      throw std::length_error("AxisData size exceeds capacity of index type S");
+    }
+
+    data_.reserve(offset + sizeof...(Args));
     (data_.emplace_back(std::forward<Args>(args)), ...);
-    return offset;
+    return static_cast<S>(offset);
   }
 
   /// @}
@@ -87,6 +97,7 @@ class AxisData {
 
   /*!
    * @brief Access the global data vector.
+   * @return A const reference to the underlying storage vector.
    */
   [[nodiscard]] const std::vector<T>& data() const noexcept {
     return data_;
@@ -115,6 +126,7 @@ class AxisData {
 
   /*!
    * @brief Get the total number of stored elements.
+   * @return The number of elements currently in storage.
    */
   [[nodiscard]] S size() const noexcept {
     return static_cast<S>(data_.size());
@@ -128,22 +140,22 @@ class AxisData {
   /*!
    * @brief Clears the storage.
    */
-  void clear() {
+  void clear() noexcept {
     data_.clear();
   }
 
   /*!
-   * @brief Reserves memory for the underlying vector.
+   * @brief Reserves memory for the underlying vector to prevent reallocations.
    * @param capacity The number of elements to reserve.
    */
   void reserve(S capacity) {
-    data_.reserve(capacity);
+    data_.reserve(static_cast<std::size_t>(capacity));
   }
 
   /// @}
 
  private:
-  std::vector<T> data_;
+  std::vector<T> data_;  //!< Contiguous storage for all axis data.
 };
 
 }  // namespace kakuhen::histogram
