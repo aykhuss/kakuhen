@@ -6,3 +6,4 @@ User Guide
 
    installation
    quickstart
+   histograms

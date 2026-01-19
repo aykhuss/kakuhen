@@ -9,5 +9,6 @@ organized by module.
    :caption: Modules
 
    integrators
+   histograms
    arrays
    utilities
