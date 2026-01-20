@@ -73,4 +73,41 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
       REQUIRE(data.bins()[1].weight() == Approx(0.2));
       REQUIRE(data.bins()[4].weight() == Approx(0.5));
   }
+
+  SECTION("Serialization") {
+    HistogramView<> view(10, 5, 2);
+    std::stringstream ss;
+
+    SECTION("Without type verification") {
+      view.serialize(ss, false);
+      
+      HistogramView<> restored;
+      restored.deserialize(ss, false);
+
+      REQUIRE(restored.offset() == 10);
+      REQUIRE(restored.n_bins() == 5);
+      REQUIRE(restored.stride() == 2);
+    }
+
+    SECTION("With type verification") {
+      view.serialize(ss, true);
+      
+      HistogramView<> restored;
+      restored.deserialize(ss, true);
+
+      REQUIRE(restored.offset() == 10);
+      REQUIRE(restored.n_bins() == 5);
+      REQUIRE(restored.stride() == 2);
+    }
+
+    SECTION("Type mismatch detection") {
+      view.serialize(ss, true);
+      
+      // Use different traits (e.g. float coordinate) to trigger mismatch
+      using FloatTraits = kakuhen::util::NumericTraits<float, uint32_t, uint64_t>;
+      HistogramView<FloatTraits> wrong_view;
+      
+      REQUIRE_THROWS_AS(wrong_view.deserialize(ss, true), std::runtime_error);
+    }
+  }
 }
