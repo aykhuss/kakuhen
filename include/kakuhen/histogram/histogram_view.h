@@ -29,7 +29,21 @@ class HistogramView {
   using S = size_type;
   using T = value_type;
 
-  /*!
+  /**
+   * @brief Constructs an empty HistogramView.
+   */
+  HistogramView() : offset_(0), n_bins_(0), stride_(0) {}
+
+  /**
+   * @brief Constructs a HistogramView from raw metadata.
+   *
+   * @param offset The starting global index.
+   * @param n_bins The number of bins.
+   * @param stride The number of values per bin.
+   */
+  HistogramView(S offset, S n_bins, S stride) : offset_(offset), n_bins_(n_bins), stride_(stride) {}
+
+  /**
    * @brief Registers a new histogram view and allocates storage.
    *
    * @param data The global histogram data storage.
@@ -53,7 +67,8 @@ class HistogramView {
    * @param local_bin_idx The local index of the bin (0 to n_bins - 1).
    * @param values The values to accumulate into the bin. Must have size == n_values_per_bin.
    *
-   * @note If `local_bin_idx` or the size of `values` is incorrect, this will assert in debug builds.
+   * @note If `local_bin_idx` or the size of `values` is incorrect, this will assert in debug
+   * builds.
    */
   template <typename Buffer, typename Range>
   void fill(Buffer& buffer, S local_bin_idx, const Range& values) const {
@@ -85,26 +100,74 @@ class HistogramView {
   void fill(Buffer& buffer, S local_bin_idx, const T& value) const {
     assert(local_bin_idx < n_bins_ && "Bin index out of bounds");
     assert(stride_ == 1 && "Value count mismatch (expected 1 for scalar fill)");
-    buffer.fill(offset_ + local_bin_idx, value); // stride is 1, so idx is offset + local
+    buffer.fill(offset_ + local_bin_idx, value);  // stride is 1, so idx is offset + local
+  }
+
+  /**
+   * @brief Serializes the histogram view metadata.
+   *
+   * @param out The output stream to write to.
+   * @param with_type If true, prepends type identifiers for T and S to the stream.
+   */
+  void serialize(std::ostream& out, bool with_type = false) const noexcept {
+    if (with_type) {
+      const int16_t T_tos = kakuhen::util::type::get_type_or_size<T>();
+      const int16_t S_tos = kakuhen::util::type::get_type_or_size<S>();
+      kakuhen::util::serialize::serialize_one<int16_t>(out, T_tos);
+      kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
+    }
+    kakuhen::util::serialize::serialize_one(out, offset_);
+    kakuhen::util::serialize::serialize_one(out, n_bins_);
+    kakuhen::util::serialize::serialize_one(out, stride_);
+  }
+
+  /**
+   * @brief Deserializes the histogram view metadata.
+   *
+   * @param in The input stream to read from.
+   * @param with_type If true, expects and verifies type identifiers for T and S.
+   * @throws std::runtime_error If type verification fails or the stream is corrupted.
+   */
+  void deserialize(std::istream& in, bool with_type = false) {
+    if (with_type) {
+      int16_t T_tos, S_tos;
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, T_tos);
+      if (T_tos != kakuhen::util::type::get_type_or_size<T>()) {
+        throw std::runtime_error("HistogramView: type mismatch for value type T.");
+      }
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, S_tos);
+      if (S_tos != kakuhen::util::type::get_type_or_size<S>()) {
+        throw std::runtime_error("HistogramView: type mismatch for index type S.");
+      }
+    }
+    kakuhen::util::serialize::deserialize_one(in, offset_);
+    kakuhen::util::serialize::deserialize_one(in, n_bins_);
+    kakuhen::util::serialize::deserialize_one(in, stride_);
   }
 
   /**
    * @brief Get the global offset for this view in `HistogramData`.
    * @return Starting index.
    */
-  [[nodiscard]] S offset() const noexcept { return offset_; }
+  [[nodiscard]] S offset() const noexcept {
+    return offset_;
+  }
 
   /**
    * @brief Get the number of bins in this view.
    * @return Bin count.
    */
-  [[nodiscard]] S n_bins() const noexcept { return n_bins_; }
+  [[nodiscard]] S n_bins() const noexcept {
+    return n_bins_;
+  }
 
   /**
    * @brief Get the number of values per bin (stride).
    * @return Values per bin.
    */
-  [[nodiscard]] S stride() const noexcept { return stride_; }
+  [[nodiscard]] S stride() const noexcept {
+    return stride_;
+  }
 
  private:
   S offset_;  //!< Starting index in the global storage.
