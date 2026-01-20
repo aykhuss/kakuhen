@@ -20,7 +20,8 @@ namespace kakuhen::ndarray::detail {
  * @return The calculated flat index.
  */
 template <typename S>
-[[nodiscard]] inline S flat_index(const S* idx, const S* strides, const S* shape, S ndim) noexcept {
+[[nodiscard]] inline S flat_index(const S* idx, const S* strides, [[maybe_unused]] const S* shape,
+                                  S ndim) noexcept {
   S offset = 0;
   for (S i = 0; i < ndim; ++i) {
     if constexpr (std::is_signed_v<S>) {

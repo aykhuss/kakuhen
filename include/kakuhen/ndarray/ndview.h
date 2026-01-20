@@ -265,6 +265,7 @@ class NDView {
 
     assert(old_size == new_size);
 
+#ifndef NDEBUG
     // check if view is contiguous (row-major layout)
     bool contiguous = true;
     S expected_stride = 1;
@@ -277,6 +278,7 @@ class NDView {
       expected_stride *= shape_[i];
     }
     assert(contiguous && "reshape only works on contiguous views");
+#endif
 
     S new_ndim = static_cast<S>(shape.size());
     auto metadata = std::make_unique<S[]>(2 * new_ndim);
