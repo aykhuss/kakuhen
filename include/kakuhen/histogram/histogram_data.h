@@ -46,10 +46,26 @@ class HistogramData {
    * @param n_bins The number of bins to allocate.
    * @return The starting global index of the allocated block.
    */
+  /*!
+   * @brief Allocates a contiguous block of bins in the global storage.
+   *
+   * This method resizes the underlying storage to accommodate `n_bins`
+   * additional bins.
+   *
+   * @param n_bins The number of additional bins to allocate.
+   * @return The starting global index of the allocated block.
+   * @throws std::length_error If the total number of bins exceeds the capacity of index type S.
+   */
   S allocate(S n_bins) {
-    S start_index = size();
-    bins_.resize(start_index + n_bins, bin_type{});
-    return start_index;
+    const std::size_t current_size = bins_.size();
+    const std::size_t count = static_cast<std::size_t>(n_bins);
+
+    if (current_size + count > static_cast<std::size_t>(std::numeric_limits<S>::max())) {
+      throw std::length_error("HistogramData: total bin count exceeds capacity of index type S.");
+    }
+
+    bins_.resize(current_size + count, bin_type{});
+    return static_cast<S>(current_size);
   }
 
   /*!
@@ -59,7 +75,7 @@ class HistogramData {
    * @param w The weight to accumulate.
    */
   void accumulate(S index, const T& w) {
-    bins_[index].accumulate(w);
+    bins_[static_cast<std::size_t>(index)].accumulate(w);
   }
 
   /*!
@@ -70,14 +86,14 @@ class HistogramData {
    * @param w2 The sum of squared weights to add.
    */
   void accumulate(S index, const T& w, const T& w2) {
-    bins_[index].accumulate(w, w2);
+    bins_[static_cast<std::size_t>(index)].accumulate(w, w2);
   }
 
   /*!
    * @brief Resets all bins and the event counter to zero.
    *
-   * This preserves the number of bins and the capacity of the vector,
-   * avoiding reallocation.
+   * This preserves the number of bins and the capacity of the underlying
+   * vector, avoiding reallocation.
    */
   void reset() noexcept {
     for (auto& bin : bins_) {
@@ -89,7 +105,8 @@ class HistogramData {
   /*!
    * @brief Increment the total event counter.
    *
-   * This should be called once per event flush.
+   * This should be called once per event flush to track the total number
+   * of samples contributed to the data.
    */
   void increment_count() noexcept {
     n_count_++;
@@ -97,9 +114,6 @@ class HistogramData {
 
   /**
    * @brief Access the underlying vector of bins.
-   *
-   * This is used by `HistogramBuffer::flush` to write aggregated data.
-   *
    * @return A reference to the vector of bin accumulators.
    */
   [[nodiscard]] std::vector<bin_type>& bins() noexcept {
@@ -108,7 +122,6 @@ class HistogramData {
 
   /**
    * @brief Access the underlying vector of bins (const).
-   *
    * @return A const reference to the vector of bin accumulators.
    */
   [[nodiscard]] const std::vector<bin_type>& bins() const noexcept {
@@ -132,10 +145,39 @@ class HistogramData {
   }
 
   /**
-   * @brief Serializes the histogram data to an output stream.
-   * @param out The output stream.
+   * @brief Checks if two HistogramData objects are identical.
    */
-  void serialize(std::ostream& out) const noexcept {
+  [[nodiscard]] bool operator==(const HistogramData& other) const noexcept {
+    return n_count_ == other.n_count_ && bins_ == other.bins_;
+  }
+
+  /**
+   * @brief Checks if two HistogramData objects are different.
+   */
+  [[nodiscard]] bool operator!=(const HistogramData& other) const noexcept {
+    return !(*this == other);
+  }
+
+  /// @}
+
+  /// @name Serialization
+  /// @{
+
+  /**
+   * @brief Serializes the histogram data to an output stream.
+   *
+   * @param out The output stream to write to.
+   * @param with_type If true, prepends type identifiers for T, S, and U to the stream.
+   */
+  void serialize(std::ostream& out, bool with_type = false) const noexcept {
+    if (with_type) {
+      const int16_t T_tos = kakuhen::util::type::get_type_or_size<T>();
+      const int16_t S_tos = kakuhen::util::type::get_type_or_size<S>();
+      const int16_t U_tos = kakuhen::util::type::get_type_or_size<U>();
+      kakuhen::util::serialize::serialize_one<int16_t>(out, T_tos);
+      kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
+      kakuhen::util::serialize::serialize_one<int16_t>(out, U_tos);
+    }
     kakuhen::util::serialize::serialize_one<U>(out, n_count_);
     kakuhen::util::serialize::serialize_one<S>(out, static_cast<S>(bins_.size()));
     kakuhen::util::serialize::serialize_container(out, bins_);
@@ -143,16 +185,64 @@ class HistogramData {
 
   /**
    * @brief Deserializes the histogram data from an input stream.
-   * @param in The input stream.
-   * @throws std::runtime_error If deserialization fails.
+   *
+   * @param in The input stream to read from.
+   * @param with_type If true, expects and verifies type identifiers for T, S, and U.
+   * @throws std::runtime_error If type verification fails or the stream is corrupted.
+   * @throws std::length_error If the bin count exceeds the capacity of the index type S.
    */
-  void deserialize(std::istream& in) {
+  void deserialize(std::istream& in, bool with_type = false) {
+    if (with_type) {
+      int16_t T_tos, S_tos, U_tos;
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, T_tos);
+      if (T_tos != kakuhen::util::type::get_type_or_size<T>()) {
+        throw std::runtime_error("HistogramData: type mismatch for value type T.");
+      }
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, S_tos);
+      if (S_tos != kakuhen::util::type::get_type_or_size<S>()) {
+        throw std::runtime_error("HistogramData: type mismatch for index type S.");
+      }
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, U_tos);
+      if (U_tos != kakuhen::util::type::get_type_or_size<U>()) {
+        throw std::runtime_error("HistogramData: type mismatch for count type U.");
+      }
+    }
     kakuhen::util::serialize::deserialize_one<U>(in, n_count_);
     S size_in;
     kakuhen::util::serialize::deserialize_one<S>(in, size_in);
+    if (static_cast<std::uint64_t>(size_in) >
+        static_cast<std::uint64_t>(std::numeric_limits<S>::max())) {
+      throw std::length_error(
+          "HistogramData: deserialized bin count exceeds capacity of index type S.");
+    }
     bins_.resize(static_cast<std::size_t>(size_in));
     kakuhen::util::serialize::deserialize_container(in, bins_);
   }
+
+  /// @}
+
+  /// @name Management
+  /// @{
+
+  /**
+   * @brief Reserves space for at least the specified number of bins.
+   * @param capacity Total number of bins to reserve space for.
+   */
+  void reserve(S capacity) {
+    bins_.reserve(static_cast<std::size_t>(capacity));
+  }
+
+  /**
+   * @brief Clears all bins and resets the event counter.
+   *
+   * This removes all bin definitions from storage.
+   */
+  void clear() noexcept {
+    bins_.clear();
+    n_count_ = U(0);
+  }
+
+  /// @}
 
  private:
   std::vector<bin_type> bins_;  //!< Flattened storage for all histogram bins.
