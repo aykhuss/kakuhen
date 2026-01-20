@@ -50,6 +50,36 @@ template <typename T>
 }
 
 /*!
+ * @brief Returns the smaller of two values.
+ *
+ * Provided as a `constexpr` alternative to `std::min`.
+ *
+ * @tparam T The value type.
+ * @param a First value.
+ * @param b Second value.
+ * @return The smaller of a and b.
+ */
+template <typename T>
+[[nodiscard]] constexpr const T& min(const T& a, const T& b) noexcept {
+  return (b < a) ? b : a;
+}
+
+/*!
+ * @brief Returns the larger of two values.
+ *
+ * Provided as a `constexpr` alternative to `std::max`.
+ *
+ * @tparam T The value type.
+ * @param a First value.
+ * @param b Second value.
+ * @return The larger of a and b.
+ */
+template <typename T>
+[[nodiscard]] constexpr const T& max(const T& a, const T& b) noexcept {
+  return (a < b) ? b : a;
+}
+
+/*!
  * @brief Computes base raised to the power of exp using binary exponentiation.
  *
  * This function uses the "exponentiation by squaring" algorithm, which achieves
@@ -120,7 +150,7 @@ template <typename T>
   if (diff <= abs_tol) return true;
 
   // 2. Check relative tolerance (Knuth's method)
-  const T max_abs = std::max(abs(a), abs(b));
+  const T max_abs = max(abs(a), abs(b));
   return diff <= (max_abs * std::numeric_limits<T>::epsilon() * static_cast<T>(max_ulps));
 
   // // old implementation: not constexpr & slower
