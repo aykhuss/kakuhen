@@ -123,19 +123,40 @@ struct BinAccumulator {
 
   /**
    * @brief Serializes the bin accumulator to an output stream.
-   * @param out The output stream.
+   *
+   * This implementation "collapses" the internal high-precision accumulators
+   * into their floating-point result values via the accumulator's own
+   * serialize method.
+   *
+   * @param out The output stream to write to.
+   * @param with_type If true, prepends a type identifier for T.
    */
-  void serialize(std::ostream& out) const noexcept {
+  void serialize(std::ostream& out, bool with_type = false) const noexcept {
+    if (with_type) {
+      const int16_t T_tos = kakuhen::util::type::get_type_or_size<T>();
+      kakuhen::util::serialize::serialize_one<int16_t>(out, T_tos);
+    }
     acc_wgt_.serialize(out);
     acc_wgt_sq_.serialize(out);
   }
 
   /**
    * @brief Deserializes the bin accumulator from an input stream.
-   * @param in The input stream.
-   * @throws std::runtime_error If deserialization fails.
+   *
+   * Initializes the internal accumulators with the result values stored in the stream.
+   *
+   * @param in The input stream to read from.
+   * @param with_type If true, expects and verifies a type identifier for T.
+   * @throws std::runtime_error If type verification fails or the stream is corrupted.
    */
-  void deserialize(std::istream& in) {
+  void deserialize(std::istream& in, bool with_type = false) {
+    if (with_type) {
+      int16_t T_tos;
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, T_tos);
+      if (T_tos != kakuhen::util::type::get_type_or_size<T>()) {
+        throw std::runtime_error("BinAccumulator: type mismatch for value type T.");
+      }
+    }
     acc_wgt_.deserialize(in);
     acc_wgt_sq_.deserialize(in);
   }
