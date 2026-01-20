@@ -1,5 +1,7 @@
 #pragma once
 
+#include "kakuhen/util/serialize.h"
+#include "kakuhen/util/type.h"
 #include <concepts>
 #include <initializer_list>
 #include <iterator>
@@ -134,19 +136,93 @@ class AxisData {
 
   /// @}
 
+  /// @name Serialization
+  /// @{
+
+  /**
+   * @brief Serializes the axis data to an output stream.
+   *
+   * @param out The output stream to write to.
+   * @param with_type If true, prepends type identifiers for T and S to the stream.
+   */
+  void serialize(std::ostream& out, bool with_type = false) const noexcept {
+    if (with_type) {
+      const int16_t T_tos = kakuhen::util::type::get_type_or_size<T>();
+      const int16_t S_tos = kakuhen::util::type::get_type_or_size<S>();
+      kakuhen::util::serialize::serialize_one<int16_t>(out, T_tos);
+      kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
+    }
+    kakuhen::util::serialize::serialize_size(out, data_.size());
+    kakuhen::util::serialize::serialize_container(out, data_);
+  }
+
+  /**
+   * @brief Deserializes the axis data from an input stream.
+   *
+   * @param in The input stream to read from.
+   * @param with_type If true, expects and verifies type identifiers for T and S.
+   * @throws std::runtime_error If type verification fails or the stream is corrupted.
+   * @throws std::length_error If the count exceeds the capacity of the index type S.
+   */
+  void deserialize(std::istream& in, bool with_type = false) {
+    if (with_type) {
+      int16_t T_tos;
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, T_tos);
+      if (T_tos != kakuhen::util::type::get_type_or_size<T>()) {
+        throw std::runtime_error("AxisData: type or size mismatch for coordinate type T.");
+      }
+      int16_t S_tos;
+      kakuhen::util::serialize::deserialize_one<int16_t>(in, S_tos);
+      if (S_tos != kakuhen::util::type::get_type_or_size<S>()) {
+        throw std::runtime_error("AxisData: type or size mismatch for index type S.");
+      }
+    }
+    std::size_t count;
+    kakuhen::util::serialize::deserialize_size(in, count);
+
+    if (count > static_cast<std::size_t>(std::numeric_limits<S>::max())) {
+      throw std::length_error("AxisData: deserialized size exceeds capacity of index type S.");
+    }
+
+    data_.resize(count);
+    kakuhen::util::serialize::deserialize_container(in, data_);
+  }
+
+  /// @}
+
+  /**
+   * @brief Checks if two AxisData objects are identical.
+   */
+  [[nodiscard]] bool operator==(const AxisData& other) const noexcept {
+    return data_ == other.data_;
+  }
+
+  /**
+   * @brief Checks if two AxisData objects are different.
+   */
+  [[nodiscard]] bool operator!=(const AxisData& other) const noexcept {
+    return !(*this == other);
+  }
+
+  /// @}
+
   /// @name Management
   /// @{
 
-  /*!
-   * @brief Clears the storage.
+  /**
+   * @brief Clears all stored data.
+   *
+   * This method resets the size to zero but typically preserves the capacity
+   * of the underlying storage to avoid reallocations.
    */
   void clear() noexcept {
     data_.clear();
   }
 
-  /*!
-   * @brief Reserves memory for the underlying vector to prevent reallocations.
-   * @param capacity The number of elements to reserve.
+  /**
+   * @brief Reserves memory for at least the specified number of elements.
+   *
+   * @param capacity The number of elements to reserve space for.
    */
   void reserve(S capacity) {
     data_.reserve(static_cast<std::size_t>(capacity));
