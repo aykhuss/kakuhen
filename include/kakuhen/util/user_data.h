@@ -32,7 +32,8 @@ template <typename UD>
 void write_user_data_stream(std::ostream& out, const UD& user_data,
                             const std::string_view header = "USERDATA") {
   using namespace kakuhen::util::serialize;
-  static_assert(std::is_trivially_copyable_v<UD> || has_serialize<UD>::value,
+  using DUD = std::decay_t<UD>;
+  static_assert(std::is_trivially_copyable_v<DUD> || has_serialize<DUD>::value,
                 "UD must be trivially copyable or provide a serialize() method");
 
   if (header.empty()) throw std::invalid_argument("Header cannot be empty");
@@ -64,7 +65,8 @@ template <typename UD>
 void read_user_data_stream(std::istream& in, UD& user_data,
                            const std::string_view header = "USERDATA") {
   using namespace kakuhen::util::serialize;
-  static_assert(std::is_trivially_copyable_v<UD> || has_deserialize<UD>::value,
+  using DUD = std::decay_t<UD>;
+  static_assert(std::is_trivially_copyable_v<DUD> || has_deserialize<DUD>::value,
                 "UD must be trivially copyable or provide a deserialize() method");
 
   if (header.empty()) throw std::invalid_argument("Header cannot be empty");
