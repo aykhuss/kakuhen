@@ -24,6 +24,7 @@ set(TEST_SOURCES
   test_serialize.cpp
   test_user_data.cpp
   test_vegas.cpp
+  test_coverage_misc.cpp
 )
 
 add_executable(unit_tests ${TEST_SOURCES})

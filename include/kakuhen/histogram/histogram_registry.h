@@ -95,11 +95,15 @@ class HistogramRegistry {
 
     const auto& axis_var = axes_[axis_id.id()];
 
+    if (std::holds_alternative<std::monostate>(axis_var)) {
+      throw std::invalid_argument(
+          "HistogramRegistry: cannot book with None axis using this method.");
+    }
+
     S n_bins = std::visit(
         [](const auto& ax) -> S {
           if constexpr (std::is_same_v<std::decay_t<decltype(ax)>, std::monostate>) {
-            throw std::invalid_argument(
-                "HistogramRegistry: cannot book with None axis using this method.");
+            return 0;  // Should not happen due to check above
           } else {
             return ax.n_bins();
           }
