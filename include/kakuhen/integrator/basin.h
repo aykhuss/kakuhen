@@ -33,7 +33,8 @@ namespace kakuhen::integrator {
  * @tparam RNG The random number generator to use.
  * @tparam DIST The random number distribution to use.
  */
-template <typename NT = util::num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
+template <typename NT = util::num_traits_t<>,
+          typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  public:
@@ -762,6 +763,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     prt.print_one("ndiv0", ndiv0_);
     prt.print_one("ndiv1", ndiv1_);
     prt.print_one("ndiv2", ndiv2_);
+    /// 1D grid information
     prt.template begin<C::ARRAY>("grid1d");
     prt.break_line();
     {
@@ -777,6 +779,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }  // end for idim
     }
     prt.template end<C::ARRAY>(true);
+    /// 2D grid information
     prt.template begin<C::ARRAY>("grid2d");
     prt.break_line();
     {
@@ -803,6 +806,17 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           prt.template end<C::OBJECT>(true);
         }  // end for idim2
       }  // end for idim1
+    }
+    prt.template end<C::ARRAY>(true);
+    /// dimension sampling information
+    prt.template begin<C::ARRAY>("order");
+    prt.break_line();
+    {
+      std::vector<S> dep(2);
+      for (S iord = 0; iord < ndim_; ++iord) {
+        dep = {order_(iord, 0), order_(iord, 1)};
+        prt.print_array({}, &order_(iord, 0), 2);
+      }  // end for iord
     }
     prt.template end<C::ARRAY>(true);
   }
