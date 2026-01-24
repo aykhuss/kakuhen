@@ -18,7 +18,7 @@ class HistogramId {
    * @brief Constructs a HistogramId.
    * @param id The underlying integer index.
    */
-  constexpr explicit HistogramId(S id) noexcept : id_(id) {}
+  constexpr explicit HistogramId(S id = S(0)) noexcept : id_(id) {}
 
   /**
    * @brief Get the underlying integer index.
