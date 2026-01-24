@@ -110,6 +110,11 @@ TEST_CASE("Coverage: Integrator and Utils misc", "[coverage]") {
         REQUIRE(integrator::to_string(static_cast<integrator::IntegratorId>(99)) == "Unknown");
     }
 
+    SECTION("Plain ndim") {
+        integrator::Plain<> plain(4);
+        REQUIRE(plain.ndim() == 4);
+    }
+
     SECTION("Grid adaption error on Unsupported") {
         integrator::Plain<> plain(1);
         using opts_t = integrator::Plain<>::options_type;

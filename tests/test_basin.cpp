@@ -9,6 +9,11 @@ static auto func = [](const Point<>& point) {
   return (x[0] + x[1]) / (1. + x[0] - x[1]);
 };
 
+TEST_CASE("Basin ndim", "[basin]") {
+  auto bas = Basin(3);
+  REQUIRE(bas.ndim() == 3);
+}
+
 TEST_CASE("write/load state and data", "[basin]") {
   std::stringstream ss;
 

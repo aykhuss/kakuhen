@@ -130,6 +130,15 @@ class IntegratorBase {
     return detail::has_flag(Derived::features, flag);
   }
 
+  /*!
+   * @brief Gets the number of dimensions for the integration.
+   *
+   * @return The number of dimensions.
+   */
+  [[nodiscard]] size_type ndim() const noexcept {
+    return ndim_;
+  }
+
   /// @name Options & Configuration
   /// @{
 
