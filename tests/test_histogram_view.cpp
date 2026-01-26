@@ -64,8 +64,10 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
   }
   
   SECTION("Interleaved Filling") {
-      view1.fill(buffer, 0, std::vector{0.1, 0.2});
-      view2.fill(buffer, 0, std::vector{0.5});
+      std::array<double, 2> v1 = {0.1, 0.2};
+      view1.fill(buffer, 0, v1);
+      std::array<double, 1> v2 = {0.5};
+      view2.fill(buffer, 0, v2);
       
       buffer.flush(data);
       

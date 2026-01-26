@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <array>
 #include "kakuhen/histogram/axis_view.h" // New axis implementation
 #include "kakuhen/histogram/histogram_registry.h"
 
@@ -22,10 +23,10 @@ TEST_CASE("HistogramRegistry booking and filling", "[HistogramRegistry]") {
 
   // 3. Fill
   std::vector<double> v1 = {100.0};
-  registry.fill(buffer, h1_id, 0, v1); // Global idx 0
+  registry.fill(buffer, h1_id, static_cast<uint32_t>(0), std::span{v1}); // Global idx 0
 
   std::vector<double> v2 = {0.5, 0.6};
-  registry.fill(buffer, h2_id, 0, v2); // Global idx 10, 11 (start of h2)
+  registry.fill(buffer, h2_id, static_cast<uint32_t>(0), std::span{v2}); // Global idx 10, 11 (start of h2)
 
   // Test scalar fill overload
   // Cast index to uint32_t to resolve ambiguity with (id, x, val) overload
@@ -61,6 +62,11 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   registry.fill(buffer, h_v, 5.0, 1.0);   // bin 0 [0,10) -> index 13
   registry.fill(buffer, h_v, 50.0, 2.0);  // bin 1 [10,100) -> index 14
 
+  // --- Multi-valued Fill with x-coordinate ---
+  auto h_mv = registry.book("h_multivalue_axis", u_id, 2); // reuse u_id, 2 values per bin
+  std::array<double, 2> mv_vals = {10.0, 20.0};
+  registry.fill(buffer, h_mv, 5.0, std::span{mv_vals}); // [0,10) -> bin 1
+
   registry.flush(buffer);
 
   // 4. Verify
@@ -77,6 +83,12 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   // bin 2 (global 14): [10, 100) -> 50.0 -> weight 2.0
   REQUIRE(registry.data().bins()[13].weight() == Approx(1.0));
   REQUIRE(registry.data().bins()[14].weight() == Approx(2.0));
+
+  // h_mv starts after h_v. 12 + 4 = 16.
+  // bin 1 of h_mv is at global 16 + 1*2 = 18.
+  // values were 10.0, 20.0.
+  REQUIRE(registry.data().bins()[18].weight() == Approx(10.0));
+  REQUIRE(registry.data().bins()[19].weight() == Approx(20.0));
 }
 
 TEST_CASE("HistogramRegistry name lookup", "[HistogramRegistry]") {
@@ -86,4 +98,44 @@ TEST_CASE("HistogramRegistry name lookup", "[HistogramRegistry]") {
     REQUIRE_NOTHROW(registry.get_id("my_hist"));
     REQUIRE(registry.get_id("my_hist") == id);
     REQUIRE_THROWS_AS(registry.get_id("non_existent"), std::runtime_error);
+}
+
+TEST_CASE("HistogramRegistry accessors", "[HistogramRegistry]") {
+  HistogramRegistry<> registry;
+  auto h_id = registry.book("h", 10);
+  auto buffer = registry.create_buffer();
+
+  // --- Event 1 ---
+  // Fill bin 2 with weight 2.0
+  registry.fill(buffer, h_id, static_cast<uint32_t>(2), 2.0);
+  registry.flush(buffer);
+
+  // N=1
+  // Mean = 2.0 / 1 = 2.0
+  // Variance = 0 (N<=1)
+  REQUIRE(registry.value(h_id, 2) == Approx(2.0));
+  REQUIRE(registry.error(h_id, 2) == Approx(0.0));
+  REQUIRE(registry.variance(h_id, 2) == Approx(0.0));
+
+  // --- Event 2 ---
+  // Fill bin 2 with weight 6.0
+  registry.fill(buffer, h_id, static_cast<uint32_t>(2), 6.0);
+  registry.flush(buffer);
+
+  // N=2
+  // Sum(w) = 2 + 6 = 8
+  // Sum(w^2) = 4 + 36 = 40
+  // Mean = 8 / 2 = 4.0
+  // Variance = (40/2 - 4*4) / (2-1) = (20 - 16) / 1 = 4.0
+  // Error = sqrt(4.0) = 2.0
+  REQUIRE(registry.value(h_id, 2) == Approx(4.0));
+  REQUIRE(registry.error(h_id, 2) == Approx(2.0));
+  REQUIRE(registry.variance(h_id, 2) == Approx(4.0));
+
+  // Check bin object access (raw sums)
+  const auto& bin = registry.get_bin(h_id, 2);
+  REQUIRE(bin.weight() == Approx(8.0));
+
+  // Check out of bounds
+  REQUIRE_THROWS_AS(registry.get_bin(h_id, 10), std::out_of_range);
 }

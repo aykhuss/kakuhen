@@ -9,6 +9,7 @@
 #include "kakuhen/histogram/histogram_view.h"
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
+#include <cassert>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -29,6 +30,10 @@ namespace kakuhen::histogram {
  * 2. Global axis definition storage (AxisData)
  * 3. Registered Axes (list of AxisViews)
  * 4. Registered Histograms (mapping of Name -> HistogramView + AxisId)
+ *
+ * This class provides a centralized point for creating, booking, and filling
+ * histograms, ensuring that memory allocation and axis mapping are handled
+ * consistently.
  *
  * @tparam NT The numeric traits defining coordinate, index, and count types.
  */
@@ -103,7 +108,8 @@ class HistogramRegistry {
 
     S n_bins = std::visit(
         [](const auto& ax) -> S {
-          if constexpr (std::is_same_v<std::decay_t<decltype(ax)>, std::monostate>) {
+          using Type = std::decay_t<decltype(ax)>;
+          if constexpr (std::is_same_v<Type, std::monostate>) {
             return 0;  // Should not happen due to check above
           } else {
             return ax.n_bins();
@@ -129,45 +135,77 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Fills a registered histogram with a range of values.
+   * @brief Fills a registered histogram with a span of values using a local bin index.
+   *
+   * @tparam Buffer The type of the histogram buffer.
+   * @param buffer The thread-local buffer to fill.
+   * @param id The ID of the histogram.
+   * @param local_bin_idx The index of the bin within the histogram.
+   * @param values The span of values to accumulate.
    */
-  template <typename Buffer, typename Range>
-  void fill(Buffer& buffer, Id id, S local_bin_idx, const Range& values) const {
+  template <typename Buffer>
+  void fill(Buffer& buffer, Id id, S local_bin_idx, std::span<const T> values) const {
+    assert(id.id() < entries_.size());
     entries_[id.id()].view.fill(buffer, local_bin_idx, values);
   }
 
   /**
-   * @brief Fills a registered histogram with a single value.
+   * @brief Fills a registered histogram with a single value using a local bin index.
+   *
+   * @tparam Buffer The type of the histogram buffer.
+   * @param buffer The thread-local buffer to fill.
+   * @param id The ID of the histogram.
+   * @param local_bin_idx The index of the bin within the histogram.
+   * @param value The value to accumulate.
    */
   template <typename Buffer>
   void fill(Buffer& buffer, Id id, S local_bin_idx, const T& value) const {
+    assert(id.id() < entries_.size());
     entries_[id.id()].view.fill(buffer, local_bin_idx, value);
   }
 
   /**
-   * @brief Fills a registered histogram by mapping an x-coordinate to a bin index.
+   * @brief Fills a registered histogram with a span of values by mapping an x-coordinate.
+   *
+   * @tparam Buffer The type of the histogram buffer.
+   * @param buffer The thread-local buffer to fill.
+   * @param id The ID of the histogram.
+   * @param x The x-coordinate to map to a bin.
+   * @param values The span of values to accumulate.
+   */
+  template <typename Buffer>
+  void fill(Buffer& buffer, Id id, const T& x, std::span<const T> values) const {
+    assert(id.id() < entries_.size());
+    const auto& entry = entries_[id.id()];
+    const S bin_idx = get_axis_index(entry.axis_id, x);
+    entry.view.fill(buffer, bin_idx, values);
+  }
+
+  /**
+   * @brief Fills a registered histogram with a single value by mapping an x-coordinate.
+   *
+   * @tparam Buffer The type of the histogram buffer.
+   * @param buffer The thread-local buffer to fill.
+   * @param id The ID of the histogram.
+   * @param x The x-coordinate to map to a bin.
+   * @param value The value to accumulate.
    */
   template <typename Buffer>
   void fill(Buffer& buffer, Id id, const T& x, const T& value) const {
+    assert(id.id() < entries_.size());
     const auto& entry = entries_[id.id()];
-    const auto& axis_var = axes_[entry.axis_id.id()];
-
-    std::visit(
-        [&](const auto& ax) {
-          using Type = std::decay_t<decltype(ax)>;
-
-          if constexpr (!std::is_same_v<Type, std::monostate>) {
-            S bin_idx = ax.index(axis_data_, x);
-            // with under-/over-flow bins, we always return a valid index
-            assert(bin_idx < ax.n_bins());
-            entry.view.fill(buffer, bin_idx, value);
-          }
-        },
-        axis_var);
+    const S bin_idx = get_axis_index(entry.axis_id, x);
+    entry.view.fill(buffer, bin_idx, value);
   }
 
   /**
    * @brief Flushes a buffer into the registry's global data storage.
+   *
+   * This transfers accumulated weights from a thread-local buffer to the
+   * shared global storage.
+   *
+   * @tparam Buffer The type of the histogram buffer.
+   * @param buffer The buffer to flush.
    */
   template <typename Buffer>
   void flush(Buffer& buffer) {
@@ -175,8 +213,10 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Creates and initializes a thread-local buffer.
-   * @tparam Acc The accumulator type to use.
+   * @brief Creates and initializes a thread-local buffer for filling histograms.
+   *
+   * @tparam Acc The accumulator type to use (e.g., TwoSumAccumulator).
+   * @return A newly initialized `HistogramBuffer`.
    */
   template <typename Acc = kakuhen::util::accumulator::Accumulator<T>>
   [[nodiscard]] auto create_buffer() const {
@@ -191,6 +231,7 @@ class HistogramRegistry {
 
   /**
    * @brief Access the underlying global bin storage.
+   * @return A reference to the global `HistogramData`.
    */
   [[nodiscard]] HistogramData<NT>& data() noexcept {
     return data_;
@@ -198,6 +239,7 @@ class HistogramRegistry {
 
   /**
    * @brief Access the underlying global bin storage (const).
+   * @return A const reference to the global `HistogramData`.
    */
   [[nodiscard]] const HistogramData<NT>& data() const noexcept {
     return data_;
@@ -205,6 +247,7 @@ class HistogramRegistry {
 
   /**
    * @brief Access the underlying axis parameter storage.
+   * @return A reference to the global `AxisData`.
    */
   [[nodiscard]] AxisData<T, S>& axis_data() noexcept {
     return axis_data_;
@@ -212,6 +255,7 @@ class HistogramRegistry {
 
   /**
    * @brief Access the underlying axis parameter storage (const).
+   * @return A const reference to the global `AxisData`.
    */
   [[nodiscard]] const AxisData<T, S>& axis_data() const noexcept {
     return axis_data_;
@@ -227,10 +271,10 @@ class HistogramRegistry {
    * @throws std::out_of_range If the ID or indices are invalid.
    */
   [[nodiscard]] const auto& get_bin(Id id, S bin_idx, S value_idx = 0) const {
-    if (id.id() >= entries_.size()) {
+    if (id.id() >= static_cast<S>(entries_.size())) {
       throw std::out_of_range("HistogramRegistry: invalid HistogramId.");
     }
-    return get_view(id).get_bin(data_, bin_idx, value_idx);
+    return entries_[id.id()].view.get_bin(data_, bin_idx, value_idx);
   }
 
   /**
@@ -280,6 +324,7 @@ class HistogramRegistry {
 
   /**
    * @brief Retrieve the list of all registered histogram IDs.
+   * @return A vector of `HistogramId` handles.
    */
   [[nodiscard]] std::vector<Id> ids() const {
     std::vector<Id> result;
@@ -292,21 +337,33 @@ class HistogramRegistry {
 
   /**
    * @brief Retrieve the view handle for a specific histogram.
+   *
+   * @param id The ID of the histogram.
+   * @return The `HistogramView` associated with the ID.
    */
   [[nodiscard]] View get_view(Id id) const {
+    assert(id.id() < entries_.size());
     return entries_[id.id()].view;
   }
 
   /**
    * @brief Retrieve the human-readable name for a specific histogram.
+   *
+   * @param id The ID of the histogram.
+   * @return The name registered for this histogram.
    */
   [[nodiscard]] std::string_view get_name(Id id) const {
+    assert(id.id() < names_.size());
     return names_[id.id()];
   }
 
   /**
    * @brief Look up a histogram's unique ID by its registered name.
-   * @note This lookup is O(N).
+   *
+   * @param name The name to look up.
+   * @return The unique `HistogramId`.
+   * @throws std::runtime_error If the name is not found.
+   * @note This lookup is O(N) where N is the number of registered histograms.
    */
   [[nodiscard]] Id get_id(std::string_view name) const {
     for (size_t i = 0; i < names_.size(); ++i) {
@@ -317,6 +374,7 @@ class HistogramRegistry {
 
   /**
    * @brief Returns the total number of registered entries.
+   * @return The number of histograms.
    */
   [[nodiscard]] S num_entries() const noexcept {
     return static_cast<S>(entries_.size());
@@ -330,7 +388,7 @@ class HistogramRegistry {
   /**
    * @brief Serializes the entire registry state to an output stream.
    *
-   * @param out The output stream.
+   * @param out The output stream to write to.
    * @param with_type If true, verifies traits compatibility during deserialization.
    */
   void serialize(std::ostream& out, bool with_type = true) const noexcept {
@@ -378,7 +436,7 @@ class HistogramRegistry {
   /**
    * @brief Deserializes the entire registry state from an input stream.
    *
-   * @param in The input stream.
+   * @param in The input stream to read from.
    * @param with_type If true, verifies traits compatibility.
    * @throws std::runtime_error If traits mismatch or deserialization fails.
    */
@@ -460,11 +518,19 @@ class HistogramRegistry {
     AxId axis_id{0};     //!< ID of the axis definition used.
     View view{0, 0, 0};  //!< Handle to the physical bin storage.
 
+    /**
+     * @brief Serialize the entry metadata.
+     * @param out The output stream.
+     */
     void serialize(std::ostream& out) const noexcept {
       util::serialize::serialize_one(out, axis_id.id());
       view.serialize(out);
     }
 
+    /**
+     * @brief Deserialize the entry metadata.
+     * @param in The input stream.
+     */
     void deserialize(std::istream& in) {
       S aid;
       util::serialize::deserialize_one(in, aid);
@@ -474,19 +540,48 @@ class HistogramRegistry {
   };
 
   /**
+   * @brief Helper to resolve an x-coordinate to a local bin index using an axis.
+   *
+   * @param ax_id The ID of the axis to use.
+   * @param x The x-coordinate.
+   * @return The local bin index.
+   */
+  [[nodiscard]] inline S get_axis_index(AxId ax_id, const T& x) const {
+    assert(ax_id.id() < axes_.size());
+    return std::visit(
+        [&](const auto& ax) -> S {
+          using Type = std::decay_t<decltype(ax)>;
+          if constexpr (std::is_same_v<Type, std::monostate>) {
+            assert(false && "Attempted axis lookup on histogram without axis");
+            return 0;
+          } else {
+            const S idx = ax.index(axis_data_, x);
+            assert(idx < ax.n_bins());
+            return idx;
+          }
+        },
+        axes_[ax_id.id()]);
+  }
+
+  /**
    * @brief Internal helper to finalize the booking of a histogram.
+   *
+   * @param name Unique name for the histogram.
+   * @param axis_id ID of the axis.
+   * @param n_bins Number of bins.
+   * @param n_values Number of values per bin.
+   * @return The unique `HistogramId`.
    * @throws std::invalid_argument If the name already exists.
    */
   Id book_with_id(std::string_view name, AxId axis_id, S n_bins, S n_values) {
-    const std::string s_name(name);
     for (const auto& existing : names_) {
-      if (existing == s_name) {
-        throw std::invalid_argument("HistogramRegistry: name already exists: " + s_name);
+      if (existing == name) {
+        throw std::invalid_argument("HistogramRegistry: name already exists: " + std::string(name));
       }
     }
 
     const Id id{static_cast<S>(entries_.size())};
-    names_.emplace_back(s_name);
+    names_.emplace_back(name);
     entries_.push_back({axis_id, View(data_, n_bins, n_values)});
     return id;
   }

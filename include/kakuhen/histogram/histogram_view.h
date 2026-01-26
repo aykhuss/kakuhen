@@ -57,13 +57,12 @@ class HistogramView {
         stride_(n_values_per_bin) {}
 
   /**
-   * @brief Fills the histogram buffer with a vector of values for a specific bin.
+   * @brief Fills the histogram buffer with a span of values for a specific bin.
    *
-   * This method maps the local bin index and the vector of values to the
+   * This method maps the local bin index and the span of values to the
    * corresponding global indices in the histogram buffer.
    *
    * @tparam Buffer The type of the histogram buffer (e.g., `HistogramBuffer`).
-   * @tparam Range The type of the range of values (e.g., `std::vector`, `std::span`).
    * @param buffer The thread-local histogram buffer to fill.
    * @param local_bin_idx The local index of the bin (0 to n_bins - 1).
    * @param values The values to accumulate into the bin. Must have size == n_values_per_bin.
@@ -71,19 +70,15 @@ class HistogramView {
    * @note If `local_bin_idx` or the size of `values` is incorrect, this will assert in debug
    * builds.
    */
-  template <typename Buffer, typename Range>
-  void fill(Buffer& buffer, S local_bin_idx, const Range& values) const {
+  template <typename Buffer>
+  void fill(Buffer& buffer, S local_bin_idx, std::span<const T> values) const {
     assert(local_bin_idx < n_bins_ && "Bin index out of bounds");
-    assert(std::size(values) == stride_ && "Value count mismatch");
+    assert(values.size() == static_cast<std::size_t>(stride_) && "Value count mismatch");
 
     const S base_global_idx = offset_ + local_bin_idx * stride_;
 
-    // Using an index-based loop to support both std::vector and std::span
-    // and to easily calculate the global index.
-    S i = 0;
-    for (const auto& val : values) {
-      buffer.fill(base_global_idx + i, val);
-      ++i;
+    for (S i = 0; i < stride_; ++i) {
+      buffer.fill(base_global_idx + i, values[i]);
     }
   }
 
