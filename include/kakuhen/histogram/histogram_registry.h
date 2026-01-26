@@ -9,6 +9,7 @@
 #include "kakuhen/histogram/histogram_view.h"
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -180,7 +181,7 @@ class HistogramRegistry {
   template <typename Acc = kakuhen::util::accumulator::Accumulator<T>>
   [[nodiscard]] auto create_buffer() const {
     HistogramBuffer<NT, Acc> buffer;
-    const S reserve_size = kakuhen::util::math::max(num_histograms(), num_axes());
+    const S reserve_size = num_entries();
     buffer.init(data_.size(), reserve_size);
     return buffer;
   }
@@ -214,6 +215,67 @@ class HistogramRegistry {
    */
   [[nodiscard]] const AxisData<T, S>& axis_data() const noexcept {
     return axis_data_;
+  }
+
+  /**
+   * @brief Access the accumulator for a specific bin in a registered histogram.
+   *
+   * @param id The histogram ID.
+   * @param bin_idx The local bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return A const reference to the bin accumulator.
+   * @throws std::out_of_range If the ID or indices are invalid.
+   */
+  [[nodiscard]] const auto& get_bin(Id id, S bin_idx, S value_idx = 0) const {
+    if (id.id() >= entries_.size()) {
+      throw std::out_of_range("HistogramRegistry: invalid HistogramId.");
+    }
+    return get_view(id).get_bin(data_, bin_idx, value_idx);
+  }
+
+  /**
+   * @brief Get the mean value (sum of weights / N) for a bin.
+   *
+   * @param id The histogram ID.
+   * @param bin_idx The local bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return The mean value.
+   */
+  [[nodiscard]] T value(Id id, S bin_idx, S value_idx = 0) const {
+    const auto& bin = get_bin(id, bin_idx, value_idx);
+    const T n = static_cast<T>(data_.count());
+    if (n == T(0)) return T(0);
+    return bin.weight() / n;
+  }
+
+  /**
+   * @brief Get the variance of the mean value for a bin.
+   *
+   * @param id The histogram ID.
+   * @param bin_idx The local bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return The variance of the mean.
+   */
+  [[nodiscard]] T variance(Id id, S bin_idx, S value_idx = 0) const {
+    const U n_count = data_.count();
+    if (n_count <= 1) return T(0);
+
+    const auto& bin = get_bin(id, bin_idx, value_idx);
+    const T n = static_cast<T>(n_count);
+    const T mean = bin.weight() / n;
+    return (bin.weight_sq() / n - mean * mean) / (n - T(1));
+  }
+
+  /**
+   * @brief Get the statistical error (standard deviation of the mean) for a bin.
+   *
+   * @param id The histogram ID.
+   * @param bin_idx The local bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return The statistical error.
+   */
+  [[nodiscard]] T error(Id id, S bin_idx, S value_idx = 0) const {
+    return std::sqrt(variance(id, bin_idx, value_idx));
   }
 
   /**
@@ -254,17 +316,10 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Returns the total number of registered histograms.
+   * @brief Returns the total number of registered entries.
    */
-  [[nodiscard]] S num_histograms() const noexcept {
+  [[nodiscard]] S num_entries() const noexcept {
     return static_cast<S>(entries_.size());
-  }
-
-  /**
-   * @brief Returns the total number of registered axis definitions.
-   */
-  [[nodiscard]] S num_axes() const noexcept {
-    return static_cast<S>(axes_.size());
   }
 
   /// @}
