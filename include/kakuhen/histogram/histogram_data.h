@@ -3,6 +3,8 @@
 #include "kakuhen/histogram/bin_accumulator.h"
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/serialize.h"
+#include <cassert>
+#include <limits>
 #include <vector>
 
 namespace kakuhen::histogram {
@@ -43,20 +45,11 @@ class HistogramData {
    * This method allows for incremental registration of histograms. It resizes
    * the underlying storage to accommodate `n_bins` additional bins.
    *
-   * @param n_bins The number of bins to allocate.
-   * @return The starting global index of the allocated block.
-   */
-  /*!
-   * @brief Allocates a contiguous block of bins in the global storage.
-   *
-   * This method resizes the underlying storage to accommodate `n_bins`
-   * additional bins.
-   *
    * @param n_bins The number of additional bins to allocate.
    * @return The starting global index of the allocated block.
    * @throws std::length_error If the total number of bins exceeds the capacity of index type S.
    */
-  S allocate(S n_bins) {
+  [[nodiscard]] S allocate(S n_bins) {
     const std::size_t current_size = bins_.size();
     const std::size_t count = static_cast<std::size_t>(n_bins);
 
@@ -75,6 +68,7 @@ class HistogramData {
    * @param w The weight to accumulate.
    */
   void accumulate(S index, const T& w) {
+    assert(index < size() && "HistogramData::accumulate: index out of bounds");
     bins_[static_cast<std::size_t>(index)].accumulate(w);
   }
 
@@ -86,6 +80,7 @@ class HistogramData {
    * @param w2 The sum of squared weights to add.
    */
   void accumulate(S index, const T& w, const T& w2) {
+    assert(index < size() && "HistogramData::accumulate: index out of bounds");
     bins_[static_cast<std::size_t>(index)].accumulate(w, w2);
   }
 
@@ -113,22 +108,6 @@ class HistogramData {
   }
 
   /**
-   * @brief Access the underlying vector of bins.
-   * @return A reference to the vector of bin accumulators.
-   */
-  [[nodiscard]] std::vector<bin_type>& bins() noexcept {
-    return bins_;
-  }
-
-  /**
-   * @brief Access the underlying vector of bins (const).
-   * @return A const reference to the vector of bin accumulators.
-   */
-  [[nodiscard]] const std::vector<bin_type>& bins() const noexcept {
-    return bins_;
-  }
-
-  /**
    * @brief Get the number of bins in storage.
    * @return Total bin count.
    */
@@ -146,6 +125,9 @@ class HistogramData {
 
   /**
    * @brief Checks if two HistogramData objects are identical.
+   *
+   * @param other The other HistogramData object.
+   * @return True if they have the same content.
    */
   [[nodiscard]] bool operator==(const HistogramData& other) const noexcept {
     return n_count_ == other.n_count_ && bins_ == other.bins_;
@@ -153,9 +135,50 @@ class HistogramData {
 
   /**
    * @brief Checks if two HistogramData objects are different.
+   *
+   * @param other The other HistogramData object.
+   * @return True if they have different content.
    */
   [[nodiscard]] bool operator!=(const HistogramData& other) const noexcept {
     return !(*this == other);
+  }
+
+  /**
+   * @brief Access a specific bin accumulator.
+   *
+   * @param idx The global index of the bin.
+   * @return A reference to the bin accumulator.
+   */
+  [[nodiscard]] inline bin_type& get_bin(S idx) noexcept {
+    assert(idx < size() && "HistogramData::get_bin: index out of bounds");
+    return bins_[static_cast<std::size_t>(idx)];
+  }
+
+  /**
+   * @brief Access a specific bin accumulator (const).
+   *
+   * @param idx The global index of the bin.
+   * @return A const reference to the bin accumulator.
+   */
+  [[nodiscard]] inline const bin_type& get_bin(S idx) const noexcept {
+    assert(idx < size() && "HistogramData::get_bin: index out of bounds");
+    return bins_[static_cast<std::size_t>(idx)];
+  }
+
+  /**
+   * @brief Access the underlying vector of bins.
+   * @return A reference to the vector of bin accumulators.
+   */
+  [[nodiscard]] std::vector<bin_type>& bins() noexcept {
+    return bins_;
+  }
+
+  /**
+   * @brief Access the underlying vector of bins (const).
+   * @return A const reference to the vector of bin accumulators.
+   */
+  [[nodiscard]] const std::vector<bin_type>& bins() const noexcept {
+    return bins_;
   }
 
   /// @}

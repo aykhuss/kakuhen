@@ -4,6 +4,7 @@
 #include "kakuhen/util/numeric_traits.h"
 #include <cassert>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace kakuhen::histogram {
@@ -101,6 +102,27 @@ class HistogramView {
     assert(local_bin_idx < n_bins_ && "Bin index out of bounds");
     assert(stride_ == 1 && "Value count mismatch (expected 1 for scalar fill)");
     buffer.fill(offset_ + local_bin_idx, value);  // stride is 1, so idx is offset + local
+  }
+
+  /**
+   * @brief Access the accumulator for a specific bin in this histogram view.
+   *
+   * @param data The global histogram data storage.
+   * @param bin_idx The local bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return A const reference to the bin accumulator.
+   * @throws std::out_of_range If indices are out of bounds.
+   */
+  [[nodiscard]] const auto& get_bin(const HistogramData<NT>& data, S bin_idx,
+                                    S value_idx = 0) const {
+    if (bin_idx >= n_bins_) {
+      throw std::out_of_range("HistogramView: bin index out of bounds");
+    }
+    if (value_idx >= stride_) {
+      throw std::out_of_range("HistogramView: value index out of bounds");
+    }
+    const S global_idx = offset_ + bin_idx * stride_ + value_idx;
+    return data.get_bin(global_idx);
   }
 
   /**
