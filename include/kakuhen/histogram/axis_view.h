@@ -54,6 +54,7 @@ struct AxisMetadata {
   S offset = 0;                    //!< Starting index within the global AxisData storage.
   S size = 0;                      //!< Number of elements (parameters or edges) in storage.
   S n_bins = 0;                    //!< Total number of bins (including Underflow/Overflow).
+  S stride = 1;                    //!< Stride multiplier for multi-dimensional indexing.
 
   /**
    * @brief Serializes the metadata to an output stream.
@@ -71,6 +72,7 @@ struct AxisMetadata {
     kakuhen::util::serialize::serialize_one<S>(out, offset);
     kakuhen::util::serialize::serialize_one<S>(out, size);
     kakuhen::util::serialize::serialize_one<S>(out, n_bins);
+    kakuhen::util::serialize::serialize_one<S>(out, stride);
   }
 
   /**
@@ -98,6 +100,7 @@ struct AxisMetadata {
     kakuhen::util::serialize::deserialize_one<S>(in, offset);
     kakuhen::util::serialize::deserialize_one<S>(in, size);
     kakuhen::util::serialize::deserialize_one<S>(in, n_bins);
+    kakuhen::util::serialize::deserialize_one<S>(in, stride);
   }
 
   /**
@@ -105,7 +108,7 @@ struct AxisMetadata {
    */
   [[nodiscard]] bool operator==(const AxisMetadata& other) const noexcept {
     return type == other.type && offset == other.offset && size == other.size &&
-           n_bins == other.n_bins;
+           n_bins == other.n_bins && stride == other.stride;
   }
 
   /**
@@ -149,10 +152,10 @@ class AxisView {
    * @brief Maps a coordinate to its corresponding bin index.
    * @param axis_data Shared storage containing the axis parameters.
    * @param x The coordinate value to map.
-   * @return The bin index (0 to n_bins - 1).
+   * @return The bin index (0 to n_bins - 1) multiplied by the stride.
    */
   [[nodiscard]] S index(const AxisData<T, S>& axis_data, const T& x) const {
-    return static_cast<const Derived*>(this)->index_impl(axis_data, x);
+    return static_cast<const Derived*>(this)->index_impl(axis_data, x) * meta_.stride;
   }
 
   /**
@@ -185,6 +188,22 @@ class AxisView {
    */
   [[nodiscard]] S size() const noexcept {
     return meta_.size;
+  }
+
+  /**
+   * @brief Get the stride multiplier for this axis.
+   * @return The stride value.
+   */
+  [[nodiscard]] S stride() const noexcept {
+    return meta_.stride;
+  }
+
+  /**
+   * @brief Sets the stride multiplier for this axis.
+   * @param stride The new stride value.
+   */
+  void set_stride(S stride) noexcept {
+    meta_.stride = stride;
   }
 
   /**
@@ -273,7 +292,7 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
     if (n_bins == 0) throw std::invalid_argument("UniformAxis: n_bins must be > 0");
     if (min >= max) throw std::invalid_argument("UniformAxis: min must be < max");
     return {AxisType::Uniform, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3),
-            static_cast<S>(n_bins + 2)};
+            static_cast<S>(n_bins + 2), 1};
   }
 };
 
@@ -340,7 +359,7 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
       throw std::invalid_argument("VariableAxis: edges must be sorted");
     }
     return {AxisType::Variable, data.add_data(edges), static_cast<S>(edges.size()),
-            static_cast<S>(edges.size() + 1)};
+            static_cast<S>(edges.size() + 1), 1};
   }
 };
 
