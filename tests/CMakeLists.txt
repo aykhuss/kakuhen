@@ -11,6 +11,7 @@ FetchContent_MakeAvailable(catch2)
 
 set(TEST_SOURCES
   test_accumulator.cpp
+  test_axis.cpp
   test_basin.cpp
   test_hash.cpp
   test_histogram.cpp
