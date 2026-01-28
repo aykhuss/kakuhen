@@ -49,6 +49,8 @@ enum class UOFlowPolicy : uint8_t {
 
 /**
  * @brief Checks if the policy includes an underflow bin.
+ * @param flow The policy to check.
+ * @return True if underflow is included.
  */
 [[nodiscard]] constexpr bool has_underflow(UOFlowPolicy flow) noexcept {
   return static_cast<uint8_t>(flow) & 1;
@@ -56,6 +58,8 @@ enum class UOFlowPolicy : uint8_t {
 
 /**
  * @brief Checks if the policy includes an overflow bin.
+ * @param flow The policy to check.
+ * @return True if overflow is included.
  */
 [[nodiscard]] constexpr bool has_overflow(UOFlowPolicy flow) noexcept {
   return static_cast<uint8_t>(flow) & 2;
@@ -63,6 +67,8 @@ enum class UOFlowPolicy : uint8_t {
 
 /**
  * @brief Returns the number of flow bins (0, 1, or 2) for a given policy.
+ * @param flow The policy to check.
+ * @return The number of extra bins allocated for flow.
  */
 [[nodiscard]] constexpr uint8_t flow_count(UOFlowPolicy flow) noexcept {
   return (has_underflow(flow) ? 1 : 0) + (has_overflow(flow) ? 1 : 0);
@@ -176,9 +182,8 @@ class AxisView {
   /**
    * @brief Constructs an AxisView from metadata.
    * @param meta The axis metadata.
-   * @param flow Optional override for the FlowBins policy (defaulted to Both).
    */
-  explicit AxisView(const metadata_type& meta) : meta_{meta} {}
+  explicit AxisView(const metadata_type& meta) noexcept : meta_{meta} {}
 
   /**
    * @brief Maps a coordinate to its corresponding bin index.
@@ -290,7 +295,7 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    * @brief Constructs a UniformAxis from existing metadata.
    * @param meta The axis metadata.
    */
-  explicit UniformAxis(const metadata_type& meta) : Base(meta) {
+  explicit UniformAxis(const metadata_type& meta) noexcept : Base(meta) {
     assert(meta.type == AxisType::Uniform);
   }
 
@@ -332,12 +337,14 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
     const T& min_val = axis_data[meta_.offset];
     const T& max_val = axis_data[meta_.offset + 1];
     const S n_reg_bins = meta_.n_bins - flow_count(meta_.flow);
-    std::vector<T> res(static_cast<std::size_t>(n_reg_bins + 1));
+    std::vector<T> res;
+    res.reserve(static_cast<std::size_t>(n_reg_bins + 1));
     const T step = (max_val - min_val) / static_cast<T>(n_reg_bins);
     for (S i = 0; i <= n_reg_bins; ++i) {
-      res[i] = min_val + static_cast<T>(i) * step;
+      res.push_back(min_val + static_cast<T>(i) * step);
     }
-    res[n_reg_bins] = max_val;
+    // Ensure the last edge is exactly max_val
+    if (!res.empty()) res.back() = max_val;
     return res;
   }
 
@@ -377,7 +384,7 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
    * @brief Constructs a VariableAxis from existing metadata.
    * @param meta The axis metadata.
    */
-  explicit VariableAxis(const metadata_type& meta) : Base(meta) {
+  explicit VariableAxis(const metadata_type& meta) noexcept : Base(meta) {
     assert(meta.type == AxisType::Variable);
   }
 
