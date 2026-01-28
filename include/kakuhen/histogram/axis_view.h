@@ -3,6 +3,7 @@
 #include "kakuhen/histogram/axis_data.h"
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -10,6 +11,27 @@
 #include <vector>
 
 namespace kakuhen::histogram {
+
+/**
+ * @brief Identifiers for different types of histogram bins.
+ */
+enum class BinKind : uint8_t {
+  Regular = 0,    //!< A standard bin within the axis range.
+  Underflow = 1,  //!< Bin for values below the axis range.
+  Overflow = 2,   //!< Bin for values above the axis range.
+  Invalid = 3     //!< Sentinel for invalid or uninitialized bins.
+};
+
+/**
+ * @brief Represents the physical boundaries and classification of a single bin.
+ * @tparam T The coordinate value type.
+ */
+template <typename T>
+struct BinRange {
+  BinKind kind;  //!< The classification of the bin.
+  T low;         //!< Lower boundary of the bin.
+  T upp;         //!< Upper boundary of the bin.
+};
 
 /**
  * @brief Enum defining the supported axis types for histogram binning.
@@ -38,43 +60,6 @@ enum class AxisType : uint8_t {
 }
 
 /**
- * @brief Policy for underflow and overflow bins.
- */
-enum class UOFlowPolicy : uint8_t {
-  None = 0,                                //!< No underflow or overflow bins.
-  Underflow = 1 << 0,                      //!< Only underflow bin included.
-  Overflow = 1 << 1,                       //!< Only overflow bin included.
-  Both = Underflow | Overflow              //!< Both underflow and overflow bins included.
-};
-
-/**
- * @brief Checks if the policy includes an underflow bin.
- * @param flow The policy to check.
- * @return True if underflow is included.
- */
-[[nodiscard]] constexpr bool has_underflow(UOFlowPolicy flow) noexcept {
-  return static_cast<uint8_t>(flow) & static_cast<uint8_t>(UOFlowPolicy::Underflow);
-}
-
-/**
- * @brief Checks if the policy includes an overflow bin.
- * @param flow The policy to check.
- * @return True if overflow is included.
- */
-[[nodiscard]] constexpr bool has_overflow(UOFlowPolicy flow) noexcept {
-  return static_cast<uint8_t>(flow) & static_cast<uint8_t>(UOFlowPolicy::Overflow);
-}
-
-/**
- * @brief Returns the number of flow bins (0, 1, or 2) for a given policy.
- * @param flow The policy to check.
- * @return The number of extra bins allocated for flow.
- */
-[[nodiscard]] constexpr uint8_t flow_count(UOFlowPolicy flow) noexcept {
-  return (has_underflow(flow) ? 1 : 0) + (has_overflow(flow) ? 1 : 0);
-}
-
-/**
  * @brief Metadata required to locate and identify an axis definition in shared storage.
  *
  * This structure encapsulates the state needed to reconstruct an axis view and
@@ -88,12 +73,11 @@ struct AxisMetadata {
   using value_type = T;
   using size_type = S;
 
-  AxisType type = AxisType::None;          //!< The specific axis implementation type.
-  UOFlowPolicy flow = UOFlowPolicy::Both;  //!< UF/OF bin configuration.
-  S offset = 0;                            //!< Starting index within the global AxisData storage.
-  S size = 0;                              //!< Number of elements (parameters or edges) in storage.
-  S n_bins = 0;  //!< Total number of bins (including UF/OF as configured).
-  S stride = 1;  //!< Stride multiplier for multi-dimensional indexing.
+  AxisType type = AxisType::None;  //!< The specific axis implementation type.
+  S offset = 0;                    //!< Starting index within the global AxisData storage.
+  S size = 0;                      //!< Number of elements (parameters or edges) in storage.
+  S n_bins = 0;                    //!< Total number of bins (including UF and OF).
+  S stride = 1;                    //!< Stride multiplier for multi-dimensional indexing.
 
   /**
    * @brief Serializes the metadata to an output stream.
@@ -108,7 +92,6 @@ struct AxisMetadata {
       kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
     }
     kakuhen::util::serialize::serialize_one<uint8_t>(out, static_cast<uint8_t>(type));
-    kakuhen::util::serialize::serialize_one<uint8_t>(out, static_cast<uint8_t>(flow));
     kakuhen::util::serialize::serialize_one<S>(out, offset);
     kakuhen::util::serialize::serialize_one<S>(out, size);
     kakuhen::util::serialize::serialize_one<S>(out, n_bins);
@@ -134,11 +117,9 @@ struct AxisMetadata {
         throw std::runtime_error("AxisMetadata: index type S mismatch.");
       }
     }
-    uint8_t t, f;
+    uint8_t t;
     kakuhen::util::serialize::deserialize_one<uint8_t>(in, t);
     type = static_cast<AxisType>(t);
-    kakuhen::util::serialize::deserialize_one<uint8_t>(in, f);
-    flow = static_cast<UOFlowPolicy>(f);
     kakuhen::util::serialize::deserialize_one<S>(in, offset);
     kakuhen::util::serialize::deserialize_one<S>(in, size);
     kakuhen::util::serialize::deserialize_one<S>(in, n_bins);
@@ -149,8 +130,8 @@ struct AxisMetadata {
    * @brief Compares two metadata objects for equality.
    */
   [[nodiscard]] bool operator==(const AxisMetadata& other) const noexcept {
-    return type == other.type && flow == other.flow && offset == other.offset &&
-           size == other.size && n_bins == other.n_bins && stride == other.stride;
+    return type == other.type && offset == other.offset && size == other.size &&
+           n_bins == other.n_bins && stride == other.stride;
   }
 
   /**
@@ -167,6 +148,11 @@ struct AxisMetadata {
  * AxisView provides the interface for mapping coordinates to bin indices.
  * It stores metadata describing where its parameters are located in a shared
  * AxisData storage.
+ *
+ * Indexing Convention:
+ * - 0: Underflow (x < regular_range_min)
+ * - 1 .. N: Regular bins
+ * - N + 1: Overflow (x >= regular_range_max)
  *
  * @tparam Derived The derived axis type (UniformAxis or VariableAxis).
  * @tparam T The coordinate value type.
@@ -205,6 +191,15 @@ class AxisView {
   }
 
   /**
+   * @brief Returns the full set of bin ranges for this axis.
+   * @param axis_data Shared storage containing the axis parameters.
+   * @return A vector of BinRange objects for each bin in the axis.
+   */
+  [[nodiscard]] std::vector<BinRange<T>> bin_ranges(const AxisData<T, S>& axis_data) const {
+    return static_cast<const Derived*>(this)->bin_ranges_impl(axis_data);
+  }
+
+  /**
    * @brief Access the underlying metadata.
    */
   [[nodiscard]] const metadata_type& metadata() const noexcept {
@@ -237,13 +232,6 @@ class AxisView {
    */
   [[nodiscard]] S stride() const noexcept {
     return meta_.stride;
-  }
-
-  /**
-   * @brief Get the flow policy for this axis.
-   */
-  [[nodiscard]] UOFlowPolicy flow() const noexcept {
-    return meta_.flow;
   }
 
   /**
@@ -306,12 +294,10 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    * @param n_bins Number of regular bins.
    * @param min The lower bound of the first regular bin.
    * @param max The upper bound of the last regular bin.
-   * @param flow Flow policy for underflow/overflow bins.
    * @throws std::invalid_argument if parameters are invalid.
    */
-  UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max,
-              UOFlowPolicy flow = UOFlowPolicy::Both)
-      : Base(validate_and_create(data, n_bins, min, max, flow)) {}
+  UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max)
+      : Base(validate_and_create(data, n_bins, min, max)) {}
 
   /**
    * @brief Maps a coordinate to a bin index using uniform mapping.
@@ -321,13 +307,10 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
     const T& max_val = axis_data[meta_.offset + 1];
     const T& scale_val = axis_data[meta_.offset + 2];
 
-    const bool uf = has_underflow(meta_.flow);
-    const bool of = has_overflow(meta_.flow);
+    if (x < min_val) return 0;
+    if (x >= max_val) return meta_.n_bins - 1;
 
-    if (x < min_val) return uf ? 0 : std::numeric_limits<S>::max();
-    if (x >= max_val) return of ? (meta_.n_bins - 1) : std::numeric_limits<S>::max();
-
-    return static_cast<S>((uf ? 1 : 0) + (x - min_val) * scale_val);
+    return static_cast<S>(1 + (x - min_val) * scale_val);
   }
 
   /**
@@ -336,7 +319,7 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
   [[nodiscard]] std::vector<T> edges_impl(const AxisData<T, S>& axis_data) const {
     const T& min_val = axis_data[meta_.offset];
     const T& max_val = axis_data[meta_.offset + 1];
-    const S n_reg_bins = meta_.n_bins - flow_count(meta_.flow);
+    const S n_reg_bins = meta_.n_bins - 2;
     std::vector<T> res;
     res.reserve(static_cast<std::size_t>(n_reg_bins + 1));
     const T step = (max_val - min_val) / static_cast<T>(n_reg_bins);
@@ -348,20 +331,42 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
     return res;
   }
 
+  /**
+   * @brief Implementation for retrieving uniform bin ranges.
+   */
+  [[nodiscard]] std::vector<BinRange<T>> bin_ranges_impl(const AxisData<T, S>& axis_data) const {
+    const T& min_val = axis_data[meta_.offset];
+    const T& max_val = axis_data[meta_.offset + 1];
+    const S n_reg_bins = meta_.n_bins - 2;
+    const T step = (max_val - min_val) / static_cast<T>(n_reg_bins);
+
+    std::vector<BinRange<T>> res;
+    res.reserve(static_cast<std::size_t>(meta_.n_bins));
+
+    res.push_back({BinKind::Underflow, -std::numeric_limits<T>::infinity(), min_val});
+
+    for (S i = 0; i < n_reg_bins; ++i) {
+      const T low = min_val + static_cast<T>(i) * step;
+      const T upp = (i == n_reg_bins - 1) ? max_val : min_val + static_cast<T>(i + 1) * step;
+      res.push_back({BinKind::Regular, low, upp});
+    }
+
+    res.push_back({BinKind::Overflow, max_val, +std::numeric_limits<T>::infinity()});
+
+    assert(res.size() == static_cast<std::size_t>(meta_.n_bins));
+    return res;
+  }
+
  private:
   /**
    * @brief Validates parameters and appends data to storage.
    */
   static metadata_type validate_and_create(AxisData<T, S>& data, S n_bins, const T& min,
-                                           const T& max, UOFlowPolicy flow) {
+                                           const T& max) {
     if (n_bins == 0) throw std::invalid_argument("UniformAxis: n_bins must be > 0");
     if (min >= max) throw std::invalid_argument("UniformAxis: min must be < max");
-    return {AxisType::Uniform,
-            flow,
-            data.add_data(min, max, static_cast<T>(n_bins) / (max - min)),
-            S(3),
-            static_cast<S>(n_bins + flow_count(flow)),
-            1};
+    return {AxisType::Uniform, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3),
+            static_cast<S>(n_bins + 2), 1};
   }
 };
 
@@ -393,12 +398,10 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
    *
    * @param data The shared axis data storage.
    * @param edges The bin edges (must be sorted).
-   * @param flow Flow policy for underflow/overflow bins.
    * @throws std::invalid_argument if parameters are invalid.
    */
-  VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges,
-               UOFlowPolicy flow = UOFlowPolicy::Both)
-      : Base(validate_and_create(data, edges, flow)) {}
+  VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges)
+      : Base(validate_and_create(data, edges)) {}
 
   /**
    * @brief Maps a coordinate to a bin index using binary search.
@@ -407,15 +410,12 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
     auto begin = axis_data.data().begin() + meta_.offset;
     auto end = begin + meta_.size;
 
-    const bool uf = has_underflow(meta_.flow);
-    const bool of = has_overflow(meta_.flow);
-
-    if (x < *begin) return uf ? 0 : std::numeric_limits<S>::max();
-    if (x >= *(end - 1)) return of ? (meta_.n_bins - 1) : std::numeric_limits<S>::max();
+    if (x < *begin) return 0;
+    if (x >= *(end - 1)) return meta_.n_bins - 1;
 
     auto it = std::upper_bound(begin, end, x);
     const S local_idx = static_cast<S>(std::distance(begin, it)) - 1;
-    return (uf ? 1 : 0) + local_idx;
+    return 1 + local_idx;
   }
 
   /**
@@ -427,22 +427,40 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
     return std::vector<T>(begin, end);
   }
 
+  /**
+   * @brief Implementation for retrieving variable bin ranges.
+   */
+  [[nodiscard]] std::vector<BinRange<T>> bin_ranges_impl(const AxisData<T, S>& axis_data) const {
+    auto begin = axis_data.data().begin() + meta_.offset;
+    auto end = begin + meta_.size;
+
+    std::vector<BinRange<T>> res;
+    res.reserve(static_cast<std::size_t>(meta_.n_bins));
+
+    res.push_back({BinKind::Underflow, -std::numeric_limits<T>::infinity(), *begin});
+
+    // Number of regular bins is edges.size() - 1
+    for (auto it = begin; it != end - 1; ++it) {
+      res.push_back({BinKind::Regular, *it, *(it + 1)});
+    }
+
+    res.push_back({BinKind::Overflow, *(end - 1), +std::numeric_limits<T>::infinity()});
+
+    assert(res.size() == static_cast<std::size_t>(meta_.n_bins));
+    return res;
+  }
+
  private:
   /**
    * @brief Validates edges and appends to storage.
    */
-  static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges,
-                                           UOFlowPolicy flow) {
+  static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges) {
     if (edges.size() < 2) throw std::invalid_argument("VariableAxis: requires at least 2 edges");
     if (!std::is_sorted(edges.begin(), edges.end())) {
       throw std::invalid_argument("VariableAxis: edges must be sorted");
     }
-    return {AxisType::Variable,
-            flow,
-            data.add_data(edges),
-            static_cast<S>(edges.size()),
-            static_cast<S>(edges.size() - 1 + flow_count(flow)),
-            1};
+    return {AxisType::Variable, data.add_data(edges), static_cast<S>(edges.size()),
+            static_cast<S>(edges.size() + 1), 1};
   }
 };
 
