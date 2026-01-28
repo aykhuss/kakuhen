@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include "kakuhen/histogram/axis.h"
 
 using namespace kakuhen::histogram;
+using Catch::Approx;
 
 TEST_CASE("Self-contained Axis", "[axis]") {
   SECTION("Uniform Axis") {
@@ -15,6 +17,12 @@ TEST_CASE("Self-contained Axis", "[axis]") {
     REQUIRE(axis.index(9.9) == 10); // Last bin
     REQUIRE(axis.index(10.0) == 11); // Overflow
     REQUIRE(axis.index(11.0) == 11);
+
+    auto edges = axis.edges();
+    REQUIRE(edges.size() == 11);
+    REQUIRE(edges.front() == Approx(0.0));
+    REQUIRE(edges.back() == Approx(10.0));
+    REQUIRE(edges[5] == Approx(5.0));
   }
 
   SECTION("Variable Axis") {
@@ -30,6 +38,13 @@ TEST_CASE("Self-contained Axis", "[axis]") {
     REQUIRE(axis.index(4.9) == 2);
     REQUIRE(axis.index(5.0) == 3);  // [5, 10)
     REQUIRE(axis.index(10.0) == 4); // Overflow
+
+    auto edges = axis.edges();
+    REQUIRE(edges.size() == 4);
+    REQUIRE(edges[0] == 0.0);
+    REQUIRE(edges[1] == 2.0);
+    REQUIRE(edges[2] == 5.0);
+    REQUIRE(edges[3] == 10.0);
   }
 
   SECTION("Duplicate to external AxisData") {
@@ -54,5 +69,19 @@ TEST_CASE("Self-contained Axis", "[axis]") {
     REQUIRE(view.index(external_data, 2.0) == 1);
     REQUIRE(view.index(external_data, 7.0) == 2);
     REQUIRE(view.index(external_data, 11.0) == 3);
+  }
+
+  SECTION("Axis without flow bins") {
+    // 10 bins, 0 to 10, no flow bins
+    Uniform<double, uint32_t> axis(10, 0.0, 10.0, UOFlowPolicy::None);
+
+    REQUIRE(axis.n_bins() == 10);
+    REQUIRE(axis.index(-1.0) == std::numeric_limits<uint32_t>::max()); // Should be ignored/invalid
+    REQUIRE(axis.index(0.0) == 0); // First bin is now index 0
+    REQUIRE(axis.index(9.9) == 9); // Last bin is index 9
+    REQUIRE(axis.index(10.0) == std::numeric_limits<uint32_t>::max());
+
+    auto edges = axis.edges();
+    REQUIRE(edges.size() == 11);
   }
 }

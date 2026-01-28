@@ -25,6 +25,14 @@ class Axis {
   using size_type = S;
 
   /**
+   * @brief Constructs an Axis from an initializer list (e.g. for VariableAxis).
+   * @param list Initializer list of values (e.g. bin edges).
+   * @param flow UF/OF bin configuration.
+   */
+  explicit Axis(std::initializer_list<T> list, UOFlowPolicy flow = UOFlowPolicy::Both)
+      : data_(), view_(data_, std::vector<T>(list), flow) {}
+
+  /**
    * @brief Constructs an Axis by forwarding arguments to the concrete axis view.
    *
    * The arguments are used to populate the internal AxisData and initialize the view.
@@ -35,12 +43,6 @@ class Axis {
   explicit Axis(Args&&... args) : data_(), view_(data_, std::forward<Args>(args)...) {}
 
   /**
-   * @brief Constructs an Axis from an initializer list (e.g. for VariableAxis).
-   * @param list Initializer list of values (e.g. bin edges).
-   */
-  explicit Axis(std::initializer_list<T> list) : data_(), view_(data_, std::vector<T>(list)) {}
-
-  /**
    * @brief Maps a coordinate to a bin index.
    *
    * @param x The coordinate value.
@@ -48,6 +50,14 @@ class Axis {
    */
   [[nodiscard]] S index(const T& x) const {
     return view_.index(data_, x);
+  }
+
+  /**
+   * @brief Returns the bin edges of the regular bins.
+   * @return A vector containing the edges.
+   */
+  [[nodiscard]] std::vector<T> edges() const {
+    return view_.edges(data_);
   }
 
   /**

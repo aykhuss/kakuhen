@@ -3,6 +3,7 @@
 #include "kakuhen/histogram/axis_data.h"
 #include <algorithm>
 #include <cassert>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <variant>
@@ -37,6 +38,37 @@ enum class AxisType : uint8_t {
 }
 
 /**
+ * @brief Policy for underflow and overflow bins.
+ */
+enum class UOFlowPolicy : uint8_t {
+  None = 0,       //!< No underflow or overflow bins.
+  Underflow = 1,  //!< Only underflow bin included.
+  Overflow = 2,   //!< Only overflow bin included.
+  Both = 3        //!< Both underflow and overflow bins included.
+};
+
+/**
+ * @brief Checks if the policy includes an underflow bin.
+ */
+[[nodiscard]] constexpr bool has_underflow(UOFlowPolicy flow) noexcept {
+  return static_cast<uint8_t>(flow) & 1;
+}
+
+/**
+ * @brief Checks if the policy includes an overflow bin.
+ */
+[[nodiscard]] constexpr bool has_overflow(UOFlowPolicy flow) noexcept {
+  return static_cast<uint8_t>(flow) & 2;
+}
+
+/**
+ * @brief Returns the number of flow bins (0, 1, or 2) for a given policy.
+ */
+[[nodiscard]] constexpr uint8_t flow_count(UOFlowPolicy flow) noexcept {
+  return (has_underflow(flow) ? 1 : 0) + (has_overflow(flow) ? 1 : 0);
+}
+
+/**
  * @brief Metadata required to locate and identify an axis definition in shared storage.
  *
  * This structure encapsulates the state needed to reconstruct an axis view and
@@ -50,11 +82,12 @@ struct AxisMetadata {
   using value_type = T;
   using size_type = S;
 
-  AxisType type = AxisType::None;  //!< The specific axis implementation type.
-  S offset = 0;                    //!< Starting index within the global AxisData storage.
-  S size = 0;                      //!< Number of elements (parameters or edges) in storage.
-  S n_bins = 0;                    //!< Total number of bins (including Underflow/Overflow).
-  S stride = 1;                    //!< Stride multiplier for multi-dimensional indexing.
+  AxisType type = AxisType::None;          //!< The specific axis implementation type.
+  UOFlowPolicy flow = UOFlowPolicy::Both;  //!< UF/OF bin configuration.
+  S offset = 0;                            //!< Starting index within the global AxisData storage.
+  S size = 0;                              //!< Number of elements (parameters or edges) in storage.
+  S n_bins = 0;  //!< Total number of bins (including UF/OF as configured).
+  S stride = 1;  //!< Stride multiplier for multi-dimensional indexing.
 
   /**
    * @brief Serializes the metadata to an output stream.
@@ -69,6 +102,7 @@ struct AxisMetadata {
       kakuhen::util::serialize::serialize_one<int16_t>(out, S_tos);
     }
     kakuhen::util::serialize::serialize_one<uint8_t>(out, static_cast<uint8_t>(type));
+    kakuhen::util::serialize::serialize_one<uint8_t>(out, static_cast<uint8_t>(flow));
     kakuhen::util::serialize::serialize_one<S>(out, offset);
     kakuhen::util::serialize::serialize_one<S>(out, size);
     kakuhen::util::serialize::serialize_one<S>(out, n_bins);
@@ -94,9 +128,11 @@ struct AxisMetadata {
         throw std::runtime_error("AxisMetadata: index type S mismatch.");
       }
     }
-    uint8_t t;
+    uint8_t t, f;
     kakuhen::util::serialize::deserialize_one<uint8_t>(in, t);
     type = static_cast<AxisType>(t);
+    kakuhen::util::serialize::deserialize_one<uint8_t>(in, f);
+    flow = static_cast<UOFlowPolicy>(f);
     kakuhen::util::serialize::deserialize_one<S>(in, offset);
     kakuhen::util::serialize::deserialize_one<S>(in, size);
     kakuhen::util::serialize::deserialize_one<S>(in, n_bins);
@@ -107,8 +143,8 @@ struct AxisMetadata {
    * @brief Compares two metadata objects for equality.
    */
   [[nodiscard]] bool operator==(const AxisMetadata& other) const noexcept {
-    return type == other.type && offset == other.offset && size == other.size &&
-           n_bins == other.n_bins && stride == other.stride;
+    return type == other.type && flow == other.flow && offset == other.offset &&
+           size == other.size && n_bins == other.n_bins && stride == other.stride;
   }
 
   /**
@@ -126,11 +162,6 @@ struct AxisMetadata {
  * It stores metadata describing where its parameters are located in a shared
  * AxisData storage.
  *
- * Indexing Convention:
- * - 0: Underflow (x < regular_range_min)
- * - 1 .. N: Regular bins
- * - N + 1: Overflow (x >= regular_range_max)
- *
  * @tparam Derived The derived axis type (UniformAxis or VariableAxis).
  * @tparam T The coordinate value type.
  * @tparam S The index type.
@@ -145,6 +176,7 @@ class AxisView {
   /**
    * @brief Constructs an AxisView from metadata.
    * @param meta The axis metadata.
+   * @param flow Optional override for the FlowBins policy (defaulted to Both).
    */
   explicit AxisView(const metadata_type& meta) : meta_{meta} {}
 
@@ -154,13 +186,21 @@ class AxisView {
    * @param x The coordinate value to map.
    * @return The bin index (0 to n_bins - 1) multiplied by the stride.
    */
-  [[nodiscard]] S index(const AxisData<T, S>& axis_data, const T& x) const {
+  [[nodiscard]] S index(const AxisData<T, S>& axis_data, const T& x) const noexcept {
     return static_cast<const Derived*>(this)->index_impl(axis_data, x) * meta_.stride;
   }
 
   /**
+   * @brief Returns the bin edges of the regular bins.
+   * @param axis_data Shared storage containing the axis parameters.
+   * @return A vector containing the regular bin edges.
+   */
+  [[nodiscard]] std::vector<T> edges(const AxisData<T, S>& axis_data) const {
+    return static_cast<const Derived*>(this)->edges_impl(axis_data);
+  }
+
+  /**
    * @brief Access the underlying metadata.
-   * @return A const reference to the metadata.
    */
   [[nodiscard]] const metadata_type& metadata() const noexcept {
     return meta_;
@@ -168,7 +208,6 @@ class AxisView {
 
   /**
    * @brief Get the total number of bins.
-   * @return Bin count including underflow and overflow.
    */
   [[nodiscard]] S n_bins() const noexcept {
     return meta_.n_bins;
@@ -176,7 +215,6 @@ class AxisView {
 
   /**
    * @brief Get the offset into the shared AxisData storage.
-   * @return The starting index.
    */
   [[nodiscard]] S offset() const noexcept {
     return meta_.offset;
@@ -184,7 +222,6 @@ class AxisView {
 
   /**
    * @brief Get the number of data points used by this axis in shared storage.
-   * @return The element count.
    */
   [[nodiscard]] S size() const noexcept {
     return meta_.size;
@@ -192,10 +229,16 @@ class AxisView {
 
   /**
    * @brief Get the stride multiplier for this axis.
-   * @return The stride value.
    */
   [[nodiscard]] S stride() const noexcept {
     return meta_.stride;
+  }
+
+  /**
+   * @brief Get the flow policy for this axis.
+   */
+  [[nodiscard]] UOFlowPolicy flow() const noexcept {
+    return meta_.flow;
   }
 
   /**
@@ -225,15 +268,13 @@ class AxisView {
   }
 
  protected:
-  metadata_type meta_;  //!< Axis location and bin count information.
+  metadata_type meta_;  //!< Axis location and configuration.
 };
 
 /**
  * @brief Represents an axis with uniformly spaced bins.
  *
  * Maps coordinates to indices in O(1) time using a linear transformation.
- *
- * @note Data layout in AxisData: `[min, max, scale]`
  *
  * @tparam T The coordinate value type.
  * @tparam S The index type.
@@ -257,42 +298,63 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    * @brief Constructs a UniformAxis and registers its parameters in AxisData.
    *
    * @param data Shared axis data storage.
-   * @param n_bins Number of regular bins (total bins will be n_bins + 2).
+   * @param n_bins Number of regular bins.
    * @param min The lower bound of the first regular bin.
    * @param max The upper bound of the last regular bin.
-   * @throws std::invalid_argument if n_bins is 0 or min >= max.
+   * @param flow Flow policy for underflow/overflow bins.
+   * @throws std::invalid_argument if parameters are invalid.
    */
-  UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max)
-      : Base(validate_and_create(data, n_bins, min, max)) {}
+  UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max,
+              UOFlowPolicy flow = UOFlowPolicy::Both)
+      : Base(validate_and_create(data, n_bins, min, max, flow)) {}
 
   /**
    * @brief Maps a coordinate to a bin index using uniform mapping.
-   * @param axis_data Shared storage containing the axis parameters.
-   * @param x The coordinate value.
-   * @return The bin index.
    */
   [[nodiscard]] S index_impl(const AxisData<T, S>& axis_data, const T& x) const noexcept {
-    assert(meta_.type == AxisType::Uniform);
     const T& min_val = axis_data[meta_.offset];
     const T& max_val = axis_data[meta_.offset + 1];
     const T& scale_val = axis_data[meta_.offset + 2];
 
-    if (x < min_val) return 0;                  // Underflow
-    if (x >= max_val) return meta_.n_bins - 1;  // Overflow
+    const bool uf = has_underflow(meta_.flow);
+    const bool of = has_overflow(meta_.flow);
 
-    return static_cast<S>(1 + (x - min_val) * scale_val);
+    if (x < min_val) return uf ? 0 : std::numeric_limits<S>::max();
+    if (x >= max_val) return of ? (meta_.n_bins - 1) : std::numeric_limits<S>::max();
+
+    return static_cast<S>((uf ? 1 : 0) + (x - min_val) * scale_val);
+  }
+
+  /**
+   * @brief Implementation for retrieving uniform bin edges.
+   */
+  [[nodiscard]] std::vector<T> edges_impl(const AxisData<T, S>& axis_data) const {
+    const T& min_val = axis_data[meta_.offset];
+    const T& max_val = axis_data[meta_.offset + 1];
+    const S n_reg_bins = meta_.n_bins - flow_count(meta_.flow);
+    std::vector<T> res(static_cast<std::size_t>(n_reg_bins + 1));
+    const T step = (max_val - min_val) / static_cast<T>(n_reg_bins);
+    for (S i = 0; i <= n_reg_bins; ++i) {
+      res[i] = min_val + static_cast<T>(i) * step;
+    }
+    res[n_reg_bins] = max_val;
+    return res;
   }
 
  private:
   /**
-   * @brief Validates parameters and appends data to storage before base initialization.
+   * @brief Validates parameters and appends data to storage.
    */
   static metadata_type validate_and_create(AxisData<T, S>& data, S n_bins, const T& min,
-                                           const T& max) {
+                                           const T& max, UOFlowPolicy flow) {
     if (n_bins == 0) throw std::invalid_argument("UniformAxis: n_bins must be > 0");
     if (min >= max) throw std::invalid_argument("UniformAxis: min must be < max");
-    return {AxisType::Uniform, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3),
-            static_cast<S>(n_bins + 2), 1};
+    return {AxisType::Uniform,
+            flow,
+            data.add_data(min, max, static_cast<T>(n_bins) / (max - min)),
+            S(3),
+            static_cast<S>(n_bins + flow_count(flow)),
+            1};
   }
 };
 
@@ -300,8 +362,6 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
  * @brief Represents an axis with variable bin widths.
  *
  * Maps coordinates to indices in O(log N) time using binary search over edges.
- *
- * @note Data layout in AxisData: `[edge_0, edge_1, ..., edge_N]`
  *
  * @tparam T The coordinate value type.
  * @tparam S The index type.
@@ -326,47 +386,61 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
    *
    * @param data The shared axis data storage.
    * @param edges The bin edges (must be sorted).
-   * @throws std::invalid_argument if edges are not sorted or fewer than 2.
+   * @param flow Flow policy for underflow/overflow bins.
+   * @throws std::invalid_argument if parameters are invalid.
    */
-  VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges)
-      : Base(validate_and_create(data, edges)) {}
+  VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges,
+               UOFlowPolicy flow = UOFlowPolicy::Both)
+      : Base(validate_and_create(data, edges, flow)) {}
 
   /**
    * @brief Maps a coordinate to a bin index using binary search.
-   * @param axis_data Shared storage containing the axis parameters.
-   * @param x The coordinate value.
-   * @return The bin index.
    */
-  [[nodiscard]] S index_impl(const AxisData<T, S>& axis_data, const T& x) const {
-    assert(meta_.type == AxisType::Variable);
+  [[nodiscard]] S index_impl(const AxisData<T, S>& axis_data, const T& x) const noexcept {
     auto begin = axis_data.data().begin() + meta_.offset;
     auto end = begin + meta_.size;
 
-    if (x < *begin) return 0;                      // Underflow
-    if (x >= *(end - 1)) return meta_.n_bins - 1;  // Overflow
+    const bool uf = has_underflow(meta_.flow);
+    const bool of = has_overflow(meta_.flow);
+
+    if (x < *begin) return uf ? 0 : std::numeric_limits<S>::max();
+    if (x >= *(end - 1)) return of ? (meta_.n_bins - 1) : std::numeric_limits<S>::max();
 
     auto it = std::upper_bound(begin, end, x);
-    return static_cast<S>(std::distance(begin, it));
+    const S local_idx = static_cast<S>(std::distance(begin, it)) - 1;
+    return (uf ? 1 : 0) + local_idx;
+  }
+
+  /**
+   * @brief Implementation for retrieving variable bin edges.
+   */
+  [[nodiscard]] std::vector<T> edges_impl(const AxisData<T, S>& axis_data) const {
+    auto begin = axis_data.data().begin() + meta_.offset;
+    auto end = begin + meta_.size;
+    return std::vector<T>(begin, end);
   }
 
  private:
   /**
-   * @brief Validates edges and appends to storage before base initialization.
+   * @brief Validates edges and appends to storage.
    */
-  static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges) {
+  static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges,
+                                           UOFlowPolicy flow) {
     if (edges.size() < 2) throw std::invalid_argument("VariableAxis: requires at least 2 edges");
     if (!std::is_sorted(edges.begin(), edges.end())) {
       throw std::invalid_argument("VariableAxis: edges must be sorted");
     }
-    return {AxisType::Variable, data.add_data(edges), static_cast<S>(edges.size()),
-            static_cast<S>(edges.size() + 1), 1};
+    return {AxisType::Variable,
+            flow,
+            data.add_data(edges),
+            static_cast<S>(edges.size()),
+            static_cast<S>(edges.size() - 1 + flow_count(flow)),
+            1};
   }
 };
 
 /**
  * @brief Variant type holding any supported axis implementation.
- * @tparam T The coordinate value type.
- * @tparam S The index type.
  */
 template <typename T, typename S>
 using AxisVariant = std::variant<std::monostate, UniformAxis<T, S>, VariableAxis<T, S>>;
@@ -374,7 +448,7 @@ using AxisVariant = std::variant<std::monostate, UniformAxis<T, S>, VariableAxis
 /**
  * @brief Factory function to restore an axis view from its metadata.
  *
- * @tparam T The value type.
+ * @tparam T The coordinate value type.
  * @tparam S The index type.
  * @param meta The axis metadata.
  * @return An `AxisVariant` containing the restored axis view.
