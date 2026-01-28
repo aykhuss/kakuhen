@@ -41,10 +41,10 @@ enum class AxisType : uint8_t {
  * @brief Policy for underflow and overflow bins.
  */
 enum class UOFlowPolicy : uint8_t {
-  None = 0,       //!< No underflow or overflow bins.
-  Underflow = 1,  //!< Only underflow bin included.
-  Overflow = 2,   //!< Only overflow bin included.
-  Both = 3        //!< Both underflow and overflow bins included.
+  None = 0,                                //!< No underflow or overflow bins.
+  Underflow = 1 << 0,                      //!< Only underflow bin included.
+  Overflow = 1 << 1,                       //!< Only overflow bin included.
+  Both = Underflow | Overflow              //!< Both underflow and overflow bins included.
 };
 
 /**
@@ -53,7 +53,7 @@ enum class UOFlowPolicy : uint8_t {
  * @return True if underflow is included.
  */
 [[nodiscard]] constexpr bool has_underflow(UOFlowPolicy flow) noexcept {
-  return static_cast<uint8_t>(flow) & 1;
+  return static_cast<uint8_t>(flow) & static_cast<uint8_t>(UOFlowPolicy::Underflow);
 }
 
 /**
@@ -62,7 +62,7 @@ enum class UOFlowPolicy : uint8_t {
  * @return True if overflow is included.
  */
 [[nodiscard]] constexpr bool has_overflow(UOFlowPolicy flow) noexcept {
-  return static_cast<uint8_t>(flow) & 2;
+  return static_cast<uint8_t>(flow) & static_cast<uint8_t>(UOFlowPolicy::Overflow);
 }
 
 /**
