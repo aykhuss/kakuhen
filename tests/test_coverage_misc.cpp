@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include "kakuhen/histogram/axis.h"
 #include "kakuhen/histogram/histogram_registry.h"
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/util/hash.h"
@@ -17,20 +18,16 @@ using Catch::Approx;
 TEST_CASE("Coverage: HistogramRegistry and Axis misc", "[coverage]") {
     HistogramRegistry<> registry;
 
-    SECTION("Axis from initializer list") {
-        auto v_id = registry.create_axis<VariableAxis<double, uint32_t>>({0.0, 10.0, 100.0});
-        auto h_id = registry.book("v_axis", v_id);
+    SECTION("Axis from book") {
+        Variable<> v_ax({0.0, 10.0, 100.0});
+        auto h_id = registry.book("v_axis", 1, v_ax);
         REQUIRE(registry.get_name(h_id) == "v_axis");
     }
 
-    SECTION("Invalid AxisId booking") {
-        REQUIRE_THROWS_AS(registry.book("invalid", AxisId<uint32_t>{999}), std::out_of_range);
-    }
-
     SECTION("Duplicate name booking") {
-        auto id = registry.book("hist", 10);
+        auto id = registry.book("hist", 1, 10);
         (void)id;
-        REQUIRE_THROWS_AS(registry.book("hist", 5), std::invalid_argument);
+        REQUIRE_THROWS_AS(registry.book("hist", 1, 5), std::invalid_argument);
     }
 
     SECTION("Registry type mismatch") {
@@ -55,14 +52,6 @@ TEST_CASE("Coverage: HistogramRegistry and Axis misc", "[coverage]") {
         AxisData<float, uint32_t> data;
         REQUIRE_THROWS_AS((VariableAxis<float, uint32_t>(data, {10.0f, 0.0f, 100.0f})), std::invalid_argument);
     }
-
-    SECTION("Booking with None axis") {
-        // Use a unique type to ensure coverage is recorded for this translation unit
-        using UniqueTraits = util::NumericTraits<double, uint16_t, uint32_t>;
-        HistogramRegistry<UniqueTraits> registry2;
-        registry2.book("none", 10);
-        REQUIRE_THROWS_AS(registry2.book("none_err", AxisId<uint16_t>{0}), std::invalid_argument);
-    }
 }
 
 TEST_CASE("Coverage: Serialization misc", "[coverage]") {
@@ -76,7 +65,7 @@ TEST_CASE("Coverage: Serialization misc", "[coverage]") {
     }
 
     SECTION("AxisMetadata type verification") {
-        AxisMetadata<double, uint32_t> meta{AxisType::Uniform, 0, 10, 12};
+        AxisMetadata<double, uint32_t> meta{AxisType::Uniform, 0, 10, 12, 1};
         std::stringstream ss;
         meta.serialize(ss, true);
 
@@ -91,7 +80,7 @@ TEST_CASE("Coverage: Serialization misc", "[coverage]") {
 
     SECTION("HistogramData overflow and type verification") {
         HistogramData<util::num_traits_t<double, uint16_t>> data;
-        data.allocate(65535);
+        (void)data.allocate(65535);
         REQUIRE_THROWS_AS(data.allocate(1), std::length_error);
 
         HistogramData<> data2;
@@ -210,7 +199,7 @@ TEST_CASE("Coverage: HistogramBuffer reset", "[coverage]") {
     buffer.init(10, 10);
     
     HistogramData<SmallTraits> data;
-    data.allocate(10);
+    (void)data.allocate(10);
 
     for (int i = 0; i < 16; ++i) {
         buffer.fill(0, 1.0);

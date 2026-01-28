@@ -5,7 +5,6 @@
 #include <cassert>
 #include <span>
 #include <stdexcept>
-#include <vector>
 
 namespace kakuhen::histogram {
 
@@ -64,14 +63,14 @@ class HistogramView {
    *
    * @tparam Buffer The type of the histogram buffer (e.g., `HistogramBuffer`).
    * @param buffer The thread-local histogram buffer to fill.
-   * @param local_bin_idx The local index of the bin (0 to n_bins - 1).
    * @param values The values to accumulate into the bin. Must have size == n_values_per_bin.
+   * @param local_bin_idx The local index of the bin (0 to n_bins - 1).
    *
    * @note If `local_bin_idx` or the size of `values` is incorrect, this will assert in debug
    * builds.
    */
   template <typename Buffer>
-  void fill(Buffer& buffer, S local_bin_idx, std::span<const T> values) const {
+  void fill_by_index(Buffer& buffer, std::span<const T> values, S local_bin_idx) const {
     assert(local_bin_idx < n_bins_ && "Bin index out of bounds");
     assert(values.size() == static_cast<std::size_t>(stride_) && "Value count mismatch");
 
@@ -89,11 +88,11 @@ class HistogramView {
    *
    * @tparam Buffer The type of the histogram buffer.
    * @param buffer The thread-local histogram buffer.
-   * @param local_bin_idx The local index of the bin.
    * @param value The value to accumulate.
+   * @param local_bin_idx The local index of the bin.
    */
   template <typename Buffer>
-  void fill(Buffer& buffer, S local_bin_idx, const T& value) const {
+  void fill_by_index(Buffer& buffer, const T& value, S local_bin_idx) const {
     assert(local_bin_idx < n_bins_ && "Bin index out of bounds");
     assert(stride_ == 1 && "Value count mismatch (expected 1 for scalar fill)");
     buffer.fill(offset_ + local_bin_idx, value);  // stride is 1, so idx is offset + local
@@ -109,13 +108,15 @@ class HistogramView {
    * @throws std::out_of_range If indices are out of bounds.
    */
   [[nodiscard]] const auto& get_bin(const HistogramData<NT>& data, S bin_idx,
-                                    S value_idx = 0) const {
+                                    S value_idx = 0) const noexcept {
+#ifndef NDEBUG
     if (bin_idx >= n_bins_) {
-      throw std::out_of_range("HistogramView: bin index out of bounds");
+      assert(false && "HistogramView: bin index out of bounds");
     }
     if (value_idx >= stride_) {
-      throw std::out_of_range("HistogramView: value index out of bounds");
+      assert(false && "HistogramView: value index out of bounds");
     }
+#endif
     const S global_idx = offset_ + bin_idx * stride_ + value_idx;
     return data.get_bin(global_idx);
   }

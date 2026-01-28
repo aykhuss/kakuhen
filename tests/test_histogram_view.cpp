@@ -32,12 +32,12 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
     // Fill bin 0 of view 1 with {1.0, 2.0}
     // Should map to global 0, 1
     std::vector<double> vals1 = {1.0, 2.0};
-    view1.fill(buffer, 0, vals1);
+    view1.fill_by_index(buffer, std::span{vals1}, static_cast<uint32_t>(0));
 
     // Fill bin 1 of view 1 with {3.0, 4.0}
     // Should map to global 2, 3
     std::vector<double> vals2 = {3.0, 4.0};
-    view1.fill(buffer, 1, vals2);
+    view1.fill_by_index(buffer, std::span{vals2}, static_cast<uint32_t>(1));
     
     buffer.flush(data);
 
@@ -49,12 +49,10 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
 
   SECTION("Filling View 2") {
     // Fill bin 0 of view 2 (global 4)
-    std::vector<double> v1 = {10.0};
-    view2.fill(buffer, 0, v1);
+    view2.fill_by_index(buffer, 10.0, static_cast<uint32_t>(0));
 
     // Fill bin 2 of view 2 (global 6)
-    std::vector<double> v2 = {30.0};
-    view2.fill(buffer, 2, v2);
+    view2.fill_by_index(buffer, 30.0, static_cast<uint32_t>(2));
 
     buffer.flush(data);
 
@@ -65,9 +63,9 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
   
   SECTION("Interleaved Filling") {
       std::array<double, 2> v1 = {0.1, 0.2};
-      view1.fill(buffer, 0, v1);
+      view1.fill_by_index(buffer, std::span{v1}, static_cast<uint32_t>(0));
       std::array<double, 1> v2 = {0.5};
-      view2.fill(buffer, 0, v2);
+      view2.fill_by_index(buffer, std::span{v2}, static_cast<uint32_t>(0));
       
       buffer.flush(data);
       

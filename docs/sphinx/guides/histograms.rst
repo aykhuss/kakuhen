@@ -16,8 +16,8 @@ Basic Workflow
 --------------
 
 1.  **Initialize the Registry**: Create a `HistogramRegistry` instance.
-2.  **Define Axes**: Register axes using `create_axis()`.
-3.  **Book Histograms**: Register named histograms linked to an axis using `book()`.
+2.  **Define Axes**: Create self-contained `Axis` objects (Uniform or Variable).
+3.  **Book Histograms**: Register named histograms using the `Axis` objects via `book()`.
 4.  **Fill via Buffers**: Create a `HistogramBuffer` for each thread and fill it during your event loop.
 5.  **Flush Results**: Flush the buffers into the registry to aggregate global results.
 
@@ -26,6 +26,7 @@ Example Usage
 
 .. code-block:: cpp
 
+    #include "kakuhen/histogram/axis.h"
     #include "kakuhen/histogram/histogram_registry.h"
     #include <iostream>
 
@@ -36,27 +37,26 @@ Example Usage
         HistogramRegistry<> registry;
 
         // 2. Define a uniform axis: 10 bins from 0.0 to 100.0
-        auto axis_id = registry.create_axis<UniformAxis<double, uint32_t>>(10, 0.0, 100.0);
+        Uniform<> x_axis(10, 0.0, 100.0);
 
         // 3. Book a histogram using this axis
-        auto hist_id = registry.book("my_histogram", axis_id);
+        auto hist_id = registry.book("my_histogram", 1, x_axis);
 
         // 4. Create a thread-local buffer
         auto buffer = registry.create_buffer();
 
         // 5. Fill the histogram (e.g., in a simulation loop)
         for (int i = 0; i < 1000; ++i) {
-            double x = /* some calculated value */;
+            double x = 50.0;
             double weight = 1.0;
-            registry.fill(buffer, hist_id, x, weight);
+            registry.fill(buffer, hist_id, weight, x);
         }
 
         // 6. Flush the buffer to the global storage
         registry.flush(buffer);
 
         // 7. Access results
-        const auto& bins = registry.data().bins();
-        std::cout << "Bin 1 weight: " << bins[1].weight() << std::endl;
+        std::cout << "Value at 50.0: " << registry.value(hist_id, 1) << std::endl;
 
         return 0;
     }
