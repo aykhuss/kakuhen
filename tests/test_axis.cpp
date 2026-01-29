@@ -70,18 +70,4 @@ TEST_CASE("Self-contained Axis", "[axis]") {
     REQUIRE(view.index(external_data, 7.0) == 2);
     REQUIRE(view.index(external_data, 11.0) == 3);
   }
-
-  SECTION("Axis without flow bins") {
-    // 10 bins, 0 to 10, no flow bins
-    Uniform<double, uint32_t> axis(10, 0.0, 10.0, UOFlowPolicy::None);
-
-    REQUIRE(axis.n_bins() == 10);
-    REQUIRE(axis.index(-1.0) == std::numeric_limits<uint32_t>::max()); // Should be ignored/invalid
-    REQUIRE(axis.index(0.0) == 0); // First bin is now index 0
-    REQUIRE(axis.index(9.9) == 9); // Last bin is index 9
-    REQUIRE(axis.index(10.0) == std::numeric_limits<uint32_t>::max());
-
-    auto edges = axis.edges();
-    REQUIRE(edges.size() == 11);
-  }
 }

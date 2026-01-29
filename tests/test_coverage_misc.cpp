@@ -65,7 +65,7 @@ TEST_CASE("Coverage: Serialization misc", "[coverage]") {
     }
 
     SECTION("AxisMetadata type verification") {
-        AxisMetadata<double, uint32_t> meta{AxisType::Uniform, UOFlowPolicy::Both, 0, 10, 12, 1};
+        AxisMetadata<double, uint32_t> meta{AxisType::Uniform, 0, 10, 12, 1};
         std::stringstream ss;
         meta.serialize(ss, true);
 

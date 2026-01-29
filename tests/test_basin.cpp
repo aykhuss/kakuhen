@@ -4,7 +4,7 @@
 
 using namespace kakuhen::integrator;
 
-static auto func = [](const Point<>& point) {
+static auto test_integrand = [](const Point<>& point) {
   const auto& x = point.x;  // shorthand
   return (x[0] + x[1]) / (1. + x[0] - x[1]);
 };
@@ -21,7 +21,7 @@ TEST_CASE("write/load state and data", "[basin]") {
   veg.set_options({.verbosity = 0});
 
   /// quick adaption:  save state
-  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = true});
   veg.write_state_stream(ss);
 
   /// 2nd vegas to load state into
@@ -33,7 +33,7 @@ TEST_CASE("write/load state and data", "[basin]") {
   /// another warmup:  no adaption; save data
   ss.str(""); // clear content
   ss.clear(); // clear flags
-  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = false});
+  veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = false});
   veg.write_data_stream(ss);
   veg.adapt();
 

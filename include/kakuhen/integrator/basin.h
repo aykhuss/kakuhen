@@ -189,11 +189,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
     for (U i = 0; i < neval; ++i) {
       generate_point(point, grid_vec, i);
-      const T func = point.weight * integrand(point);
-      const T func2 = func * func;
-      result_.accumulate(func, func2);
+      const T fval = point.weight * integrand(point);
+      const T fval2 = fval * fval;
+      result_.accumulate(fval, fval2);
       /// accumulators for the grid
-      const T acc = func2;
+      const T acc = fval2;
       accumulator_count_++;
       for (S idim = 0; idim < ndim_; ++idim) {
         const S ig0 = grid_vec[idim];

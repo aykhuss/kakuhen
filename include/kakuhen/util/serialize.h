@@ -237,10 +237,12 @@ void serialize_container(std::ostream& out, const Container& container) {
                     c.size();
                   }) {
       serialize_array(out, container.data(), container.size());
-      return;
+    } else {
+      serialize_range(out, std::begin(container), std::end(container));
     }
+  } else {
+    serialize_range(out, std::begin(container), std::end(container));
   }
-  serialize_range(out, std::begin(container), std::end(container));
 }
 
 /**
@@ -258,10 +260,12 @@ void deserialize_container(std::istream& in, Container& container) {
                     c.size();
                   }) {
       deserialize_array(in, container.data(), container.size());
-      return;
+    } else {
+      deserialize_range(in, std::begin(container), std::end(container));
     }
+  } else {
+    deserialize_range(in, std::begin(container), std::end(container));
   }
-  deserialize_range(in, std::begin(container), std::end(container));
 }
 
 /// @}

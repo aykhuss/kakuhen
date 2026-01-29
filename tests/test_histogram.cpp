@@ -67,14 +67,14 @@ TEST_CASE("HistogramData operations", "[histogram]") {
   HistogramData<> data;
 
   SECTION("Resize and access") {
-    data.allocate(10);
+    (void)data.allocate(10);
     REQUIRE(data.size() == 10);
     REQUIRE(data.bins().size() == 10);
     REQUIRE(data.count() == 0);
   }
 
   SECTION("Accumulate direct") {
-    data.allocate(5);
+    (void)data.allocate(5);
     data.accumulate(2, 10.0);
     REQUIRE(data.bins()[2].weight() == Approx(10.0));
 
@@ -84,14 +84,14 @@ TEST_CASE("HistogramData operations", "[histogram]") {
   }
 
   SECTION("Event counting") {
-    data.allocate(1);
+    (void)data.allocate(1);
     data.increment_count();
     data.increment_count();
     REQUIRE(data.count() == 2);
   }
 
   SECTION("Serialization") {
-    data.allocate(5);
+    (void)data.allocate(5);
     data.accumulate(0, 1.0);
     data.increment_count();
 
@@ -114,7 +114,7 @@ TEST_CASE("HistogramBuffer logic", "[histogram]") {
 
   // Setup 100 global bins
   size_t n_bins = 100;
-  data.allocate(static_cast<uint32_t>(n_bins));
+  (void)data.allocate(static_cast<uint32_t>(n_bins));
   buffer.init(static_cast<uint32_t>(n_bins));
 
   SECTION("Basic fill and flush") {

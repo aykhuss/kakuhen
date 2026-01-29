@@ -4,7 +4,7 @@
 
 using namespace kakuhen::integrator;
 
-static auto func = [](const Point<>& point) {
+static auto test_integrand = [](const Point<>& point) {
   const auto& x = point.x;  // shorthand
   return (x[0] + x[1]) / (1. + x[0] - x[1]);
 };
@@ -21,7 +21,7 @@ TEST_CASE("write/load state and data", "[vegas]") {
   veg.set_options({.verbosity = 0});
 
   /// quick adaption:  save state
-  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = true});
   veg.write_state_stream(ss);
 
   /// 2nd vegas to load state into
@@ -33,7 +33,7 @@ TEST_CASE("write/load state and data", "[vegas]") {
   /// another warmup:  no adaption; save data
   ss.str(""); // clear content
   ss.clear(); // clear flags
-  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = false});
+  veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = false});
   veg.write_data_stream(ss);
   veg.adapt();
 
@@ -51,7 +51,7 @@ TEST_CASE("write/load RNG state", "[vegas]") {
   veg.set_seed(42);
 
   /// quick adaption:  save state
-  veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = true});
   veg.write_state_stream(ss_grid);
   veg.write_rng_state_stream(ss_rng);
 
@@ -61,8 +61,8 @@ TEST_CASE("write/load RNG state", "[vegas]") {
   veg2.read_state_stream(ss_grid);
   veg2.read_rng_state_stream(ss_rng);
 
-  auto res1 = veg.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
-  auto res2 = veg2.integrate(func, {.neval = 1000, .niter = 10, .adapt = true});
+  auto res1 = veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = true});
+  auto res2 = veg2.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = true});
 
   REQUIRE(veg.hash().value() == veg2.hash().value());
   REQUIRE(res1.value() == res2.value());

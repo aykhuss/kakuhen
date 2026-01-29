@@ -147,11 +147,11 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
     for (U i = 0; i < neval; ++i) {
       generate_point(point, grid_vec, i);
-      const T func = point.weight * integrand(point);
-      const T func2 = func * func;
-      result_.accumulate(func, func2);
+      const T fval = point.weight * integrand(point);
+      const T fval2 = fval * fval;
+      result_.accumulate(fval, fval2);
       /// accumulator for the grid
-      const T acc = func2;
+      const T acc = fval2;
       accumulator_count_++;
       for (S idim = 0; idim < ndim_; ++idim) {
         accumulator_(idim, grid_vec[idim]).accumulate(acc);

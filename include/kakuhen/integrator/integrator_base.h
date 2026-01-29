@@ -249,7 +249,7 @@ class IntegratorBase {
   result_type integrate(I&& integrand, const options_type& opts) {
     // std::cout << "integrate: " << opts << std::endl;
     // local lvalue reference to make it callable multiple times
-    auto& func = integrand;
+    auto& integrand_ref = integrand;
     // set up local options & check settings
     Options orig_opts = opts_;
     set_options(opts);
@@ -267,7 +267,7 @@ class IntegratorBase {
       //   *opts_.neval
       //             << "] ===\n";
       // }
-      int_acc_type res_it = derived().integrate_impl(func, *opts_.neval);
+      int_acc_type res_it = derived().integrate_impl(integrand_ref, *opts_.neval);
       result.accumulate(res_it);
       if (opts_.verbosity && *opts_.verbosity > 0) {
         std::cout << "\n***** Integration by " << to_string(id());

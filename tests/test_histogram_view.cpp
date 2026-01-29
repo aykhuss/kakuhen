@@ -1,9 +1,10 @@
-#include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <array>
+#include <vector>
+#include "kakuhen/histogram/histogram_data.h"
 #include "kakuhen/histogram/histogram_view.h"
 #include "kakuhen/histogram/histogram_buffer.h"
-#include "kakuhen/histogram/histogram_data.h"
-#include <vector>
 
 using namespace kakuhen::histogram;
 using Catch::Approx;
@@ -63,9 +64,9 @@ TEST_CASE("HistogramView allocation and filling", "[HistogramView]") {
   
   SECTION("Interleaved Filling") {
       std::array<double, 2> v1 = {0.1, 0.2};
-      view1.fill_by_index(buffer, std::span{v1}, static_cast<uint32_t>(0));
+      view1.fill_by_index(buffer, std::span<const double>{v1}, static_cast<uint32_t>(0));
       std::array<double, 1> v2 = {0.5};
-      view2.fill_by_index(buffer, std::span{v2}, static_cast<uint32_t>(0));
+      view2.fill_by_index(buffer, std::span<const double>{v2}, static_cast<uint32_t>(0));
       
       buffer.flush(data);
       
