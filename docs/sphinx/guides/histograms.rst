@@ -37,7 +37,7 @@ Example Usage
         HistogramRegistry<> registry;
 
         // 2. Define a uniform axis: 10 bins from 0.0 to 100.0
-        Uniform<> x_axis(10, 0.0, 100.0);
+        UniformAxis<> x_axis(10, 0.0, 100.0);
 
         // 3. Book a histogram using this axis
         auto hist_id = registry.book("my_histogram", 1, x_axis);

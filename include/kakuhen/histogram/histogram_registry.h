@@ -50,7 +50,7 @@ class HistogramRegistry {
   using View = HistogramView<NT>;
   using Id = HistogramId<S>;
   using AxId = AxisId<S>;
-  using AxisVar = AxisVariant<T, S>;
+  using AxisVar = AxisViewVariant<T, S>;
 
   /**
    * @brief Books a new histogram without an associated axis (view only).
@@ -556,7 +556,7 @@ class HistogramRegistry {
   AxisData<T, S> axis_data_;  //!< Shared storage for axis parameters/edges.
 
   std::vector<Entry> entries_;           //!< Registered histogram metadata.
-  std::vector<AxisVariant<T, S>> axes_;  //!< Registered axis definitions.
+  std::vector<AxisViewVariant<T, S>> axes_;  //!< Registered axis definitions.
   std::vector<std::string> names_;       //!< Unique names of registered histograms.
 };
 

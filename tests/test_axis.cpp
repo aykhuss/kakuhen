@@ -8,7 +8,7 @@ using Catch::Approx;
 TEST_CASE("Self-contained Axis", "[axis]") {
   SECTION("Uniform Axis") {
     // 10 bins from 0.0 to 10.0
-    Uniform<double, uint32_t> axis(10, 0.0, 10.0);
+    UniformAxis<double, uint32_t> axis(10, 0.0, 10.0);
 
     REQUIRE(axis.n_bins() == 12); // 10 regular + under/overflow
     REQUIRE(axis.index(-1.0) == 0); // Underflow
@@ -27,7 +27,7 @@ TEST_CASE("Self-contained Axis", "[axis]") {
 
   SECTION("Variable Axis") {
     // Edges: 0, 2, 5, 10
-    Variable<double, uint32_t> axis({0.0, 2.0, 5.0, 10.0});
+    VariableAxis<double, uint32_t> axis({0.0, 2.0, 5.0, 10.0});
 
     REQUIRE(axis.n_bins() == 5); // 3 regular (intervals) + 1 overflow + 1 underflow
 
@@ -48,7 +48,7 @@ TEST_CASE("Self-contained Axis", "[axis]") {
   }
 
   SECTION("Duplicate to external AxisData") {
-    Variable<double, uint32_t> axis({0.0, 5.0, 10.0});
+    VariableAxis<double, uint32_t> axis({0.0, 5.0, 10.0});
     AxisData<double, uint32_t> external_data;
 
     // Initially external_data is empty

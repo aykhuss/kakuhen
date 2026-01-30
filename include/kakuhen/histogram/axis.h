@@ -11,12 +11,12 @@ namespace kakuhen::histogram {
  *
  * Unlike AxisView which points to shared storage, Axis manages its own
  * parameter/edge storage internally. It wraps a concrete AxisView type
- * (UniformAxis or VariableAxis) and provides a simplified interface.
+ * (UniformAxisView or VariableAxisView) and provides a simplified interface.
  *
  * This class is ideal for use as a building block for defining histograms
  * before they are registered in a shared HistogramRegistry.
  *
- * @tparam ConcreteAxis The specific axis implementation (UniformAxis or VariableAxis).
+ * @tparam ConcreteAxis The specific axis implementation (UniformAxisView or VariableAxisView).
  * @tparam T The coordinate value type.
  * @tparam S The index type.
  */
@@ -28,7 +28,7 @@ class Axis {
   using size_type = S;
 
   /**
-   * @brief Constructs an Axis from an initializer list (e.g. for VariableAxis).
+   * @brief Constructs an Axis from an initializer list (e.g. for VariableAxisView).
    * @param list Initializer list of values (e.g. bin edges).
    */
   explicit Axis(std::initializer_list<T> list) : data_(), view_(data_, std::vector<T>(list)) {}
@@ -116,15 +116,15 @@ class Axis {
 };
 
 /**
- * @brief Convenience alias for a self-contained UniformAxis.
+ * @brief Convenience alias for a self-contained UniformAxisView.
  */
 template <typename T = double, typename S = uint32_t>
-using Uniform = Axis<UniformAxis, T, S>;
+using UniformAxis = Axis<UniformAxisView, T, S>;
 
 /**
- * @brief Convenience alias for a self-contained VariableAxis.
+ * @brief Convenience alias for a self-contained VariableAxisView.
  */
 template <typename T = double, typename S = uint32_t>
-using Variable = Axis<VariableAxis, T, S>;
+using VariableAxis = Axis<VariableAxisView, T, S>;
 
 }  // namespace kakuhen::histogram

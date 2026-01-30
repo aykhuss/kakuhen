@@ -45,8 +45,8 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   HistogramRegistry<> registry;
 
   // 1. Create self-contained Axis objects
-  Uniform<> u_ax(10, 0.0, 100.0);
-  Variable<> v_ax({0.0, 10.0, 100.0});
+  UniformAxis<> u_ax(10, 0.0, 100.0);
+  VariableAxis<> v_ax({0.0, 10.0, 100.0});
 
   // 2. Book Histograms using Axis objects
   auto h_u = registry.book("h_uniform", 1, u_ax);
@@ -57,7 +57,7 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   // 3. Fill using coordinates (new variadic fill: value, coord)
   registry.fill(buffer, h_u, 1.0, 5.0);   // [0,10) -> bin 1
   registry.fill(buffer, h_u, 2.0, 15.0);  // [10,20) -> bin 2
-  
+
   registry.fill(buffer, h_v, 1.0, 5.0);   // [0,10) -> bin 1
   registry.fill(buffer, h_v, 2.0, 50.0);  // [10,100) -> bin 2
 
@@ -74,8 +74,8 @@ TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
   HistogramRegistry<> registry;
 
   // 1. Create Axis objects
-  Uniform<> x_ax(5, 0.0, 5.0); // 7 bins: [U, 0-1, 1-2, 2-3, 3-4, 4-5, O]
-  Uniform<> y_ax(2, 0.0, 2.0); // 4 bins: [U, 0-1, 1-2, O]
+  UniformAxis<> x_ax(5, 0.0, 5.0); // 7 bins: [U, 0-1, 1-2, 2-3, 3-4, 4-5, O]
+  UniformAxis<> y_ax(2, 0.0, 2.0); // 4 bins: [U, 0-1, 1-2, O]
 
   // 2. Book 2D Histogram
   auto h2d = registry.book("h2d", 1, x_ax, y_ax);
@@ -98,7 +98,7 @@ TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
 
   // 4. Verify
   REQUIRE(registry.value(h2d, 5) == Approx(10.0));
-  
+
   // h2d_mv: global_idx 5 for bin (1,1), value_idx 0 and 1
   REQUIRE(registry.value(h2d_mv, 5, 0) == Approx(1.0));
   REQUIRE(registry.value(h2d_mv, 5, 1) == Approx(2.0));
@@ -107,7 +107,7 @@ TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
 TEST_CASE("HistogramRegistry name lookup", "[HistogramRegistry]") {
     HistogramRegistry<> registry;
     auto id = registry.book("my_hist", 1, 10);
-    
+
     REQUIRE_NOTHROW(registry.get_id("my_hist"));
     REQUIRE(registry.get_id("my_hist") == id);
     REQUIRE_THROWS_AS(registry.get_id("non_existent"), std::runtime_error);

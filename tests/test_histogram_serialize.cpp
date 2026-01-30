@@ -11,8 +11,8 @@ TEST_CASE("HistogramRegistry full state serialization", "[HistogramRegistry]") {
   HistogramRegistry<> registry;
 
   // 1. Setup State
-  Uniform<> u_ax(10, 0.0, 100.0);
-  Variable<> v_ax({0.0, 10.0, 100.0});
+  UniformAxis<> u_ax(10, 0.0, 100.0);
+  VariableAxis<> v_ax({0.0, 10.0, 100.0});
 
   auto h_u = registry.book("h_uniform", 1, u_ax);
   auto h_v = registry.book("h_variable", 1, v_ax);
@@ -28,8 +28,8 @@ TEST_CASE("HistogramRegistry full state serialization", "[HistogramRegistry]") {
   // Capture weights before serialization
   double w_u1 = registry.value(h_u, 1);
   double w_u2 = registry.value(h_u, 2);
-  double w_v = registry.value(h_v, 2); 
-  double w_n = registry.value(h_n, 2); 
+  double w_v = registry.value(h_v, 2);
+  double w_n = registry.value(h_n, 2);
 
   // 2. Serialize
   std::stringstream ss;
@@ -71,13 +71,13 @@ TEST_CASE("BinAccumulator collapsed serialization", "[BinAccumulator]") {
     BinAccumulator<double> bin;
     bin.accumulate(1.0);
     bin.accumulate(2.0);
-    
+
     REQUIRE(bin.weight() == Approx(3.0));
     REQUIRE(bin.weight_sq() == Approx(5.0)); // 1^2 + 2^2 = 5
 
     std::stringstream ss;
     bin.serialize(ss);
-    
+
     BinAccumulator<double> back_bin;
     back_bin.deserialize(ss);
 

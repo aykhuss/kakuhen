@@ -133,7 +133,7 @@ struct AxisMetadata {
  * - 1 .. N: Regular bins
  * - N + 1: Overflow (x >= regular_range_max)
  *
- * @tparam Derived The derived axis type (UniformAxis or VariableAxis).
+ * @tparam Derived The derived axis type (UniformAxisView or VariableAxisView).
  * @tparam T The coordinate value type.
  * @tparam S The index type.
  */
@@ -252,9 +252,9 @@ class AxisView {
  * @tparam S The index type.
  */
 template <typename T, typename S>
-class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
+class UniformAxisView : public AxisView<UniformAxisView<T, S>, T, S> {
  public:
-  using Base = AxisView<UniformAxis<T, S>, T, S>;
+  using Base = AxisView<UniformAxisView<T, S>, T, S>;
   using metadata_type = typename Base::metadata_type;
   using Base::meta_;
 
@@ -262,12 +262,12 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    * @brief Constructs a UniformAxis from existing metadata.
    * @param meta The axis metadata.
    */
-  explicit UniformAxis(const metadata_type& meta) noexcept : Base(meta) {
+  explicit UniformAxisView(const metadata_type& meta) noexcept : Base(meta) {
     assert(meta.type == AxisType::Uniform);
   }
 
   /**
-   * @brief Constructs a UniformAxis and registers its parameters in AxisData.
+   * @brief Constructs a UniformAxisView and registers its parameters in AxisData.
    *
    * @param data Shared axis data storage.
    * @param n_bins Number of regular bins.
@@ -275,7 +275,7 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    * @param max The upper bound of the last regular bin.
    * @throws std::invalid_argument if parameters are invalid.
    */
-  UniformAxis(AxisData<T, S>& data, S n_bins, const T& min, const T& max)
+  UniformAxisView(AxisData<T, S>& data, S n_bins, const T& min, const T& max)
       : Base(validate_and_create(data, n_bins, min, max)) {}
 
   /**
@@ -342,8 +342,8 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
    */
   static metadata_type validate_and_create(AxisData<T, S>& data, S n_bins, const T& min,
                                            const T& max) {
-    if (n_bins == 0) throw std::invalid_argument("UniformAxis: n_bins must be > 0");
-    if (min >= max) throw std::invalid_argument("UniformAxis: min must be < max");
+    if (n_bins == 0) throw std::invalid_argument("UniformAxisView: n_bins must be > 0");
+    if (min >= max) throw std::invalid_argument("UniformAxisView: min must be < max");
     return {AxisType::Uniform, data.add_data(min, max, static_cast<T>(n_bins) / (max - min)), S(3),
             static_cast<S>(n_bins + 2), 1};
   }
@@ -358,28 +358,28 @@ class UniformAxis : public AxisView<UniformAxis<T, S>, T, S> {
  * @tparam S The index type.
  */
 template <typename T, typename S>
-class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
+class VariableAxisView : public AxisView<VariableAxisView<T, S>, T, S> {
  public:
-  using Base = AxisView<VariableAxis<T, S>, T, S>;
+  using Base = AxisView<VariableAxisView<T, S>, T, S>;
   using metadata_type = typename Base::metadata_type;
   using Base::meta_;
 
   /**
-   * @brief Constructs a VariableAxis from existing metadata.
+   * @brief Constructs a VariableAxisView from existing metadata.
    * @param meta The axis metadata.
    */
-  explicit VariableAxis(const metadata_type& meta) noexcept : Base(meta) {
+  explicit VariableAxisView(const metadata_type& meta) noexcept : Base(meta) {
     assert(meta.type == AxisType::Variable);
   }
 
   /**
-   * @brief Constructs a VariableAxis and registers its edges in AxisData.
+   * @brief Constructs a VariableAxisView and registers its edges in AxisData.
    *
    * @param data The shared axis data storage.
    * @param edges The bin edges (must be sorted).
    * @throws std::invalid_argument if parameters are invalid.
    */
-  VariableAxis(AxisData<T, S>& data, const std::vector<T>& edges)
+  VariableAxisView(AxisData<T, S>& data, const std::vector<T>& edges)
       : Base(validate_and_create(data, edges)) {}
 
   /**
@@ -434,9 +434,9 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
    * @brief Validates edges and appends to storage.
    */
   static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges) {
-    if (edges.size() < 2) throw std::invalid_argument("VariableAxis: requires at least 2 edges");
+    if (edges.size() < 2) throw std::invalid_argument("VariableAxisView: requires at least 2 edges");
     if (!std::is_sorted(edges.begin(), edges.end())) {
-      throw std::invalid_argument("VariableAxis: edges must be sorted");
+      throw std::invalid_argument("VariableAxisView: edges must be sorted");
     }
     return {AxisType::Variable, data.add_data(edges), static_cast<S>(edges.size()),
             static_cast<S>(edges.size() + 1), 1};
@@ -447,7 +447,7 @@ class VariableAxis : public AxisView<VariableAxis<T, S>, T, S> {
  * @brief Variant type holding any supported axis implementation.
  */
 template <typename T, typename S>
-using AxisVariant = std::variant<std::monostate, UniformAxis<T, S>, VariableAxis<T, S>>;
+using AxisViewVariant = std::variant<std::monostate, UniformAxisView<T, S>, VariableAxisView<T, S>>;
 
 /**
  * @brief Factory function to restore an axis view from its metadata.
@@ -458,12 +458,12 @@ using AxisVariant = std::variant<std::monostate, UniformAxis<T, S>, VariableAxis
  * @return An `AxisVariant` containing the restored axis view.
  */
 template <typename T, typename S>
-[[nodiscard]] AxisVariant<T, S> restore_axis(const AxisMetadata<T, S>& meta) {
+[[nodiscard]] AxisViewVariant<T, S> restore_axis(const AxisMetadata<T, S>& meta) {
   switch (meta.type) {
     case AxisType::Uniform:
-      return UniformAxis<T, S>(meta);
+      return UniformAxisView<T, S>(meta);
     case AxisType::Variable:
-      return VariableAxis<T, S>(meta);
+      return VariableAxisView<T, S>(meta);
     default:
       return std::monostate{};
   }

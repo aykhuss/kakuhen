@@ -19,7 +19,7 @@ TEST_CASE("Coverage: HistogramRegistry and Axis misc", "[coverage]") {
     HistogramRegistry<> registry;
 
     SECTION("Axis from book") {
-        Variable<> v_ax({0.0, 10.0, 100.0});
+        VariableAxis<> v_ax({0.0, 10.0, 100.0});
         auto h_id = registry.book("v_axis", 1, v_ax);
         REQUIRE(registry.get_name(h_id) == "v_axis");
     }
@@ -38,7 +38,7 @@ TEST_CASE("Coverage: HistogramRegistry and Axis misc", "[coverage]") {
         HistogramRegistry<FloatTraits> wrong_registry;
         REQUIRE_THROWS_AS(wrong_registry.deserialize(ss, true), std::runtime_error);
     }
-    
+
     SECTION("AxisData capacity overflow") {
         AxisData<double, uint16_t> axis_data;
         // Max uint16 is 65535
@@ -48,9 +48,9 @@ TEST_CASE("Coverage: HistogramRegistry and Axis misc", "[coverage]") {
         REQUIRE_THROWS_AS(axis_data.add_data(one), std::length_error);
     }
 
-    SECTION("VariableAxis unsorted edges") {
+    SECTION("VariableAxisView unsorted edges") {
         AxisData<float, uint32_t> data;
-        REQUIRE_THROWS_AS((VariableAxis<float, uint32_t>(data, {10.0f, 0.0f, 100.0f})), std::invalid_argument);
+        REQUIRE_THROWS_AS((VariableAxisView<float, uint32_t>(data, {10.0f, 0.0f, 100.0f})), std::invalid_argument);
     }
 }
 
@@ -71,7 +71,7 @@ TEST_CASE("Coverage: Serialization misc", "[coverage]") {
 
         AxisMetadata<float, uint32_t> wrong_meta;
         REQUIRE_THROWS_AS(wrong_meta.deserialize(ss, true), std::runtime_error);
-        
+
         ss.str("");
         meta.serialize(ss, true);
         AxisMetadata<double, uint16_t> wrong_meta_s;
@@ -197,7 +197,7 @@ TEST_CASE("Coverage: HistogramBuffer reset", "[coverage]") {
     using SmallTraits = util::NumericTraits<double, uint8_t, uint64_t>;
     HistogramBuffer<SmallTraits> buffer;
     buffer.init(10, 10);
-    
+
     HistogramData<SmallTraits> data;
     (void)data.allocate(10);
 
@@ -205,7 +205,7 @@ TEST_CASE("Coverage: HistogramBuffer reset", "[coverage]") {
         buffer.fill(0, 1.0);
         buffer.flush(data);
     }
-    
+
     buffer.fill(0, 1.0);
     buffer.flush(data);
     REQUIRE(data.bins()[0].weight() == Approx(17.0));
