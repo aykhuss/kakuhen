@@ -307,6 +307,13 @@ class HistogramRegistry {
   }
 
   /**
+   * @brief Returns the total number of registered histograms.
+   */
+  [[nodiscard]] S num_entries() const noexcept {
+    return static_cast<S>(entries_.size());
+  }
+
+  /**
    * @brief Retrieve the list of all registered histogram IDs.
    */
   [[nodiscard]] std::vector<Id> ids() const {
@@ -343,13 +350,6 @@ class HistogramRegistry {
       if (names_[i] == name) return Id{static_cast<S>(i)};
     }
     throw std::runtime_error("HistogramRegistry: not found: " + std::string(name));
-  }
-
-  /**
-   * @brief Returns the total number of registered histograms.
-   */
-  [[nodiscard]] S num_entries() const noexcept {
-    return static_cast<S>(entries_.size());
   }
 
   /**
