@@ -3,6 +3,7 @@
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/histogram/axis_id.h"
 #include "kakuhen/histogram/axis_view.h"
+#include "kakuhen/histogram/bin_range.h"
 #include "kakuhen/histogram/histogram_buffer.h"
 #include "kakuhen/histogram/histogram_data.h"
 #include "kakuhen/histogram/histogram_id.h"
@@ -262,51 +263,6 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Access the accumulator for a specific bin in a registered histogram.
-   *
-   * @param id The histogram ID.
-   * @param bin_idx The local flattened bin index.
-   * @param value_idx The value index within the bin (default 0).
-   * @return A const reference to the bin accumulator.
-   * @throws std::out_of_range If the ID or indices are invalid.
-   */
-  [[nodiscard]] const auto& get_bin(Id id, S bin_idx, S value_idx = 0) const {
-    if (id.id() >= static_cast<S>(entries_.size())) {
-      throw std::out_of_range("HistogramRegistry: invalid HistogramId.");
-    }
-    return entries_[id.id()].view.get_bin(data_, bin_idx, value_idx);
-  }
-
-  /**
-   * @brief Get the mean value (sum of weights / N) for a specific bin.
-   */
-  [[nodiscard]] T value(Id id, S bin_idx, S value_idx = 0) const noexcept {
-    const auto& bin = get_bin_noexcept(id, bin_idx, value_idx);
-    const T n = static_cast<T>(data_.count());
-    if (n == T(0)) return T(0);
-    return bin.weight() / n;
-  }
-
-  /**
-   * @brief Get the variance of the mean value for a specific bin.
-   */
-  [[nodiscard]] T variance(Id id, S bin_idx, S value_idx = 0) const noexcept {
-    const U n_count = data_.count();
-    if (n_count <= 1) return T(0);
-    const auto& bin = get_bin_noexcept(id, bin_idx, value_idx);
-    const T n = static_cast<T>(n_count);
-    const T mean = bin.weight() / n;
-    return (bin.weight_sq() / n - mean * mean) / (n - T(1));
-  }
-
-  /**
-   * @brief Get the statistical error (standard deviation of the mean) for a specific bin.
-   */
-  [[nodiscard]] T error(Id id, S bin_idx, S value_idx = 0) const noexcept {
-    return std::sqrt(variance(id, bin_idx, value_idx));
-  }
-
-  /**
    * @brief Returns the total number of registered histograms.
    */
   [[nodiscard]] S num_entries() const noexcept {
@@ -326,22 +282,6 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Retrieve the view handle for a specific histogram.
-   */
-  [[nodiscard]] View get_view(Id id) const noexcept {
-    assert(id.id() < entries_.size());
-    return entries_[id.id()].view;
-  }
-
-  /**
-   * @brief Retrieve the human-readable name for a specific histogram.
-   */
-  [[nodiscard]] std::string_view get_name(Id id) const noexcept {
-    assert(id.id() < names_.size());
-    return names_[id.id()];
-  }
-
-  /**
    * @brief Look up a histogram's unique ID by its registered name.
    * @throws std::runtime_error If the name is not found.
    */
@@ -353,14 +293,105 @@ class HistogramRegistry {
   }
 
   /**
+   * @brief Retrieve the human-readable name for a specific histogram.
+   */
+  [[nodiscard]] std::string_view get_name(Id id) const noexcept {
+    assert(id.id() < names_.size());
+    return names_[id.id()];
+  }
+
+  /**
+   * @brief Retrieve the view handle for a specific histogram.
+   */
+  [[nodiscard]] View get_view(Id id) const noexcept {
+    assert(id.id() < entries_.size());
+    return entries_[id.id()].view;
+  }
+
+  /**
    * @brief Get the number of dimensions for a specific histogram.
    *
    * @param id The histogram ID.
    * @return The number of dimensions.
    */
-  [[nodiscard]] S ndim(Id id) const noexcept {
+  [[nodiscard]] S get_ndim(Id id) const noexcept {
     assert(id.id() < entries_.size());
     return entries_[id.id()].axis_id.ndim();
+  }
+
+  [[nodiscard]] S get_nbins(Id id) const noexcept {
+    assert(id.id() < entries_.size());
+    return entries_[id.id()].view.n_bins();
+  }
+
+  [[nodiscard]] S get_nvalues(Id id) const noexcept {
+    assert(id.id() < entries_.size());
+    return entries_[id.id()].view.stride();
+  }
+
+  [[nodiscard]] auto get_bin_ranges(Id id) const noexcept {
+    std::vector<std::vector<BinRange<T>>> result;
+    result.reserve(get_ndim(id));
+    const AxId& ax = entries_[id.id()].axis_id;
+    for (S i = ax.id(); i < ax.id() + ax.ndim(); ++i) {
+      result.push_back(std::visit(
+          [&](const auto& iax) {
+            using Type = std::decay_t<decltype(ax)>;
+            if constexpr (std::is_same_v<Type, std::monostate>) {
+              assert(false && "Attempted axis lookup on histogram without axis");
+              return std::vector<BinRange<T>>();
+            } else {
+              return ax.bin_ranges(axis_data_);
+            }
+          },
+          axes_[i]));
+    }
+    return result;
+  }
+
+  /**
+   * @brief Access the accumulator for a specific bin in a registered histogram.
+   *
+   * @param id The histogram ID.
+   * @param bin_idx The local flattened bin index.
+   * @param value_idx The value index within the bin (default 0).
+   * @return A const reference to the bin accumulator.
+   * @throws std::out_of_range If the ID or indices are invalid.
+   */
+  [[nodiscard]] const auto& get_bin(Id id, S bin_idx, S value_idx = 0) const {
+    if (id.id() >= static_cast<S>(entries_.size())) {
+      throw std::out_of_range("HistogramRegistry: invalid HistogramId.");
+    }
+    return entries_[id.id()].view.get_bin(data_, bin_idx, value_idx);
+  }
+
+  /**
+   * @brief Get the mean value (sum of weights / N) for a specific bin.
+   */
+  [[nodiscard]] T get_bin_value(Id id, S bin_idx, S value_idx = 0) const noexcept {
+    const auto& bin = get_bin_noexcept(id, bin_idx, value_idx);
+    const T n = static_cast<T>(data_.count());
+    if (n == T(0)) return T(0);
+    return bin.weight() / n;
+  }
+
+  /**
+   * @brief Get the variance of the mean value for a specific bin.
+   */
+  [[nodiscard]] T get_bin_variance(Id id, S bin_idx, S value_idx = 0) const noexcept {
+    const U n_count = data_.count();
+    if (n_count <= 1) return T(0);
+    const auto& bin = get_bin_noexcept(id, bin_idx, value_idx);
+    const T n = static_cast<T>(n_count);
+    const T mean = bin.weight() / n;
+    return (bin.weight_sq() / n - mean * mean) / (n - T(1));
+  }
+
+  /**
+   * @brief Get the statistical error (standard deviation of the mean) for a specific bin.
+   */
+  [[nodiscard]] T get_bin_error(Id id, S bin_idx, S value_idx = 0) const noexcept {
+    return std::sqrt(get_bin_variance(id, bin_idx, value_idx));
   }
 
   /// @}
@@ -555,9 +586,9 @@ class HistogramRegistry {
   HistogramData<NT> data_;    //!< Physical storage for all accumulated bins.
   AxisData<T, S> axis_data_;  //!< Shared storage for axis parameters/edges.
 
-  std::vector<Entry> entries_;           //!< Registered histogram metadata.
+  std::vector<Entry> entries_;               //!< Registered histogram metadata.
   std::vector<AxisViewVariant<T, S>> axes_;  //!< Registered axis definitions.
-  std::vector<std::string> names_;       //!< Unique names of registered histograms.
+  std::vector<std::string> names_;           //!< Unique names of registered histograms.
 };
 
 }  // namespace kakuhen::histogram

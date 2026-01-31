@@ -26,10 +26,10 @@ TEST_CASE("HistogramRegistry full state serialization", "[HistogramRegistry]") {
   registry.flush(buffer);
 
   // Capture weights before serialization
-  double w_u1 = registry.value(h_u, 1);
-  double w_u2 = registry.value(h_u, 2);
-  double w_v = registry.value(h_v, 2);
-  double w_n = registry.value(h_n, 2);
+  double w_u1 = registry.get_bin_value(h_u, 1);
+  double w_u2 = registry.get_bin_value(h_u, 2);
+  double w_v = registry.get_bin_value(h_v, 2);
+  double w_n = registry.get_bin_value(h_n, 2);
 
   // 2. Serialize
   std::stringstream ss;
@@ -46,10 +46,10 @@ TEST_CASE("HistogramRegistry full state serialization", "[HistogramRegistry]") {
   REQUIRE(back_registry.get_name(h_n) == "h_noaxis");
 
   // 5. Verify Data
-  REQUIRE(back_registry.value(h_u, 1) == Approx(w_u1));
-  REQUIRE(back_registry.value(h_u, 2) == Approx(w_u2));
-  REQUIRE(back_registry.value(h_v, 2) == Approx(w_v));
-  REQUIRE(back_registry.value(h_n, 2) == Approx(w_n));
+  REQUIRE(back_registry.get_bin_value(h_u, 1) == Approx(w_u1));
+  REQUIRE(back_registry.get_bin_value(h_u, 2) == Approx(w_u2));
+  REQUIRE(back_registry.get_bin_value(h_v, 2) == Approx(w_v));
+  REQUIRE(back_registry.get_bin_value(h_n, 2) == Approx(w_n));
 
   // 6. Verify continuation of filling
   auto back_buffer = back_registry.create_buffer();
@@ -64,7 +64,7 @@ TEST_CASE("HistogramRegistry full state serialization", "[HistogramRegistry]") {
   double N_orig = static_cast<double>(registry.data().count());
   REQUIRE(N_orig == 1.0);
   double expected_mean = (w_u1 * N_orig + 10.0) / (N_orig + 1.0);
-  REQUIRE(back_registry.value(h_u, 1) == Approx(expected_mean));
+  REQUIRE(back_registry.get_bin_value(h_u, 1) == Approx(expected_mean));
 }
 
 TEST_CASE("BinAccumulator collapsed serialization", "[BinAccumulator]") {

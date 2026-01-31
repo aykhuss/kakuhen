@@ -64,10 +64,10 @@ TEST_CASE("HistogramRegistry Axis Integration", "[HistogramRegistry]") {
   registry.flush(buffer);
 
   // 4. Verify
-  REQUIRE(registry.value(h_u, 1) == Approx(1.0));
-  REQUIRE(registry.value(h_u, 2) == Approx(2.0));
-  REQUIRE(registry.value(h_v, 1) == Approx(1.0));
-  REQUIRE(registry.value(h_v, 2) == Approx(2.0));
+  REQUIRE(registry.get_bin_value(h_u, 1) == Approx(1.0));
+  REQUIRE(registry.get_bin_value(h_u, 2) == Approx(2.0));
+  REQUIRE(registry.get_bin_value(h_v, 1) == Approx(1.0));
+  REQUIRE(registry.get_bin_value(h_v, 2) == Approx(2.0));
 }
 
 TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
@@ -81,7 +81,7 @@ TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
   auto h2d = registry.book("h2d", 1, x_ax, y_ax);
   auto h2d_mv = registry.book("h2d_mv", 2, x_ax, y_ax);
 
-  REQUIRE(registry.ndim(h2d) == 2);
+  REQUIRE(registry.get_ndim(h2d) == 2);
   REQUIRE(registry.get_view(h2d).n_bins() == 28);
 
   auto buffer = registry.create_buffer();
@@ -97,11 +97,11 @@ TEST_CASE("HistogramRegistry Multi-dimensional", "[HistogramRegistry]") {
   registry.flush(buffer);
 
   // 4. Verify
-  REQUIRE(registry.value(h2d, 5) == Approx(10.0));
+  REQUIRE(registry.get_bin_value(h2d, 5) == Approx(10.0));
 
   // h2d_mv: global_idx 5 for bin (1,1), value_idx 0 and 1
-  REQUIRE(registry.value(h2d_mv, 5, 0) == Approx(1.0));
-  REQUIRE(registry.value(h2d_mv, 5, 1) == Approx(2.0));
+  REQUIRE(registry.get_bin_value(h2d_mv, 5, 0) == Approx(1.0));
+  REQUIRE(registry.get_bin_value(h2d_mv, 5, 1) == Approx(2.0));
 }
 
 TEST_CASE("HistogramRegistry name lookup", "[HistogramRegistry]") {
@@ -122,17 +122,17 @@ TEST_CASE("HistogramRegistry accessors", "[HistogramRegistry]") {
   registry.fill_by_index(buffer, h_id, 2.0, static_cast<uint32_t>(2));
   registry.flush(buffer);
 
-  REQUIRE(registry.value(h_id, 2) == Approx(2.0));
-  REQUIRE(registry.error(h_id, 2) == Approx(0.0));
-  REQUIRE(registry.variance(h_id, 2) == Approx(0.0));
+  REQUIRE(registry.get_bin_value(h_id, 2) == Approx(2.0));
+  REQUIRE(registry.get_bin_error(h_id, 2) == Approx(0.0));
+  REQUIRE(registry.get_bin_variance(h_id, 2) == Approx(0.0));
 
   // --- Event 2 ---
   registry.fill_by_index(buffer, h_id, 6.0, static_cast<uint32_t>(2));
   registry.flush(buffer);
 
-  REQUIRE(registry.value(h_id, 2) == Approx(4.0));
-  REQUIRE(registry.error(h_id, 2) == Approx(2.0));
-  REQUIRE(registry.variance(h_id, 2) == Approx(4.0));
+  REQUIRE(registry.get_bin_value(h_id, 2) == Approx(4.0));
+  REQUIRE(registry.get_bin_error(h_id, 2) == Approx(2.0));
+  REQUIRE(registry.get_bin_variance(h_id, 2) == Approx(4.0));
 
   const auto& bin = registry.get_bin(h_id, 2);
   REQUIRE(bin.weight() == Approx(8.0));
