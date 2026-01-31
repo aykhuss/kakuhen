@@ -53,9 +53,6 @@ class HistogramRegistry {
   using AxId = AxisId<S>;
   using AxisVar = AxisViewVariant<T, S>;
 
-  /// @name Booking
-  /// @{
-
   /**
    * @brief Books a new histogram without an associated axis (view only).
    *
@@ -114,8 +111,6 @@ class HistogramRegistry {
 
     return book_with_id(name, AxId{start_index, ndim_count}, current_stride, n_values_per_bin);
   }
-
-  /// @}
 
   /// @name Filling
   /// @{
@@ -206,7 +201,8 @@ class HistogramRegistry {
   /**
    * @brief Creates and initializes a thread-local buffer for filling histograms.
    *
-   * @tparam Acc The accumulator type to use.
+   * @tparam Acc The accumulator type to use (default: TwoSum via
+   * kakuhen::util::accumulator::Accumulator).
    * @return A newly initialized `HistogramBuffer`.
    */
   template <typename Acc = kakuhen::util::accumulator::Accumulator<T>>
@@ -228,9 +224,11 @@ class HistogramRegistry {
     prt.reset();
     prt.global_header(*this);
     for (std::size_t i = 0; i < entries_.size(); ++i) {
-      prt.histogram_header(*this, i);
-      prt.histogram_row(*this, i);
-      prt.histogram_footer(*this, i);
+      const Id id{static_cast<S>(i)};
+      prt.histogram_header(*this, id);
+      prt.histogram_row(*this, id);
+      /// prt.break_block(ndim) <-- new block for ndim starts
+      prt.histogram_footer(*this, id);
     }
     prt.global_footer(*this);
   }
@@ -287,7 +285,7 @@ class HistogramRegistry {
 
   /**
    * @brief Look up a histogram's unique ID by its registered name.
-   * @param name The registered name of the histogram.
+   * @param name The name of the histogram.
    * @return A `HistogramId` handle.
    * @throws std::runtime_error If the name is not found.
    */
@@ -331,7 +329,7 @@ class HistogramRegistry {
   /**
    * @brief Get the total number of bins for a specific histogram.
    * @param id The histogram ID.
-   * @return The total bin count (including UF/OF).
+   * @return The bin count (including UF/OF).
    */
   [[nodiscard]] S get_nbins(Id id) const noexcept {
     assert(id.id() < entries_.size());
@@ -349,6 +347,39 @@ class HistogramRegistry {
   }
 
   /**
+   * @brief Decomposes a flattened bin index into multi-dimensional bin indices.
+   * @param id The histogram ID.
+   * @param flat_idx The local flattened index.
+   * @return A vector containing the bin index for each dimension.
+   */
+  [[nodiscard]] std::vector<S> get_bin_indices(Id id, S flat_idx) const {
+    assert(id.id() < entries_.size());
+    assert(flat_idx < entries_[id.id()].view.n_bins());
+    const AxId& ax_id = entries_[id.id()].axis_id;
+    const S ndim = ax_id.ndim();
+    std::vector<S> result;
+    result.reserve(ndim);
+
+    for (S i = 0; i < ndim; ++i) {
+      const auto& axis_var = axes_[ax_id.id() + i];
+      S stride = 1;
+      S n_bins = 1;
+      std::visit(
+          [&](auto&& ax) {
+            using Type = std::decay_t<decltype(ax)>;
+            if constexpr (!std::is_same_v<Type, std::monostate>) {
+              stride = ax.stride();
+              n_bins = ax.n_bins();
+            }
+          },
+          axis_var);
+
+      result.push_back((flat_idx / stride) % n_bins);
+    }
+    return result;
+  }
+
+  /**
    * @brief Get the bin ranges for all axes of a specific histogram.
    * @param id The histogram ID.
    * @return A vector of vectors, each containing BinRange objects for one dimension.
@@ -360,13 +391,13 @@ class HistogramRegistry {
     result.reserve(ax_id.ndim());
     for (S i = ax_id.id(); i < ax_id.id() + ax_id.ndim(); ++i) {
       result.push_back(std::visit(
-          [&](const auto& axv) {
-            using Type = std::decay_t<decltype(axv)>;
+          [&](const auto& axis_view) {
+            using Type = std::decay_t<decltype(axis_view)>;
             if constexpr (std::is_same_v<Type, std::monostate>) {
               assert(false && "Attempted axis lookup on histogram without axis");
               return std::vector<BinRange<T>>();
             } else {
-              return axv.bin_ranges(axis_data_);
+              return axis_view.bin_ranges(axis_data_);
             }
           },
           axes_[i]));
@@ -409,7 +440,7 @@ class HistogramRegistry {
    * @return A vector of pairs (low, high) for each dimension.
    */
   [[nodiscard]] std::vector<std::pair<T, T>> get_bin_bounds(Id id, S bin_idx) const {
-    const auto edges_cache = all_edges(id);
+    const auto edges_cache = get_edges(id);
     return get_bin_bounds(id, bin_idx, edges_cache);
   }
 
@@ -417,7 +448,7 @@ class HistogramRegistry {
    * @brief Optimized version of get_bin_bounds using pre-calculated edges.
    * @param id The histogram ID.
    * @param bin_idx The local bin index.
-   * @param edges_cache Result of all_edges(id).
+   * @param edges_cache Result of get_edges(id).
    * @return A vector of pairs (low, high) for each dimension.
    */
   [[nodiscard]] std::vector<std::pair<T, T>> get_bin_bounds(
