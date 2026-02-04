@@ -214,6 +214,7 @@ class Result {
       kakuhen::util::serialize::serialize_one<int16_t>(out, T_tos);
       kakuhen::util::serialize::serialize_one<int16_t>(out, U_tos);
     }
+    kakuhen::util::serialize::serialize_size(out, results_.size());
     kakuhen::util::serialize::serialize_container(out, results_);
   }
 
@@ -235,6 +236,9 @@ class Result {
         throw std::runtime_error("type or size mismatch for typename U");
       }
     }
+    std::size_t size_in = 0;
+    kakuhen::util::serialize::deserialize_size(in, size_in);
+    results_.resize(size_in);
     kakuhen::util::serialize::deserialize_container(in, results_);
   }
   /// @}
