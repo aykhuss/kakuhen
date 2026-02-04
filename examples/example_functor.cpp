@@ -35,7 +35,7 @@ class MyFunctor {
 
   /// the funciton in 2D to be integrated
   double operator()(const Point<>& point) {
-    assert(point.ndim == 2);
+    assert(point.ndim == 3);
     using size_type = Point<>::size_type;
 
     const auto& x = point.x;  // shorthand
@@ -51,6 +51,10 @@ class MyFunctor {
     }
 
     double fval = 1e3 * std::exp(-50 * dr1) + 7e2 * std::exp(-20 * dr2);
+
+    /// diagonal structure
+    const double off_diag = std::fabs(x[1] - x[2]);
+    fval *= std::exp(-20. * off_diag * off_diag);
 
     /// if we're in production mode, bin the event to the histograms
     /// note: accumulate the function times the weight of the event
@@ -194,7 +198,7 @@ int main() {
   /// initialize a `MyFunctor` object
   MyFunctor integrand{};
 
-  auto integrator = Basin(2);  // 2 dimensions
+  auto integrator = Basin(3);  // 3 dimensions
   integrand.set_stage(0);      // warmup: switch off histogram filling
   integrator.integrate(integrand, {.neval = 50000, .niter = 7, .adapt = true});
   integrator.set_options({.adapt = false});  // freeze the grid -> production phase
