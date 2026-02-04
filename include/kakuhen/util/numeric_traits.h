@@ -21,7 +21,9 @@ template <typename T, typename S, typename U>
 struct NumericTraits {
   static_assert(std::is_floating_point_v<T>, "Value type must be floating point");
   static_assert(std::is_integral_v<S>, "Size type must be integral");
+  static_assert(std::is_unsigned_v<S>, "Size type must be unsigned");
   static_assert(std::is_integral_v<U>, "Count type must be integral");
+  static_assert(std::is_unsigned_v<U>, "Count type must be unsigned");
 
   using value_type = T;  //!< The primary type for numerical values (e.g., integrand results).
   using size_type = S;   //!< The type for representing sizes, dimensions, and indices.
