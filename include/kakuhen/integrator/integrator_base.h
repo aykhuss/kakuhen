@@ -7,6 +7,7 @@
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
+#include "kakuhen/util/scope_exit.h"
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
 #include <array>
@@ -153,11 +154,11 @@ class IntegratorBase {
    * @throws std::invalid_argument if an option is incompatible with the integrator's features.
    */
   inline void set_options(const options_type& opts) {
-    opts_.set(opts);
-    if (opts.seed) random_generator_.seed(opts_.seed.value());
-    if (opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
+    if (opts.adapt && *opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
       throw std::invalid_argument(std::string(to_string(id())) + " does not support grid adaption");
     }
+    opts_.set(opts);
+    if (opts.seed) random_generator_.seed(opts_.seed.value());
   }
 
   /*!
@@ -251,7 +252,8 @@ class IntegratorBase {
     // local lvalue reference to make it callable multiple times
     auto& integrand_ref = integrand;
     // set up local options & check settings
-    Options orig_opts = opts_;
+    options_type orig_opts = opts_;
+    auto restore_orig = kakuhen::util::defer([this, orig_opts] { opts_ = orig_opts; });
     set_options(opts);
     if (!opts_.neval) {
       throw std::invalid_argument("number of evaluations (neval) not set");
@@ -314,8 +316,6 @@ class IntegratorBase {
 
     // int_acc_type res =
     //     derived().integrate_impl(std::forward<I>(integrand), *opts_.neval);
-    // restore original options
-    opts_ = orig_opts;
     // return all iterations
     return result;
   }
