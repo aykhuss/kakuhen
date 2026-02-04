@@ -12,7 +12,7 @@
 namespace kakuhen::util::printer {
 
 /// @brief Context for the printer (Object or Array).
-enum class Context { OBJECT, ARRAY };
+enum class Context : uint8_t { OBJECT, ARRAY };
 
 /*!
  * @brief Base class for printers, using CRTP.

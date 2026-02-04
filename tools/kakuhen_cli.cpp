@@ -1,15 +1,36 @@
+#include "gnuplot.h"
+#include "kakuhen/histogram/axis.h"
+#include "kakuhen/histogram/bin_range.h"
+#include "kakuhen/histogram/histogram_registry.h"
 #include "kakuhen/kakuhen.h"
+#include "kakuhen/ndarray/ndarray.h"
+#include "kakuhen/util/accumulator.h"
+#include "kakuhen/util/math.h"
+#include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
+#include <algorithm>
 #include <argparse/argparse.hpp>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <format>
 #include <iostream>
+#include <sstream>
+#include <string>
 #include <variant>
 
-using namespace kakuhen::integrator;
+using namespace kakuhen;
+using namespace integrator;
+using namespace histogram;
+using namespace util::printer;
 
-using Plain_t = Plain<>;
-using Vegas_t = Vegas<>;
-using Basin_t = Basin<>;
+/// default numeric traits
+using num_traits = util::num_traits_t<>;
+
+using Plain_t = Plain<num_traits>;
+using Vegas_t = Vegas<num_traits>;
+using Basin_t = Basin<num_traits>;
 // using IntegratorVariant = std::variant<Plain_t, Vegas_t, Basin_t>;
 using IntegratorVariant = std::variant<Vegas_t, Basin_t>;
 
@@ -27,7 +48,7 @@ inline IntegratorVariant make_integrator(const IntegratorHeader& header) {
 }
 
 int main(int argc, char* argv[]) {
-  using namespace kakuhen::util::type;
+  using namespace util::type;
 
   argparse::ArgumentParser program("kakuhen");
 
@@ -41,6 +62,12 @@ int main(int argc, char* argv[]) {
       .default_value(0);  // default indent level
   program.add_subparser(dump_cmd);
 
+  //> kakuhen sample subparser
+  argparse::ArgumentParser sample_cmd("sample");
+  sample_cmd.add_description("sample points using a kakuhen state file");
+  sample_cmd.add_argument("file").help("kakuhen state file").nargs(1);  // exactly one file
+  program.add_subparser(sample_cmd);
+
   try {
     program.parse_args(argc, argv);
   } catch (const std::exception& err) {
@@ -52,7 +79,7 @@ int main(int argc, char* argv[]) {
   if (program.is_subcommand_used("dump")) {
     auto file = dump_cmd.get<std::string>("file");
     auto indent = static_cast<uint8_t>(dump_cmd.get<int>("indent"));
-    kakuhen::util::printer::JSONPrinter jp{std::cout, indent};
+    JSONPrinter jp{std::cout, indent};
     auto vint = make_integrator(parse_header(file));
     std::visit(
         [&](auto&& integrator) {
@@ -61,7 +88,24 @@ int main(int argc, char* argv[]) {
           jp << "\n";
         },
         vint);
-  }
+  }  // dump
+
+  if (program.is_subcommand_used("sample")) {
+    auto file = sample_cmd.get<std::string>("file");
+    auto header = parse_header(file);
+    auto vint = make_integrator(header);
+    GnuplotPrinter gp{std::cout};
+    std::visit(
+        [&](auto&& intg) {
+          intg.load(file);
+          intg.print(gp);
+          gp << "\n";
+          GnuplotSample<num_traits> sample(intg.ndim(), 51);
+          intg.integrate(sample, {.neval = 50000000, .niter = 1, .adapt = false, .verbosity = 0});
+          sample.print();
+        },
+        vint);
+  }  // sample
 
   return 0;
 }
