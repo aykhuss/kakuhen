@@ -436,7 +436,9 @@ class NDArray {
 
       S total_size_in;
       kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
-      assert(total_size_in == total_size_);
+      if (total_size_in != total_size_) {
+        throw std::runtime_error("NDArray: total size mismatch during deserialization");
+      }
 
       kakuhen::util::serialize::deserialize_array<T>(in, data_, static_cast<size_t>(total_size_));
     } else {

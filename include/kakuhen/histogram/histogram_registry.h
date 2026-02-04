@@ -464,6 +464,9 @@ class HistogramRegistry {
     for (S k = 0; k < ndim_count; ++k) {
       const auto& axis_var = axes_[entry.axis_id.id() + k];
       const auto& ax_edges = edges_cache[k];
+      if (ax_edges.empty()) {
+        throw std::runtime_error("HistogramRegistry: axis edges unavailable for bin bounds");
+      }
 
       S stride = 1;
       S n_bins_axis = 1;

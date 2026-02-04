@@ -72,8 +72,8 @@ class HistogramBuffer {
     constexpr unsigned int total_bits = std::numeric_limits<S>::digits;
 
     // Calculate bits needed for the buffer index
-    const unsigned int index_bits =
-        static_cast<unsigned int>(std::bit_width(n_total_bins ? (n_total_bins - 1) : 0));
+    const S bw_arg = n_total_bins ? static_cast<S>(n_total_bins - S(1)) : S(0);
+    const unsigned int index_bits = static_cast<unsigned int>(std::bit_width(bw_arg));
 
     // Ensure we have at least 4 bits for generation index
     constexpr unsigned int min_gen_bits = 4;
