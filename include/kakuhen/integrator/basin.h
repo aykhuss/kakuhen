@@ -94,6 +94,31 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
+   * @brief Get the number of grid divisions in the first dimension.
+   *
+   * @return The value of the number of grid divisions for dim 1.
+   */
+  [[nodiscard]] inline T ndiv1() const noexcept {
+    return ndiv1_;
+  }
+  /*!
+   * @brief Get the number of grid divisions in the second dimension.
+   *
+   * @return The value of the number of grid divisions for dim 2.
+   */
+  [[nodiscard]] inline T ndiv2() const noexcept {
+    return ndiv2_;
+  }
+  /*!
+   * @brief Get the number of grid divisions in the diagonal dimension.
+   *
+   * @return The value of the number of grid divisions for projections.
+   */
+  [[nodiscard]] inline T ndiv0() const noexcept {
+    return ndiv0_;
+  }
+
+  /*!
    * @brief Set the alpha parameter for grid adaptation.
    *
    * @param alpha The new value for the alpha parameter.

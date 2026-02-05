@@ -15,18 +15,26 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
+#include <stack>
 #include <sstream>
 #include <string>
 
-using namespace kakuhen;
-using namespace integrator;
-using namespace histogram;
-using namespace util::printer;
-
-class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
+/**
+ * @brief Printer that emits gnuplot-friendly output from integrator state.
+ *
+ * This printer interprets the JSON-like printer callbacks used by kakuhen
+ * and converts them into gnuplot data blocks and variables.
+ */
+class GnuplotPrinter : public kakuhen::util::printer::PrinterBase<GnuplotPrinter> {
  public:
+  /**
+   * @brief Internal printer state used to route data to gnuplot blocks.
+   */
   enum class GnuplotContext : uint8_t { GRID1D, GRID2D, DIMS, GRID, ORDER, OTHER };
-  [[nodiscard]] constexpr std::string_view to_string(GnuplotContext ctx) noexcept {
+  /**
+   * @brief Convert a gnuplot context to a readable string.
+   */
+  [[nodiscard]] static constexpr std::string_view to_string(GnuplotContext ctx) noexcept {
     switch (ctx) {
       case GnuplotContext::GRID1D:
         return "GRID1D";
@@ -45,8 +53,12 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
   }
 
   // dependent class: need to explicitly load things from the Base
-  using Base = PrinterBase<GnuplotPrinter>;
+  using Base = kakuhen::util::printer::PrinterBase<GnuplotPrinter>;
 
+  /**
+   * @brief Construct a gnuplot printer writing to a stream.
+   * @param os Output stream to receive gnuplot blocks.
+   */
   explicit GnuplotPrinter(std::ostream& os) : Base(os) {
     reset();
   }
@@ -61,6 +73,9 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
     stage_ = 0;
   }
 
+  /**
+   * @brief Line break hook (no-op for this printer).
+   */
   void break_line() {}
 
   /*!
@@ -69,7 +84,7 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
    * @tparam C The context type (Context::OBJECT or Context::ARRAY).
    * @param key An optional key for the object member or array.
    */
-  template <Context C>
+  template <kakuhen::util::printer::Context C>
   void begin(std::string_view key = {}) {
     first_ = true;
     /// GRID1D, GRID2D, DIMS, GRID, ORDER, OTHER
@@ -90,7 +105,7 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
       } else if (stage_ == 2) {
         sep_ = ' ';
       } else {
-        assert(false && "asdf");
+        assert(false && "Unexpected grid stage");
       }
     } else if (key == "order") {
       os_ << "\n$ORDER << EOD\n";
@@ -112,7 +127,7 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
    * @tparam C The context type.
    * @param do_break Whether to force a line break after ending the context.
    */
-  template <Context C>
+  template <kakuhen::util::printer::Context C>
   void end(bool do_break = false) {
     /// GRID1D, GRID2D, DIMS, GRID, ORDER, OTHER
     // os_ << "</" << to_string(context_stack_.top()) << ">";
@@ -120,8 +135,9 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
     context_stack_.pop();
     first_ = false;
 
-    if (C == Context::ARRAY && (context_stack_.top() == GnuplotContext::GRID ||
-                                context_stack_.top() == GnuplotContext::ORDER)) {
+    if (C == kakuhen::util::printer::Context::ARRAY && !context_stack_.empty() &&
+        (context_stack_.top() == GnuplotContext::GRID ||
+         context_stack_.top() == GnuplotContext::ORDER)) {
       os_ << "\n";
     }
     if (context_exit == GnuplotContext::DIMS) {
@@ -143,7 +159,7 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
   friend class PrinterBase<GnuplotPrinter>;
 
   using Base::os_;
-  uint8_t stage_ = 0;
+  uint8_t stage_ = 0;  // 0: idle, 1: grid1d, 2: grid2d, 3: order
   std::stack<GnuplotContext> context_stack_;
   bool first_;
   char sep_ = ' ';
@@ -174,21 +190,32 @@ class GnuplotPrinter : public PrinterBase<GnuplotPrinter> {
   }
 };
 
-template <typename NT = util::num_traits_t<>>
+template <typename NT = kakuhen::util::num_traits_t<>>
+/**
+ * @brief Helper integrand to collect histogram samples and emit gnuplot plots.
+ *
+ * Builds 1D and 2D histograms for each dimension and prints gnuplot commands
+ * to visualize the sampling distribution.
+ */
 struct GnuplotSample {
   using num_traits = NT;
   using UniformAxis_t =
-      UniformAxis<typename num_traits::value_type, typename num_traits::size_type>;
+      kakuhen::histogram::UniformAxis<typename num_traits::value_type, typename num_traits::size_type>;
   using VariableAxis_t =
-      VariableAxis<typename num_traits::value_type, typename num_traits::size_type>;
+      kakuhen::histogram::VariableAxis<typename num_traits::value_type, typename num_traits::size_type>;
   using T = num_traits::value_type;
   using S = num_traits::size_type;
   using U = num_traits::count_type;
-  using registry_type = histogram::HistogramRegistry<num_traits>;
+  using registry_type = kakuhen::histogram::HistogramRegistry<num_traits>;
   using buffer_type =
-      histogram::HistogramBuffer<num_traits, util::accumulator::TwoSumAccumulator<T>>;
+      kakuhen::histogram::HistogramBuffer<num_traits, kakuhen::util::accumulator::TwoSumAccumulator<T>>;
   using id_type = registry_type::Id;
 
+  /**
+   * @brief Construct a sampler with uniform 1D and 2D histograms.
+   * @param ndim Number of dimensions.
+   * @param ndiv Grid divisions per dimension.
+   */
   GnuplotSample(S ndim, S ndiv)
       : ndim_{ndim}, ndiv_{ndiv}, registry_{}, buffer_{}, ids_({ndim, ndim}) {
     UniformAxis_t uni_1D(2 * ndiv, 0, 1);
@@ -203,7 +230,12 @@ struct GnuplotSample {
     buffer_ = registry_.create_buffer();
   }
 
-  T operator()(const Point<num_traits>& point) {
+  /**
+   * @brief Accumulate one point into all relevant histograms.
+   * @param point Sample point from the integrator.
+   * @return Constant weight (1).
+   */
+  T operator()(const kakuhen::integrator::Point<num_traits>& point) {
     assert(point.ndim == ndim_);
     const auto& x = point.x;
 
@@ -218,7 +250,10 @@ struct GnuplotSample {
     return T(1);
   }
 
-  void print() {
+  /**
+   * @brief Print gnuplot data blocks and plotting commands to stdout.
+   */
+  void print(std::ostream& out) {
     /// registry
     std::ostringstream record;
     T jac;
@@ -228,7 +263,7 @@ struct GnuplotSample {
       const auto ndim = registry_.get_ndim(id);
       const auto ranges = registry_.get_bin_ranges(id);
       assert(ranges.size() == static_cast<std::size_t>(ndim));
-      std::cout << std::format("\n\n$DATA_{} << EOD\n", registry_.get_name(id));
+      out << std::format("\n\n$DATA_{} << EOD\n", registry_.get_name(id));
       for (S idx_flat = 0; idx_flat < nbins; ++idx_flat) {
         const auto idx_bins = registry_.get_bin_indices(id, idx_flat);
         assert(idx_bins.size() == static_cast<std::size_t>(ndim));
@@ -237,11 +272,12 @@ struct GnuplotSample {
         record.clear();
         jac = 1;
         // record << std::format("{:>7d}  ", idx_flat);
-        if (idx_bins[ndim - 1] == 0) std::cout << "\n";
+        if (idx_bins[ndim - 1] == 0) out << "\n";
         for (S idim = 0; idim < ndim; ++idim) {
           const S iidx = idx_bins[idim];
           const auto& irange = ranges[idim][iidx];
-          if (irange.kind == BinKind::Underflow || irange.kind == BinKind::Invalid) {
+          if (irange.kind == kakuhen::histogram::BinKind::Underflow ||
+              irange.kind == kakuhen::histogram::BinKind::Invalid) {
             skip_record = true;
             break;
           }
@@ -255,18 +291,18 @@ struct GnuplotSample {
           const auto& err = jac * registry_.get_bin_error(id, idx_flat, ival);
           record << std::format(" {:16.8G} {:16.8G} ", val, err);
         }
-        std::cout << record.str() << "\n";
+        out << record.str() << "\n";
       }  // for idx_flat
-      std::cout << "EOD\n";
+      out << "EOD\n";
     }  // for id
 
-    std::cout << std::format(
+    out << std::format(
         "\n\n"
         "set terminal pdfcairo enhanced color transparent dashed "
         "size {0}cm,{0}cm font \"Iosevka Bold\" fontscale 1.0\n",
         5. * ndim_);
 
-    std::cout << R"(
+    out << R"(
 set encoding utf8
 
 set view map
@@ -299,8 +335,8 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
 
 )";
 
-    std::cout << "set output \"plot.pdf\"\n";
-    std::cout << std::format(
+    out << "set output \"plot.pdf\"\n";
+    out << std::format(
         "set multiplot layout {0},{0} "
         "margins 0,1,0,1 "
         "spacing 0.01,0.01\n"
@@ -309,21 +345,21 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
 
     for (S idim = 0; idim < ndim_; ++idim) {
       for (S jdim = 0; jdim < ndim_; ++jdim) {
-        std::cout << "\nunset label; unset object;\n";
-        std::cout
+        out << "\nunset label; unset object;\n";
+        out
             << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
             << R"( && word($ORDER[o], 2) == )" << jdim
             << R"() { set label 9 "".o at graph 0.9, 0.9 back center font ",10" textcolor rgb "#23d20f39" } })"
             << "\n";
         if (idim == jdim) {
-          std::cout << std::format(
+          out << std::format(
               "set label 1 \"{0}\" at graph 0.6, 0.2 center back "
               "font \",30\" textcolor rgb \"#DD000000\"\n"
               "set xrange [0:1]; set yrange [0:1]; set y2range [0:*];\n"
               "plot \\\n"
-              "  $DATA_{0} u 1:3 axes x1y2 with fillsteps fillstyle solid lc rgb \"#DDfe640b\" "
+              "  $DATA_{0} u 1:3 axes x1y2 with fillsteps fillstyle solid lc rgb \"#DD1e66f5\" "
               "notitle,\\\n"
-              "  $DATA_{0} u 1:3 axes x1y2 with steps lw 1                lc rgb   \"#fe640b\" "
+              "  $DATA_{0} u 1:3 axes x1y2 with steps lw 1                lc rgb   \"#1e66f5\" "
               "notitle,\\\n"
               "  $GRID_{0} u 1:(($0+0.)/(ndiv+0.)) axes x1y1 with lines lw 2 lc rgb \"#4c4f69\" "
               "notitle\n",
@@ -335,10 +371,10 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
         if (idim > jdim) {
           std::swap(ix, iy);
         }
-        std::cout
+        out
             << R"(do for [r=1:ndiv1] { eval system("awk -v io=".(r*ndiv0)." '{for(i=3;i<NF;i++){printf(\"set object %d rect from %e,%e to %e,%e front;\",io,$(i),$1,$(i+1),$2);io++}}' <<< '" .)"
             << std::format("$GRID_{}_{}", idim, jdim) << R"([r] . "'") })" << "\n";
-        std::cout << std::format(
+        out << std::format(
             "set label 1 \"{0}\" at graph 0.6, 0.2 center back "
             "font \",30\" textcolor rgb \"#66000000\"\n"
             "set label 2 \"{1}\" at graph 0.2, 0.6 center back "
@@ -346,16 +382,17 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
             "set xrange [0:1]; set yrange [0:1]; set cbrange [0:*];\n"
             "splot $DATA_{2}_{3} u {4}:{5}:5 "
             "with pm3d lc palette z fs transparent solid 0.75 notitle\n",
-            jdim, idim, util::math::max(idim, jdim), util::math::min(idim, jdim), ix, iy);
+            jdim, idim, kakuhen::util::math::max(idim, jdim),
+            kakuhen::util::math::min(idim, jdim), ix, iy);
       }
     }
 
-    std::cout << "unset multiplot\n";
+    out << "unset multiplot\n";
   }
 
   S ndim_;
   S ndiv_;
   registry_type registry_;
   buffer_type buffer_;
-  ndarray::NDArray<id_type, S> ids_;
+  kakuhen::ndarray::NDArray<id_type, S> ids_;
 };

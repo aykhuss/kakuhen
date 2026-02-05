@@ -84,6 +84,15 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
+   * @brief Get the number of grid divisions.
+   *
+   * @return The value of the number of grid divisions.
+   */
+  [[nodiscard]] inline T ndiv() const noexcept {
+    return ndiv_;
+  }
+
+  /*!
    * @brief Set the alpha parameter for grid adaptation.
    *
    * The alpha parameter controls the damping of the grid adaptation. A value

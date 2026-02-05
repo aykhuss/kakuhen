@@ -1,4 +1,3 @@
-#include "gnuplot.h"
 #include "kakuhen/histogram/axis.h"
 #include "kakuhen/histogram/bin_range.h"
 #include "kakuhen/histogram/histogram_registry.h"
@@ -8,6 +7,7 @@
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
+#include "plot/gnuplot.h"
 #include <algorithm>
 #include <argparse/argparse.hpp>
 #include <concepts>
@@ -17,6 +17,7 @@
 #include <format>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <variant>
 
@@ -24,9 +25,13 @@ using namespace kakuhen;
 using namespace integrator;
 using namespace histogram;
 using namespace util::printer;
+using namespace util::math;
 
 /// default numeric traits
 using num_traits = util::num_traits_t<>;
+using S = typename num_traits::size_type;
+using T = typename num_traits::value_type;
+using U = typename num_traits::count_type;
 
 using Plain_t = Plain<num_traits>;
 using Vegas_t = Vegas<num_traits>;
@@ -62,11 +67,22 @@ int main(int argc, char* argv[]) {
       .default_value(0);  // default indent level
   program.add_subparser(dump_cmd);
 
-  //> kakuhen sample subparser
-  argparse::ArgumentParser sample_cmd("sample");
-  sample_cmd.add_description("sample points using a kakuhen state file");
-  sample_cmd.add_argument("file").help("kakuhen state file").nargs(1);  // exactly one file
-  program.add_subparser(sample_cmd);
+  //> kakuhen plot subparser
+  argparse::ArgumentParser plot_cmd("plot");
+  plot_cmd.add_description("plot the kakuhen state file");
+  plot_cmd.add_argument("file").help("kakuhen state file").nargs(1);  // exactly one file
+  plot_cmd.add_argument("--driver")
+      .default_value(std::string{"gnuplot"})
+      .choices("gnuplot", "matplotlib");
+  plot_cmd.add_argument("--nsamples")
+      .help("number of samples to use")
+      .scan<'i', int>()   // parse as integer
+      .default_value(0);  // default: automatic determination
+  plot_cmd.add_argument("--ndivs")
+      .help("number of divisions to use")
+      .scan<'i', int>()   // parse as integer
+      .default_value(0);  // default: automatic determination
+  program.add_subparser(plot_cmd);
 
   try {
     program.parse_args(argc, argv);
@@ -82,30 +98,59 @@ int main(int argc, char* argv[]) {
     JSONPrinter jp{std::cout, indent};
     auto vint = make_integrator(parse_header(file));
     std::visit(
-        [&](auto&& integrator) {
-          integrator.load(file);
-          integrator.print(jp);
+        [&](auto&& intg) {
+          intg.load(file);
+          intg.print(jp);
           jp << "\n";
         },
         vint);
   }  // dump
 
-  if (program.is_subcommand_used("sample")) {
-    auto file = sample_cmd.get<std::string>("file");
+  if (program.is_subcommand_used("plot")) {
+    auto file = plot_cmd.get<std::string>("file");
     auto header = parse_header(file);
     auto vint = make_integrator(header);
-    GnuplotPrinter gp{std::cout};
-    std::visit(
-        [&](auto&& intg) {
-          intg.load(file);
-          intg.print(gp);
-          gp << "\n";
-          GnuplotSample<num_traits> sample(intg.ndim(), 51);
-          intg.integrate(sample, {.neval = 50000000, .niter = 1, .adapt = false, .verbosity = 0});
-          sample.print();
-        },
-        vint);
-  }  // sample
+
+    S nsamples = static_cast<S>(plot_cmd.get<int>("nsamples"));
+    S ndivs = static_cast<S>(plot_cmd.get<int>("ndivs"));
+    if (ndivs == 0) {
+      switch (vint.index()) {
+        case 0:  // Vegas_t
+          ndivs = std::get<Vegas_t>(vint).ndiv();
+          break;
+        case 1:  // Basin_t
+          ndivs = static_cast<S>(std::sqrt(std::get<Basin_t>(vint).ndiv0()));
+          break;
+        default:
+          if (ndivs == 0) ndivs = 10;
+          break;
+      }
+      ndivs *= 3;
+    }
+
+    auto driver = plot_cmd.get<std::string>("driver");
+    if (driver == "gnuplot") {
+      GnuplotPrinter gp{std::cout};
+      std::visit(
+          [&](auto&& intg) {
+            intg.load(file);
+            const S ndim = intg.ndim();
+            if (nsamples == 0) {
+              nsamples = 42*ndivs*ndivs*ndim*ndim;
+            }
+            std::cerr << std::format("driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n", driver, ndim, nsamples, ndivs );
+            intg.print(gp);
+            gp << "\n";
+            GnuplotSample<num_traits> sample(intg.ndim(), ndivs);
+            intg.integrate(sample, {.neval = nsamples, .niter = 1, .adapt = false, .verbosity = 0});
+            sample.print(std::cout);
+          },
+          vint);
+    } else {
+      throw std::runtime_error("Unsupported driver");
+    }
+
+  }  // plot
 
   return 0;
 }
