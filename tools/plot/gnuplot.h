@@ -15,9 +15,10 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
-#include <stack>
 #include <sstream>
+#include <stack>
 #include <string>
+#include <string_view>
 
 /**
  * @brief Printer that emits gnuplot-friendly output from integrator state.
@@ -199,16 +200,17 @@ template <typename NT = kakuhen::util::num_traits_t<>>
  */
 struct GnuplotSample {
   using num_traits = NT;
-  using UniformAxis_t =
-      kakuhen::histogram::UniformAxis<typename num_traits::value_type, typename num_traits::size_type>;
-  using VariableAxis_t =
-      kakuhen::histogram::VariableAxis<typename num_traits::value_type, typename num_traits::size_type>;
+  using UniformAxis_t = kakuhen::histogram::UniformAxis<typename num_traits::value_type,
+                                                        typename num_traits::size_type>;
+  using VariableAxis_t = kakuhen::histogram::VariableAxis<typename num_traits::value_type,
+                                                          typename num_traits::size_type>;
   using T = num_traits::value_type;
   using S = num_traits::size_type;
   using U = num_traits::count_type;
   using registry_type = kakuhen::histogram::HistogramRegistry<num_traits>;
   using buffer_type =
-      kakuhen::histogram::HistogramBuffer<num_traits, kakuhen::util::accumulator::TwoSumAccumulator<T>>;
+      kakuhen::histogram::HistogramBuffer<num_traits,
+                                          kakuhen::util::accumulator::TwoSumAccumulator<T>>;
   using id_type = registry_type::Id;
 
   /**
@@ -216,8 +218,8 @@ struct GnuplotSample {
    * @param ndim Number of dimensions.
    * @param ndiv Grid divisions per dimension.
    */
-  GnuplotSample(S ndim, S ndiv)
-      : ndim_{ndim}, ndiv_{ndiv}, registry_{}, buffer_{}, ids_({ndim, ndim}) {
+  GnuplotSample(S ndim, S ndiv, const std::string_view output = "plot.pdf")
+      : ndim_{ndim}, ndiv_{ndiv}, registry_{}, buffer_{}, ids_({ndim, ndim}), output_{output} {
     UniformAxis_t uni_1D(2 * ndiv, 0, 1);
     UniformAxis_t uni_2D(ndiv, 0, 1);
     for (S idim = 0; idim < ndim; ++idim) {
@@ -299,7 +301,8 @@ struct GnuplotSample {
     out << std::format(
         "\n\n"
         "set terminal pdfcairo enhanced color transparent dashed "
-        "size {0}cm,{0}cm font \"Iosevka Bold\" fontscale 1.0\n",
+        //"size {0}cm,{0}cm font \"Iosevka Bold\" fontscale 1.0\n",
+        "size {0}cm,{0}cm fontscale 1.0\n",
         5. * ndim_);
 
     out << R"(
@@ -335,7 +338,7 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
 
 )";
 
-    out << "set output \"plot.pdf\"\n";
+    out << std::format("set output \"{}\"\n", output_);
     out << std::format(
         "set multiplot layout {0},{0} "
         "margins 0,1,0,1 "
@@ -346,8 +349,7 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
     for (S idim = 0; idim < ndim_; ++idim) {
       for (S jdim = 0; jdim < ndim_; ++jdim) {
         out << "\nunset label; unset object;\n";
-        out
-            << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
+        out << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
             << R"( && word($ORDER[o], 2) == )" << jdim
             << R"() { set label 9 "".o at graph 0.9, 0.9 back center font ",10" textcolor rgb "#23d20f39" } })"
             << "\n";
@@ -371,8 +373,7 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
         if (idim > jdim) {
           std::swap(ix, iy);
         }
-        out
-            << R"(do for [r=1:ndiv1] { eval system("awk -v io=".(r*ndiv0)." '{for(i=3;i<NF;i++){printf(\"set object %d rect from %e,%e to %e,%e front;\",io,$(i),$1,$(i+1),$2);io++}}' <<< '" .)"
+        out << R"(do for [r=1:ndiv1] { eval system("awk -v io=".(r*ndiv0)." '{for(i=3;i<NF;i++){printf(\"set object %d rect from %e,%e to %e,%e front;\",io,$(i),$1,$(i+1),$2);io++}}' <<< '" .)"
             << std::format("$GRID_{}_{}", idim, jdim) << R"([r] . "'") })" << "\n";
         out << std::format(
             "set label 1 \"{0}\" at graph 0.6, 0.2 center back "
@@ -382,8 +383,8 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
             "set xrange [0:1]; set yrange [0:1]; set cbrange [0:*];\n"
             "splot $DATA_{2}_{3} u {4}:{5}:5 "
             "with pm3d lc palette z fs transparent solid 0.75 notitle\n",
-            jdim, idim, kakuhen::util::math::max(idim, jdim),
-            kakuhen::util::math::min(idim, jdim), ix, iy);
+            jdim, idim, kakuhen::util::math::max(idim, jdim), kakuhen::util::math::min(idim, jdim),
+            ix, iy);
       }
     }
 
@@ -395,4 +396,5 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
   registry_type registry_;
   buffer_type buffer_;
   kakuhen::ndarray::NDArray<id_type, S> ids_;
+  std::string output_;
 };

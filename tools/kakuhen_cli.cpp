@@ -111,6 +111,8 @@ int main(int argc, char* argv[]) {
     auto header = parse_header(file);
     auto vint = make_integrator(header);
 
+    auto output = file.substr(0, file.find_last_of('.')) + ".pdf";
+
     S nsamples = static_cast<S>(plot_cmd.get<int>("nsamples"));
     S ndivs = static_cast<S>(plot_cmd.get<int>("ndivs"));
     if (ndivs == 0) {
@@ -136,14 +138,15 @@ int main(int argc, char* argv[]) {
             intg.load(file);
             const S ndim = intg.ndim();
             if (nsamples == 0) {
-              nsamples = 42*ndivs*ndivs*ndim*ndim;
+              nsamples = 42 * ndivs * ndivs * ndim * ndim;
             }
-            std::cerr << std::format("driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n", driver, ndim, nsamples, ndivs );
             intg.print(gp);
             gp << "\n";
-            GnuplotSample<num_traits> sample(intg.ndim(), ndivs);
+            GnuplotSample<num_traits> sample(intg.ndim(), ndivs, output);
             intg.integrate(sample, {.neval = nsamples, .niter = 1, .adapt = false, .verbosity = 0});
             sample.print(std::cout);
+            std::cerr << std::format("# driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n",
+                                     driver, ndim, nsamples, ndivs);
           },
           vint);
     } else {
