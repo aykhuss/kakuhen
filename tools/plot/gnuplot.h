@@ -3,6 +3,7 @@
 #include "kakuhen/histogram/axis.h"
 #include "kakuhen/histogram/bin_range.h"
 #include "kakuhen/histogram/histogram_registry.h"
+#include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/kakuhen.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/util/accumulator.h"
@@ -218,8 +219,15 @@ struct GnuplotSample {
    * @param ndim Number of dimensions.
    * @param ndiv Grid divisions per dimension.
    */
-  GnuplotSample(S ndim, S ndiv, const std::string_view output = "plot.pdf")
-      : ndim_{ndim}, ndiv_{ndiv}, registry_{}, buffer_{}, ids_({ndim, ndim}), output_{output} {
+  GnuplotSample(kakuhen::integrator::IntegratorId int_id, S ndim, S ndiv,
+                const std::string_view output = "plot.pdf")
+      : int_id_{int_id},
+        ndim_{ndim},
+        ndiv_{ndiv},
+        registry_{},
+        buffer_{},
+        ids_({ndim, ndim}),
+        output_{output} {
     UniformAxis_t uni_1D(2 * ndiv, 0, 1);
     UniformAxis_t uni_2D(ndiv, 0, 1);
     for (S idim = 0; idim < ndim; ++idim) {
@@ -312,8 +320,9 @@ set view map
 set pm3d map explicit noborder corners2color c1  # bottom left corner
 # set pm3d interpolate 2,2
 # set palette rgb 33,13,10;
-set palette defined ( 0 'dark-blue', 1/8. 'blue', 3/8. 'cyan', 5/8. 'yellow', 7/8. 'red', 1 'dark-red' )
-set style rectangle front fs empty border lc rgb '#000000' lw 0.5
+set palette defined ( 0 'dark-blue', 1/8. 'blue', 3/8. 'cyan', 5/8. 'yellow', 7/8. 'red', 1 'dark-red' );
+set style rectangle front fs empty border lc rgb '#000000' lw 0.5;
+set style arrow 1 nohead front lc rgb '#000000' lw 0.5;
 
 unset title
 unset key
@@ -348,11 +357,19 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
 
     for (S idim = 0; idim < ndim_; ++idim) {
       for (S jdim = 0; jdim < ndim_; ++jdim) {
-        out << "\nunset label; unset object;\n";
-        out << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
-            << R"( && word($ORDER[o], 2) == )" << jdim
-            << R"() { set label 9 "".o at graph 0.9, 0.9 back center font ",10" textcolor rgb "#23d20f39" } })"
-            << "\n";
+        out << "\nunset label; unset object; unset arrow;\n";
+        if (int_id_ == kakuhen::integrator::IntegratorId::VEGAS) {
+          if (jdim > idim) {
+            out << "\nset multiplot next;\n";
+            continue;
+          }
+        }
+        if (int_id_ == kakuhen::integrator::IntegratorId::BASIN) {
+          out << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
+              << R"( && word($ORDER[o], 2) == )" << jdim
+              << R"() { set label 9 "".o at graph 0.9, 0.9 back center font ",10" textcolor rgb "#23d20f39" } })"
+              << "\n";
+        }
         if (idim == jdim) {
           out << std::format(
               "set label 1 \"{0}\" at graph 0.6, 0.2 center back "
@@ -373,8 +390,18 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
         if (idim > jdim) {
           std::swap(ix, iy);
         }
-        out << R"(do for [r=1:ndiv1] { eval system("awk -v io=".(r*ndiv0)." '{for(i=3;i<NF;i++){printf(\"set object %d rect from %e,%e to %e,%e front;\",io,$(i),$1,$(i+1),$2);io++}}' <<< '" .)"
-            << std::format("$GRID_{}_{}", idim, jdim) << R"([r] . "'") })" << "\n";
+        if (int_id_ == kakuhen::integrator::IntegratorId::VEGAS) {
+          out << R"(do for [i=1:ndiv] { eval "set arrow from 0,".)" << std::format("$GRID_{}", idim)
+              << R"([i]." to 1,".)" << std::format("$GRID_{}", idim) << R"([i]." arrowstyle 1;" })"
+              << "\n";
+          out << R"(do for [j=1:ndiv] { eval "set arrow from ".)" << std::format("$GRID_{}", jdim)
+              << R"([j].",0 to ".)" << std::format("$GRID_{}", jdim) << R"([j].",1 arrowstyle 1;" })"
+              << "\n";
+        }
+        if (int_id_ == kakuhen::integrator::IntegratorId::BASIN) {
+          out << R"(do for [r=1:ndiv1] { eval system("awk -v io=".(r*ndiv0)." '{for(i=3;i<NF;i++){printf(\"set object %d rect from %e,%e to %e,%e front;\",io,$(i),$1,$(i+1),$2);io++}}' <<< '" .)"
+              << std::format("$GRID_{}_{}", idim, jdim) << R"([r] . "'") })" << "\n";
+        }
         out << std::format(
             "set label 1 \"{0}\" at graph 0.6, 0.2 center back "
             "font \",30\" textcolor rgb \"#66000000\"\n"
@@ -391,6 +418,8 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
     out << "unset multiplot\n";
   }
 
+ private:
+  kakuhen::integrator::IntegratorId int_id_;
   S ndim_;
   S ndiv_;
   registry_type registry_;

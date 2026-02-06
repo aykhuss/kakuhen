@@ -1,6 +1,7 @@
 #include "kakuhen/histogram/axis.h"
 #include "kakuhen/histogram/bin_range.h"
 #include "kakuhen/histogram/histogram_registry.h"
+#include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/kakuhen.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/util/accumulator.h"
@@ -121,13 +122,12 @@ int main(int argc, char* argv[]) {
           ndivs = std::get<Vegas_t>(vint).ndiv();
           break;
         case 1:  // Basin_t
-          ndivs = static_cast<S>(std::sqrt(std::get<Basin_t>(vint).ndiv0()));
+          ndivs = 4 * static_cast<S>(std::sqrt(std::get<Basin_t>(vint).ndiv0()));
           break;
         default:
           if (ndivs == 0) ndivs = 10;
           break;
       }
-      ndivs *= 3;
     }
 
     auto driver = plot_cmd.get<std::string>("driver");
@@ -138,11 +138,11 @@ int main(int argc, char* argv[]) {
             intg.load(file);
             const S ndim = intg.ndim();
             if (nsamples == 0) {
-              nsamples = 42 * ndivs * ndivs * ndim * ndim;
+              nsamples = 100 * ipow(ndivs, 2) * ipow(ndim + 1, 2);
             }
             intg.print(gp);
             gp << "\n";
-            GnuplotSample<num_traits> sample(intg.ndim(), ndivs, output);
+            GnuplotSample<num_traits> sample(intg.id, ndim, ndivs, output);
             intg.integrate(sample, {.neval = nsamples, .niter = 1, .adapt = false, .verbosity = 0});
             sample.print(std::cout);
             std::cerr << std::format("# driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n",
