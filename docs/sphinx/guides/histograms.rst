@@ -75,3 +75,10 @@ The `HistogramRegistry` itself is intended to be used for setup and final aggreg
 Filling is performed via `HistogramBuffer` objects, which are designed to be
 **thread-local**. Multiple threads can fill their own buffers concurrently without
 locks. A synchronization point is required only when calling `flush()`.
+
+Performance tips
+----------------
+
+* Create one buffer per thread and reuse it across the event loop.
+* Flush in batches (e.g., end of a loop or chunk) instead of after every fill.
+* Prefer uniform axes where possible for lower overhead.

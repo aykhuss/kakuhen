@@ -4,7 +4,7 @@ Quickstart
 This guide provides a quick introduction to using the `kakuhen` library for
 multidimensional Monte Carlo integration.
 
-Basic Usage
+Basic usage
 -----------
 
 Let's integrate a simple function, for example, ``f(x, y) = x^2 + y^2`` over a 2D domain.
@@ -25,8 +25,8 @@ Explanation:
 *   The ``integrate`` method performs the integration and returns a ``Result`` object.
 *   Finally, we print the estimated integral value, its error, and the chi-squared per degree of freedom.
 
-Running the Example
--------------------
+Build and run
+-------------
 
 To compile and run this example:
 
@@ -51,15 +51,15 @@ To compile and run this example:
 
     .. code-block:: bash
 
-        cmake ..
-        cmake --build .
+        cmake -S . -B build
+        cmake --build build
 
 3.  Execute the application:
 
     .. code-block:: bash
 
         ./my_integration_app # On Linux/macOS
-        my_integration_app.exe # On Windows
+        .\\my_integration_app.exe # On Windows
 
 This should print the estimated integral value and error to the console.
 

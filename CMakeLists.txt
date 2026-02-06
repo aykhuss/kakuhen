@@ -10,6 +10,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #> enable tests
 option(KAKUHEN_BUILD_TESTING "Enable creation of kakuhen tests." OFF)
+#> enable building examples
+option(KAKUHEN_BUILD_EXAMPLES "Build examples" OFF)
 #> enable building CLI tool
 option(KAKUHEN_BUILD_CLI "Build kakuhen CLI tool" OFF)
 #> enable building documentation
@@ -19,15 +21,16 @@ option(KAKUHEN_ENABLE_COVERAGE "Enable code coverage generation" OFF)
 
 if(KAKUHEN_ENABLE_COVERAGE)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(--coverage)
-    add_link_options(--coverage)
+    add_library(kakuhen_coverage INTERFACE)
+    target_compile_options(kakuhen_coverage INTERFACE --coverage)
+    target_link_options(kakuhen_coverage INTERFACE --coverage)
   else()
     message(WARNING "Code coverage is only supported for GCC and Clang")
   endif()
 endif() # End KAKUHEN_ENABLE_COVERAGE
 
 #> default build type is: Release
-if (NOT CMAKE_BUILD_TYPE)
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   #> other options: Debug, Release, RelWithDebInfo, MinSizeRel
   #set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -38,6 +41,7 @@ add_compile_definitions($<IF:$<CONFIG:Debug>,DEBUG,NDEBUG>)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
+include(CTest)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
@@ -55,6 +59,10 @@ target_include_directories(kakuhen INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+
+if(KAKUHEN_ENABLE_COVERAGE AND TARGET kakuhen_coverage)
+  target_link_libraries(kakuhen INTERFACE kakuhen_coverage)
+endif()
 
 configure_package_config_file(
   ${CMAKE_CURRENT_LIST_DIR}/cmake/kakuhenConfig.cmake.in
@@ -81,7 +89,9 @@ write_basic_package_version_file(
 
 install(
   TARGETS kakuhen
-  EXPORT kakuhenTargets)
+  EXPORT kakuhenTargets
+  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
 install(
   EXPORT kakuhenTargets
   FILE kakuhenTargets.cmake
@@ -98,11 +108,14 @@ install(
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-add_subdirectory(examples)
+if(KAKUHEN_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
 if(KAKUHEN_BUILD_CLI)
   add_subdirectory(tools)
 endif()
-if(KAKUHEN_BUILD_TESTING)
+set(BUILD_TESTING ${KAKUHEN_BUILD_TESTING} CACHE BOOL "Build tests" FORCE)
+if(BUILD_TESTING)
   enable_testing()
   add_subdirectory(tests)
 endif()
@@ -137,7 +150,7 @@ if(KAKUHEN_BUILD_DOCS)
       )
 
   # Sphinx target
-  add_custom_target(build_sphinx_html ALL
+  add_custom_target(build_sphinx_html
             COMMAND Sphinx::Build -b html
                     -c ${CMAKE_CURRENT_BINARY_DIR}/docs/sphinx # Location of conf.py
                     ${CMAKE_CURRENT_SOURCE_DIR}/docs/sphinx # Source directory

@@ -7,3 +7,4 @@ User Guide
    installation
    quickstart
    histograms
+   building_docs

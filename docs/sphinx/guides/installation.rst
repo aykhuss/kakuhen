@@ -1,83 +1,77 @@
 Installation
 ============
 
-This guide provides instructions on how to set up and install the `kakuhen` library.
+This guide provides recommended ways to consume `kakuhen` in CMake projects.
 
-Prerequisites
--------------
-Before you begin, ensure you have the following installed on your system:
+Requirements
+------------
 
-*   **CMake**: Version 3.18 or higher. You can download it from the official CMake website or install via your system's package manager (e.g., ``brew install cmake`` on macOS, ``sudo apt-get install cmake`` on Ubuntu).
-*   **C++ Compiler**: A C++20 compliant compiler (e.g., GCC 10+, Clang 10+, MSVC 2019+).
-*   **Git**: For cloning the repository.
+* **CMake**: 3.18 or newer.
+* **C++ compiler**: C++20 capable (GCC 10+, Clang 10+, MSVC 2019+).
+* **Git**: For cloning the repository.
 
-Building and Installing
------------------------
-
-Follow these steps to build and install the `kakuhen` library:
-
-1.  **Clone the repository**:
-
-    .. code-block:: bash
-
-        git clone https://github.com/aykhuss/kakuhen.git
-        cd kakuhen
-
-2.  **Create a build directory and configure CMake**:
-
-    It's recommended to build out-of-source.
-
-    .. code-block:: bash
-
-        mkdir build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
-
-    *   `-DCMAKE_BUILD_TYPE=Release`: Specifies a Release build for optimized performance. You can use ``Debug`` for development.
-    *   To enable building tests, add ``-DKAKUHEN_BUILD_TESTING=ON``.
-    *   To enable building the CLI tool, add ``-DKAKUHEN_BUILD_CLI=ON``.
-
-3.  **Build the library**:
-
-    .. code-block:: bash
-
-        cmake --build .
-
-    This command will compile the library and any enabled examples or tools.
-
-4.  **Install the library (Optional)**:
-
-    If you want to install `kakuhen` to your system's default installation paths (e.g., ``/usr/local`` on Linux/macOS), run:
-
-    .. code-block:: bash
-
-        cmake --install .
-
-    You can specify a custom installation prefix using ``cmake .. -DCMAKE_INSTALL_PREFIX=/path/to/install`` during the configuration step.
-
-Using kakuhen in your project
+Option A: Add as subdirectory
 -----------------------------
 
-Once installed, you can use ``find_package(kakuhen CONFIG REQUIRED)`` in your own CMake projects to link against ``kakuhen::kakuhen``.
+This is the simplest way to consume a header-only library during development.
 
-For example, in your ``CMakeLists.txt``::
+1. **Vendor or add a submodule**, for example:
 
-    cmake_minimum_required(VERSION 3.18)
-    project(MyProject LANGUAGES CXX)
+   .. code-block:: bash
 
-    set(CMAKE_CXX_STANDARD 20)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+       git submodule add https://github.com/aykhuss/kakuhen.git external/kakuhen
 
-    find_package(kakuhen CONFIG REQUIRED)
+2. **Add to your build**:
 
-    add_executable(my_app main.cpp)
-    target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
+   .. code-block:: cmake
 
-And in ``main.cpp``::
+       add_subdirectory(external/kakuhen)
+       target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
 
-    #include <kakuhen/kakuhen.h> // Or specific sub-headers
+Option B: Install + find_package
+--------------------------------
 
-    int main() {
-        // Use kakuhen library functions
-        return 0;
-    }
+1. **Clone and configure**:
+
+   .. code-block:: bash
+
+       git clone https://github.com/aykhuss/kakuhen.git
+       cd kakuhen
+       cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+2. **Build and install**:
+
+   .. code-block:: bash
+
+       cmake --build build
+       cmake --install build
+
+   On Windows (multi-config generators), specify the configuration:
+
+   .. code-block:: bash
+
+       cmake --build build --config Release
+       cmake --install build --config Release
+
+3. **Use in your project**:
+
+   .. code-block:: cmake
+
+       find_package(kakuhen CONFIG REQUIRED)
+       target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
+
+   If CMake cannot find the package, set one of:
+
+   * ``CMAKE_PREFIX_PATH`` to the install prefix
+   * ``kakuhen_DIR`` to the package config directory
+
+Build options
+-------------
+
+Useful CMake options:
+
+* ``KAKUHEN_BUILD_TESTING``: Build tests.
+* ``KAKUHEN_BUILD_CLI``: Build the CLI tool.
+* ``KAKUHEN_BUILD_EXAMPLES``: Build examples.
+* ``KAKUHEN_BUILD_DOCS``: Build documentation.
+* ``KAKUHEN_ENABLE_COVERAGE``: Enable coverage (GCC/Clang only).
