@@ -1,6 +1,7 @@
 set(EXAMPLES
   example
   example_functor
+  example_histogram
   # example_mapping
   # plot_data
   # playground
