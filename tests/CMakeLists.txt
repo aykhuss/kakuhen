@@ -16,6 +16,7 @@ set(TEST_SOURCES
   test_hash.cpp
   test_histogram.cpp
   test_histogram_registry.cpp
+  test_histogram_writer.cpp
   test_histogram_view.cpp
   test_histogram_serialize.cpp
   test_math.cpp
