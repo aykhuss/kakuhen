@@ -384,6 +384,11 @@ class IntegratorBase {
     }
   }
 
+  /**
+   * @brief Save the state of the integrator to the default state file.
+   *
+   * @return The path to the saved state file.
+   */
   template <typename D = Derived>
   std::filesystem::path save() const
     requires detail::has_state_stream<D>::value
@@ -432,6 +437,11 @@ class IntegratorBase {
     }
   }
 
+  /**
+   * @brief Load the state of the integrator from the default state file.
+   *
+   * @return The path to the loaded state file.
+   */
   template <typename D = Derived>
   std::filesystem::path load()
     requires detail::has_state_stream<D>::value
@@ -470,6 +480,11 @@ class IntegratorBase {
     }
   }
 
+  /**
+   * @brief Save accumulated data of the integrator to the default data file.
+   *
+   * @return The path to the saved data file.
+   */
   template <typename D = Derived>
   std::filesystem::path save_data() const
     requires detail::has_data_stream<D>::value
@@ -509,6 +524,11 @@ class IntegratorBase {
     }
   }
 
+  /**
+   * @brief Append accumulated data from the default data file to the integrator.
+   *
+   * @return The path to the appended data file.
+   */
   template <typename D = Derived>
   std::filesystem::path append_data()
     requires detail::has_data_stream<D>::value

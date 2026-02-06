@@ -168,13 +168,28 @@ class NDView {
     return total_size_ == 0;
   }
 
+  /**
+   * @brief Access the raw data pointer.
+   * @return A pointer to the underlying data.
+   */
   [[nodiscard]] inline T* data() noexcept {
     return data_;
   }
+  /**
+   * @brief Access the raw data pointer (const).
+   * @return A const pointer to the underlying data.
+   */
   [[nodiscard]] inline const T* data() const noexcept {
     return data_;
   }
 
+  /**
+   * @brief Access an element of the view using multi-dimensional indices.
+   *
+   * @tparam Indices The types of the indices.
+   * @param indices The indices of the element to access.
+   * @return A reference to the element.
+   */
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");

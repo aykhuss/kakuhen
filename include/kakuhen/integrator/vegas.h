@@ -88,7 +88,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * @return The value of the number of grid divisions.
    */
-  [[nodiscard]] inline T ndiv() const noexcept {
+  [[nodiscard]] inline S ndiv() const noexcept {
     return ndiv_;
   }
 
@@ -454,6 +454,15 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 
+  /*!
+   * @brief Generates a random point in the integration volume.
+   *
+   * This method uses the current grid state to perform importance sampling.
+   *
+   * @param point The point object to populate.
+   * @param grid_vec A vector to store the grid indices for each dimension.
+   * @param sample_index The index of the current sample.
+   */
   inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
                              U sample_index = U(0)) {
     point.sample_index = sample_index;

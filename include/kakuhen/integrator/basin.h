@@ -98,7 +98,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * @return The value of the number of grid divisions for dim 1.
    */
-  [[nodiscard]] inline T ndiv1() const noexcept {
+  [[nodiscard]] inline S ndiv1() const noexcept {
     return ndiv1_;
   }
   /*!
@@ -106,7 +106,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * @return The value of the number of grid divisions for dim 2.
    */
-  [[nodiscard]] inline T ndiv2() const noexcept {
+  [[nodiscard]] inline S ndiv2() const noexcept {
     return ndiv2_;
   }
   /*!
@@ -114,7 +114,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * @return The value of the number of grid divisions for projections.
    */
-  [[nodiscard]] inline T ndiv0() const noexcept {
+  [[nodiscard]] inline S ndiv0() const noexcept {
     return ndiv0_;
   }
 
@@ -608,7 +608,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           count++;
         }
         /// we need to penalize sampling of new dimensions
-        if (count > 0) avg_score /= pentalty_fac_score_ * T(count);
+        if (count > 0) avg_score /= penalty_fac_score_ * T(count);
         if (avg_score > max_score) {
           max_score = avg_score;
           max_idim1 = idim1;
@@ -1009,7 +1009,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   T alpha_{0.75};
   T weight_smooth_{3};
   T min_score_{0.05};
-  T pentalty_fac_score_{2};
+  T penalty_fac_score_{2};
 
   /// division for conditional PDF:  P(x2|x1)
   S ndiv1_;  // number of divisions of the grid along dim 1
@@ -1024,6 +1024,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /// define the sampling order
   ndarray::NDArray<S, S> order_;
 
+  /*!
+   * @brief Generates a random point in the integration volume using nested grids.
+   *
+   * @param point The point object to populate.
+   * @param grid_vec A vector to store the grid indices for each dimension.
+   * @param sample_index The index of the current sample.
+   */
   inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
                              U sample_index = U(0)) {
     point.sample_index = sample_index;
@@ -1100,7 +1107,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @return The Earth Mover's Distance between the two distributions.
    */
   [[nodiscard]] T emd(const kakuhen::ndarray::NDView<T, S>& grid1,
-                      const kakuhen::ndarray::NDView<T, S>& grid2) {
+                      const kakuhen::ndarray::NDView<T, S>& grid2) const {
     assert(grid1.ndim() == 1 && grid2.ndim() == 1);
 
     T emd_val = 0;

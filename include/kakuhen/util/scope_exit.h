@@ -71,6 +71,16 @@ template <typename F>
   return ScopeExit<std::decay_t<F>>(std::forward<F>(f));
 }
 
+/**
+ * @brief Factory function to create a ScopeExit object, aliased as 'defer'.
+ *
+ * This is an alias for `scope_exit` that mimics the 'defer' keyword found in
+ * other languages like Go or Swift.
+ *
+ * @tparam F The callable type.
+ * @param f The callable to execute at the end of the scope.
+ * @return A ScopeExit object.
+ */
 template <typename F>
 [[nodiscard]] ScopeExit<std::decay_t<F>> defer(F&& f) {
   return scope_exit(std::forward<F>(f));
