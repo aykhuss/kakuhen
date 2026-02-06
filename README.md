@@ -17,7 +17,7 @@
   - **VEGAS**: Classic adaptive importance sampling algorithm.
   - **BASIN**: Blockwise Adaptive Sampling with Interdimensional Nesting (for complex correlations).
 - **Serialization**: Save/load integrator state and accumulated data to/from disk (great for long-running jobs or distributed computing).
-- **Type-safe**: Strongly typed units and checking to prevent configuration errors.
+- **Type-safe**: Strongly typed interfaces to prevent configuration errors.
 
 ## Integration
 
@@ -38,6 +38,33 @@ FetchContent_MakeAvailable(kakuhen)
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
 ```
+
+### Add as Subdirectory
+
+If you vendor or add the repo as a submodule:
+
+```cmake
+add_subdirectory(external/kakuhen)
+target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
+```
+
+### Install + find_package
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+```
+
+```cmake
+find_package(kakuhen CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE kakuhen::kakuhen)
+```
+
+If CMake cannot find the package, set one of:
+
+- `CMAKE_PREFIX_PATH` to the install prefix
+- `kakuhen_DIR` to the package config directory
 
 ### Manual
 
@@ -155,7 +182,19 @@ pip install sphinx breathe furo
 cmake -S . -B build -DKAKUHEN_BUILD_DOCS=ON
 cmake --build build --target build_sphinx_html
 ```
-Docs will be generated in `build/docs/sphinx/_build/html`.
+Docs will be generated in `docs/sphinx/_build/html`.
+
+## CMake Options
+
+- `KAKUHEN_BUILD_TESTING`: Build tests.
+- `KAKUHEN_BUILD_CLI`: Build the CLI tool.
+- `KAKUHEN_BUILD_EXAMPLES`: Build examples.
+- `KAKUHEN_BUILD_DOCS`: Build documentation.
+- `KAKUHEN_ENABLE_COVERAGE`: Enable coverage (GCC/Clang only).
+
+## Support
+
+Use GitHub Issues for bugs and feature requests.
 
 ## License
 
