@@ -11,6 +11,7 @@
 #include "kakuhen/util/numeric_traits.h"
 #include <cassert>
 #include <cmath>
+#include <locale>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -214,23 +215,55 @@ class HistogramRegistry {
   }
 
   /**
-   * @brief Prints a summary of all registered histograms using the provided printer.
+   * @brief Writes a summary of all registered histograms using the provided writer.
    *
-   * @tparam Printer The type of the printer (e.g., JSONPrinter).
-   * @param prt The printer instance to use.
+   * @tparam Writer The type of the histogram writer (e.g., NNLOJETWriter).
+   * @param wrt The writer instance to use.
    */
-  template <typename Printer>
-  void print(Printer& prt) const {
-    prt.reset();
-    prt.global_header(*this);
-    for (std::size_t i = 0; i < entries_.size(); ++i) {
+  template <typename Writer>
+  void write(Writer& wrt) const {
+    // wrt.reset();
+    wrt.global_header(*this);
+
+    for (S i = 0; i < entries_.size(); ++i) {
       const Id id{static_cast<S>(i)};
-      prt.histogram_header(*this, id);
-      prt.histogram_row(*this, id);
-      /// prt.break_block(ndim) <-- new block for ndim starts
-      prt.histogram_footer(*this, id);
-    }
-    prt.global_footer(*this);
+      const auto name = get_name(id);
+      const S nbins = get_nbins(id);
+      const S nvalues = get_nvalues(id);
+      const S ndim = get_ndim(id);
+      const auto ranges = get_bin_ranges(id);
+      assert(ranges.size() == static_cast<std::size_t>(ndim));
+      const U neval = data_.count();
+
+      wrt.histogram_header(i, name, nbins, nvalues, ndim, ranges, neval);
+
+      std::vector<T> values;
+      values.reserve(nvalues);
+      std::vector<T> errors;
+      errors.reserve(nvalues);
+      std::vector<BinRange<T>> bin_range;
+      bin_range.reserve(nbins);
+      for (S ibin = 0; ibin < nbins; ++ibin) {
+        values.clear();
+        errors.clear();
+        for (S ival = 0; ival < nvalues; ++ival) {
+          values.push_back(get_bin_value(id, ibin, ival));
+          errors.push_back(get_bin_error(id, ibin, ival));
+        }
+        bin_range.clear();
+        for (S idim = 0; idim < ndim; ++idim) {
+          bin_range.emplace_back(ranges[idim][ibin]);
+        }
+        const auto idx_bins = get_bin_indices(id, ibin);
+        assert(idx_bins.size() == static_cast<std::size_t>(ndim));
+        wrt.histogram_row(ibin, bin_range, values, errors);
+
+      }  // for ibin < nbins
+
+      wrt.histogram_footer();
+    }  // for i in entries
+
+    wrt.global_footer();
   }
 
   /// @name Accessors
