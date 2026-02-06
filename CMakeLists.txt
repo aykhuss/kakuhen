@@ -61,7 +61,7 @@ target_include_directories(kakuhen INTERFACE
 )
 
 if(KAKUHEN_ENABLE_COVERAGE AND TARGET kakuhen_coverage)
-  target_link_libraries(kakuhen INTERFACE kakuhen_coverage)
+  target_link_libraries(kakuhen INTERFACE $<BUILD_INTERFACE:kakuhen_coverage>)
 endif()
 
 configure_package_config_file(
