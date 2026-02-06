@@ -250,12 +250,12 @@ class HistogramRegistry {
           values.push_back(get_bin_value(id, ibin, ival));
           errors.push_back(get_bin_error(id, ibin, ival));
         }
-        bin_range.clear();
-        for (S idim = 0; idim < ndim; ++idim) {
-          bin_range.emplace_back(ranges[idim][ibin]);
-        }
         const auto idx_bins = get_bin_indices(id, ibin);
         assert(idx_bins.size() == static_cast<std::size_t>(ndim));
+        bin_range.clear();
+        for (S idim = 0; idim < ndim; ++idim) {
+          bin_range.emplace_back(ranges[idim][idx_bins[idim]]);
+        }
         wrt.histogram_row(ibin, bin_range, values, errors);
 
       }  // for ibin < nbins

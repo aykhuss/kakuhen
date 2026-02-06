@@ -39,11 +39,26 @@ class HistogramWriter {
     os_.clear();
   }
 
+  /**
+   * @brief Write the global header.
+   * @tparam Registry The type of the histogram registry.
+   * @param reg The histogram registry.
+   */
   template <typename Registry>
   void global_header(const Registry& reg) {
     derived().global_header_impl(reg);
   }
 
+  /**
+   * @brief Write the header for a specific histogram.
+   * @param i The index of the histogram.
+   * @param name The name of the histogram.
+   * @param nbins The total number of bins.
+   * @param nvalues The number of values per bin.
+   * @param ndim The number of dimensions.
+   * @param ranges The bin ranges for each dimension.
+   * @param neval The number of evaluations.
+   */
   void histogram_header(size_type i, const std::string_view name, size_type nbins,
                         size_type nvalues, size_type ndim,
                         const std::vector<std::vector<BinRange<value_type>>>& ranges,
@@ -51,15 +66,28 @@ class HistogramWriter {
     derived().histogram_header_impl(i, name, nbins, nvalues, ndim, ranges, neval);
   }
 
+  /**
+   * @brief Write a row of data for a specific bin.
+   * @param ibin The flat index of the bin.
+   * @param bin_range The range of the bin in each dimension.
+   * @param values The values in the bin.
+   * @param errors The errors in the bin.
+   */
   void histogram_row(size_type ibin, const std::vector<BinRange<value_type>>& bin_range,
                      const std::vector<value_type>& values, const std::vector<value_type>& errors) {
     derived().histogram_row_impl(ibin, bin_range, values, errors);
   }
 
+  /**
+   * @brief Write the footer for a specific histogram.
+   */
   void histogram_footer() {
     derived().histogram_footer_impl();
   }
 
+  /**
+   * @brief Write the global footer.
+   */
   void global_footer() {
     derived().global_footer_impl();
   }
@@ -75,6 +103,14 @@ class HistogramWriter {
   }
 };
 
+/**
+ * @brief Writer implementation for the NNLOJET format.
+ *
+ * This writer outputs histograms in a format compatible with NNLOJET analysis tools.
+ * It currently supports only 1D histograms.
+ *
+ * @tparam NT The numeric traits to use.
+ */
 template <typename NT = util::num_traits_t<>>
 class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
  public:
@@ -84,16 +120,31 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
   using T = typename Base::value_type;
   using U = typename Base::count_type;
 
+  /**
+   * @brief Construct a new NNLOJETWriter.
+   * @param os The output stream to write to.
+   */
   explicit NNLOJETWriter(std::ostream& os) : Base(os), neval_{0} {}
 
+  /**
+   * @brief Reset the writer state.
+   */
   void reset() {
     Base::reset();
     neval_ = 0;
   }
 
+  /**
+   * @brief Implementation of global_header.
+   */
   template <typename Registry>
   void global_header_impl(const Registry& reg) {}
 
+  /**
+   * @brief Implementation of histogram_header.
+   *
+   * Writes the NNLOJET-specific header including name, labels, and number of evaluations.
+   */
   void histogram_header_impl(S i, const std::string_view name, S nbins, S nvalues, S ndim,
                              const std::vector<std::vector<BinRange<T>>>& ranges, U neval) {
     assert(ndim == 1 && "NNLOJET only support 1D histograms");
@@ -106,6 +157,12 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
     os_ << std::format("#neval: {}\n", neval);
   }
 
+  /**
+   * @brief Implementation of histogram_row.
+   *
+   * Writes the bin edges, centers, values, and errors.
+   * Normalizes the values by the bin width (Jacobian).
+   */
   void histogram_row_impl(S ibin, const std::vector<BinRange<T>>& bin_range,
                           const std::vector<T>& values, const std::vector<T>& errors) {
     assert(bin_range.size() == 1 && "NNLOJET only support 1D histograms");
@@ -124,10 +181,16 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
     os_ << std::format("\n");
   }
 
+  /**
+   * @brief Implementation of histogram_footer.
+   */
   void histogram_footer_impl() {
     os_ << std::format("#nx: {}\n\n", 3);
   }
 
+  /**
+   * @brief Implementation of global_footer.
+   */
   void global_footer_impl() {}
 
  private:
