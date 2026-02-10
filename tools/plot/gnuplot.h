@@ -168,7 +168,7 @@ class GnuplotPrinter : public kakuhen::util::printer::PrinterBase<GnuplotPrinter
 
   template <typename T>
   void print_one_impl(std::string_view key, T&& value) {
-    if (key.starts_with("ndiv")) {
+    if (key.starts_with("ndiv") || key == "ndim") {
       os_ << std::format("{} = {};\n", key, value);
     }
     if (stage_ == 0) return;
@@ -395,7 +395,8 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
               << R"([i]." to 1,".)" << std::format("$GRID_{}", idim) << R"([i]." arrowstyle 1;" })"
               << "\n";
           out << R"(do for [j=1:ndiv] { eval "set arrow from ".)" << std::format("$GRID_{}", jdim)
-              << R"([j].",0 to ".)" << std::format("$GRID_{}", jdim) << R"([j].",1 arrowstyle 1;" })"
+              << R"([j].",0 to ".)" << std::format("$GRID_{}", jdim)
+              << R"([j].",1 arrowstyle 1;" })"
               << "\n";
         }
         if (int_id_ == kakuhen::integrator::IntegratorId::BASIN) {

@@ -2,6 +2,7 @@ set(EXAMPLES
   example
   example_functor
   example_histogram
+  example_benchmark
   # example_mapping
   # plot_data
   # playground

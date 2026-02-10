@@ -280,7 +280,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       order_(idim, 0) = idim;
       order_(idim, 1) = idim;
     }
-    /// also cear the accumulators
+    /// also clear the accumulators
     clear_data();
   }
 
