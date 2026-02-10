@@ -2,7 +2,9 @@
 
 #include <cassert>
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace kakuhen::ndarray::detail {
 
@@ -31,6 +33,25 @@ template <typename S>
     offset += idx[i] * strides[i];
   }
   return offset;
+}
+
+/*!
+ * @brief Computes the flat index from a fixed number of indices (unrolled).
+ *
+ * This helper avoids loops by unrolling the index computation at compile time.
+ * Bounds checking is intentionally omitted for performance in release builds.
+ *
+ * @tparam S The type used for size and indices.
+ * @tparam Tuple A tuple holding the indices.
+ * @tparam I Index sequence for the tuple elements.
+ * @param idx A tuple containing the indices.
+ * @param strides A pointer to the array of strides.
+ * @return The calculated flat index.
+ */
+template <typename S, typename Tuple, std::size_t... I>
+[[nodiscard]] inline S flat_index_unrolled(const Tuple& idx, const S* strides,
+                                           std::index_sequence<I...>) noexcept {
+  return (S(0) + ... + (static_cast<S>(std::get<I>(idx)) * strides[I]));
 }
 
 }  // namespace kakuhen::ndarray::detail

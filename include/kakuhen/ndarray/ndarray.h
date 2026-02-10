@@ -10,6 +10,8 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace kakuhen::ndarray {
@@ -308,10 +310,16 @@ class NDArray {
     static_assert(sizeof...(Indices) > 0,
                   "NDArray index operator must be called with at least one index");
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
-    assert(sizeof...(indices) == ndim_);
+    constexpr std::size_t N = sizeof...(Indices);
+    assert(N == ndim_);
     assert(((indices >= 0) && ...));
-    S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
+    const auto idx = std::make_tuple(static_cast<S>(indices)...);
+#ifndef NDEBUG
+    S idx_arr[] = {static_cast<S>(indices)...};
+    assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
+           detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
+#endif
+    return data_[detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{})];
   }
 
   /*!
@@ -324,10 +332,16 @@ class NDArray {
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
-    assert(sizeof...(indices) == ndim_);
+    constexpr std::size_t N = sizeof...(Indices);
+    assert(N == ndim_);
     assert(((indices >= 0) && ...));
-    S idx[] = {static_cast<S>(indices)...};
-    return data_[detail::flat_index<S>(idx, strides_, shape_, ndim_)];
+    const auto idx = std::make_tuple(static_cast<S>(indices)...);
+#ifndef NDEBUG
+    S idx_arr[] = {static_cast<S>(indices)...};
+    assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
+           detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
+#endif
+    return data_[detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{})];
   }
 
   /*!
