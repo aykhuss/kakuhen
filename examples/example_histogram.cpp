@@ -70,7 +70,7 @@ class MyFunctor {
     buffer_ = registry_.create_buffer();
   }
 
-  /// the funciton in 2D to be integrated
+  /// the funciton in 3D to be integrated
   T operator()(const Point<NT>& point) {
     assert(point.ndim == 3);
 
@@ -133,7 +133,7 @@ int main() {
   /// initialize a `MyFunctor` object
   MyFunctor integrand{};
 
-  auto integrator = Vegas(3);  // 3 dimensions
+  auto integrator = Basin(3);  // 3 dimensions
   integrand.set_stage(0);      // warmup: switch off histogram filling
   integrator.integrate(integrand, {.neval = 50000, .niter = 7, .adapt = true});
   integrator.set_options({.adapt = false});  // freeze the grid -> production phase
