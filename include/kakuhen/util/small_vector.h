@@ -270,14 +270,16 @@ class SmallVector {
   }
 
   /** @brief Compares two SmallVectors for equality. */
-  bool operator==(const SmallVector& other) const noexcept {
-    if (size_ != other.size_) return false;
+  template <std::size_t M>
+  bool operator==(const SmallVector<T, M>& other) const noexcept {
+    if (size_ != other.size()) return false;
     if (size_ == 0) return true;
     return std::memcmp(data(), other.data(), size_ * sizeof(T)) == 0;
   }
 
   /** @brief Compares two SmallVectors for inequality. */
-  bool operator!=(const SmallVector& other) const noexcept {
+  template <std::size_t M>
+  bool operator!=(const SmallVector<T, M>& other) const noexcept {
     return !(*this == other);
   }
 

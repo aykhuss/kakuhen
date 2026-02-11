@@ -101,8 +101,47 @@ TEST_CASE("SmallVector: EmplaceBack", "[util][small_vector]") {
         int x, y;
     };
     SmallVector<Point, 4> v;
-    v.emplace_back(1, 2);
-    REQUIRE(v.size() == 1);
-    REQUIRE(v[0].x == 1);
-    REQUIRE(v[0].y == 2);
-}
+        v.emplace_back(1, 2);
+        REQUIRE(v.size() == 1);
+        REQUIRE(v[0].x == 1);
+        REQUIRE(v[0].y == 2);
+    }
+    
+    TEST_CASE("SmallVector: At", "[util][small_vector]") {
+        SmallVector<int, 4> v = {1, 2, 3};
+        REQUIRE(v.at(0) == 1);
+        REQUIRE(v.at(2) == 3);
+        REQUIRE_THROWS_AS(v.at(3), std::out_of_range);
+    }
+    
+    TEST_CASE("SmallVector: FrontAndBack", "[util][small_vector]") {
+        SmallVector<int, 4> v = {10, 20, 30};
+        REQUIRE(v.front() == 10);
+        REQUIRE(v.back() == 30);
+    }
+    
+    TEST_CASE("SmallVector: Iterators", "[util][small_vector]") {
+        SmallVector<int, 4> v = {1, 2, 3};
+        int sum = 0;
+        for (int x : v) sum += x;
+        REQUIRE(sum == 6);
+    }
+    
+    TEST_CASE("SmallVector: ShrinkToFit", "[util][small_vector]") {
+        SmallVector<int, 2> v = {1, 2, 3, 4};
+        REQUIRE(v.capacity() > 2);
+        v.pop_back();
+        v.pop_back();
+        v.shrink_to_fit();
+        REQUIRE(v.size() == 2);
+        REQUIRE(v.capacity() == 2);
+    }
+    
+    TEST_CASE("SmallVector: Equality", "[util][small_vector]") {
+        SmallVector<int, 4> v1 = {1, 2, 3};
+        SmallVector<int, 2> v2 = {1, 2, 3};
+        SmallVector<int, 4> v3 = {1, 2, 4};
+        REQUIRE(v1 == v2);
+        REQUIRE(v1 != v3);
+    }
+    
