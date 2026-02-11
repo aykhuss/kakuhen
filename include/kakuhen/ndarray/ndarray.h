@@ -75,6 +75,13 @@ class NDArray {
       : NDArray(static_cast<S>(shape.size()), std::data(shape)) {}
 
   /*!
+   * @brief Construct a new NDArray from a span of shapes.
+   *
+   * @param shape A span containing the size of each dimension.
+   */
+  NDArray(std::span<const S> shape) : NDArray(static_cast<S>(shape.size()), shape.data()) {}
+
+  /*!
    * @brief Destructor.
    *
    * Manually destructs elements if T is not trivially destructible.
