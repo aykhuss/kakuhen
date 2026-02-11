@@ -67,3 +67,23 @@ TEST_CASE("algorithm::upper_bound agrees with std::upper_bound", "[algorithm]") 
     REQUIRE(std::distance(c.data.begin(), it_std) == std::distance(c.data.begin(), it_kh));
   }
 }
+
+TEST_CASE("algorithm::lower_bound_with_hint agrees with std::lower_bound", "[algorithm]") {
+  auto cases = make_cases();
+  for (const auto& c : cases) {
+    const auto comp = [](int a, int b) { return a < b; };
+    auto it_std = std::lower_bound(c.data.begin(), c.data.end(), c.value, comp);
+
+    // exercise hints: before, after, and mid
+    auto it_kh_first = kakuhen::util::algorithm::lower_bound_with_hint(
+        c.data.begin(), c.data.end(), c.data.begin(), c.value, comp);
+    auto it_kh_last = kakuhen::util::algorithm::lower_bound_with_hint(
+        c.data.begin(), c.data.end(), c.data.end(), c.value, comp);
+    auto it_kh_mid = kakuhen::util::algorithm::lower_bound_with_hint(
+        c.data.begin(), c.data.end(), c.data.begin() + c.data.size() / 2, c.value, comp);
+
+    REQUIRE(std::distance(c.data.begin(), it_std) == std::distance(c.data.begin(), it_kh_first));
+    REQUIRE(std::distance(c.data.begin(), it_std) == std::distance(c.data.begin(), it_kh_last));
+    REQUIRE(std::distance(c.data.begin(), it_std) == std::distance(c.data.begin(), it_kh_mid));
+  }
+}

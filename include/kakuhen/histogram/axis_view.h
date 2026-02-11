@@ -2,6 +2,7 @@
 
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/histogram/bin_range.h"
+#include "kakuhen/util/algorithm.h"
 #include <algorithm>
 #include <cassert>
 #include <limits>
@@ -392,7 +393,9 @@ class VariableAxisView : public AxisView<VariableAxisView<T, S>, T, S> {
     if (x < *begin) return 0;
     if (x >= *(end - 1)) return meta_.n_bins - 1;
 
-    auto it = std::upper_bound(begin, end, x);
+    // auto it = std::upper_bound(begin, end, x);
+    const auto comp = [](const T& a, const T& b) { return a < b; };
+    auto it = kakuhen::util::algorithm::upper_bound(begin, end, x, comp);
     const S local_idx = static_cast<S>(std::distance(begin, it)) - 1;
     return 1 + local_idx;
   }
@@ -434,7 +437,8 @@ class VariableAxisView : public AxisView<VariableAxisView<T, S>, T, S> {
    * @brief Validates edges and appends to storage.
    */
   static metadata_type validate_and_create(AxisData<T, S>& data, const std::vector<T>& edges) {
-    if (edges.size() < 2) throw std::invalid_argument("VariableAxisView: requires at least 2 edges");
+    if (edges.size() < 2)
+      throw std::invalid_argument("VariableAxisView: requires at least 2 edges");
     if (!std::is_sorted(edges.begin(), edges.end())) {
       throw std::invalid_argument("VariableAxisView: edges must be sorted");
     }

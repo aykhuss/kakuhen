@@ -243,6 +243,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             const auto comp = [](const T& a, const T& b) { return a < b; };
             const T x = point.x[idim2];
             const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
+            // const S ig2_hint = grid_vec[idim] / ndiv1_;
+            // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
+            //                                                               row + ig2_hint, x, comp);
             const S ig2 = static_cast<S>(it - row);
             assert(ig2 >= 0 && ig2 < ndiv2_);
             assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
