@@ -4,6 +4,7 @@
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/ndarray/ndview.h"
+#include "kakuhen/util/algorithm.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/math.h"
 #include <algorithm>
@@ -238,15 +239,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           const S ig1 = ig0 / ndiv2_;
           for (S idim2 = 0; idim2 < ndim_; ++idim2) {
             if (idim2 == idim) continue;
-            S ig2 = 0;
-            S ig2_hi = ndiv2_;
-            while (ig2 < ig2_hi) {
-              const S mid = ig2 + ((ig2_hi - ig2) >> 1);
-              if (point.x[idim2] < grid_(idim, idim2, ig1, mid))
-                ig2_hi = mid;
-              else
-                ig2 = mid + 1;
-            }
+            const T* row = &grid_(idim, idim2, ig1, 0);
+            const auto comp = [](const T& a, const T& b) { return a < b; };
+            const T x = point.x[idim2];
+            const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
+            const S ig2 = static_cast<S>(it - row);
             assert(ig2 >= 0 && ig2 < ndiv2_);
             assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
             assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
@@ -1153,16 +1150,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
       point.weight *= ndiv2_ * (x_upp - x_low);
       /// need to get index ig0 for idim2
-      S ig0 = 0;
-      S ig0_hi = ndiv0_;
-      while (ig0 < ig0_hi) {
-        const S mid =
-            ig0 + ((ig0_hi - ig0) >> 1);  // same as `(ig0 + ig0_hi)/2` but safer against overflow
-        if (x < grid0_(idim2, mid))
-          ig0_hi = mid;
-        else
-          ig0 = mid + 1;
-      }
+      const T* row0 = &grid0_(idim2, 0);
+      const auto comp = [](const T& a, const T& b) { return a < b; };
+      const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
+      const S ig0 = static_cast<S>(it0 - row0);
       assert(ig0 >= 0 && ig0 < ndiv0_);
       assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
       grid_vec[idim2] = ig0;
@@ -1223,16 +1214,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
         point.weight *= ndiv2_ * (x_upp - x_low);
         /// need to get index ig0 for idim2
-        S ig0 = 0;
-        S ig0_hi = ndiv0_;
-        while (ig0 < ig0_hi) {
-          const S mid =
-              ig0 + ((ig0_hi - ig0) >> 1);  // same as `(ig0 + ig0_hi)/2` but safer against overflow
-          if (x < grid0_(idim2, mid))
-            ig0_hi = mid;
-          else
-            ig0 = mid + 1;
-        }
+        const T* row0 = &grid0_(idim2, 0);
+        const auto comp = [](const T& a, const T& b) { return a < b; };
+        const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
+        const S ig0 = static_cast<S>(it0 - row0);
         assert(ig0 >= 0 && ig0 < ndiv0_);
         assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
         grid_vec[idim2] = ig0;
