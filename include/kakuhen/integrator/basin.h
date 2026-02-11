@@ -5,6 +5,7 @@
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/ndarray/ndview.h"
 #include "kakuhen/util/hash.h"
+#include "kakuhen/util/math.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -409,7 +410,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           if (x1_upp < x1_low_new) continue;
           /// new & old have non-vanishing overlap
           const T rat =
-              (std::min(x1_upp_new, x1_upp) - std::max(x1_low_new, x1_low)) / (x1_upp - x1_low);
+              (util::math::min(x1_upp_new, x1_upp) - util::math::max(x1_low_new, x1_low)) /
+              (x1_upp - x1_low);
           assert(rat >= 0. && rat <= 1.);
           wgt11(ig1_new, ig1) = rat;
         }
@@ -512,7 +514,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                 const T x2_upp = grid_(idim1, idim2, ig1, ig2);
                 const T x2_low_mrg = ig_mrg > 0 ? grid_mrg(ig_mrg - 1) : T(0);
                 const T x2_upp_mrg = grid_mrg(ig_mrg);
-                del_x = std::min(x2_upp, x2_upp_mrg) - std::max(x2_low, x2_low_mrg);
+                del_x = util::math::min(x2_upp, x2_upp_mrg) - util::math::max(x2_low, x2_low_mrg);
                 if (del_x > T(0)) {
                   const T rat = del_x / (x2_upp - x2_low);
                   assert(rat >= 0 && rat <= 1);
@@ -1161,14 +1163,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       bool sign_flip = dcdf * dcdf_nxt < T(0);
       if (!sign_flip) {
         /// no sign flip; just accumulate
-        emd_val += 0.5 * std::abs(dcdf + dcdf_nxt) * (x_nxt - x);
+        emd_val += 0.5 * util::math::abs(dcdf + dcdf_nxt) * (x_nxt - x);
       } else {
         /// sign flip; need to find the crossing point
         const T x_cross = (dcdf * x_nxt - dcdf_nxt * x) / (dcdf - dcdf_nxt);
         assert(x_cross >= x && x_cross <= x_nxt);
         // accumulate two triangles
-        emd_val +=
-            0.5 * std::abs(dcdf) * (x_cross - x) + 0.5 * std::abs(dcdf_nxt) * (x_nxt - x_cross);
+        emd_val += 0.5 * util::math::abs(dcdf) * (x_cross - x) +
+                   0.5 * util::math::abs(dcdf_nxt) * (x_nxt - x_cross);
       }
 
       x = x_nxt;

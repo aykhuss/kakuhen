@@ -4,6 +4,7 @@
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/util/hash.h"
+#include "kakuhen/util/math.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -30,7 +31,8 @@ namespace kakuhen::integrator {
  * @tparam RNG The random number generator to use.
  * @tparam DIST The random number distribution to use.
  */
-template <typename NT = util::num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
+template <typename NT = util::num_traits_t<>,
+          typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
  public:
@@ -226,7 +228,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         U nsum{0};
         for (S ig = 0; ig < ndiv_; ++ig) {
           nsum += accumulator_(idim, ig).count();
-          dval(ig) = std::max(nrm * accumulator_(idim, ig).value(), eps);
+          dval(ig) = util::math::max(nrm * accumulator_(idim, ig).value(), eps);
         }
         assert(nsum == accumulator_count_);
       }

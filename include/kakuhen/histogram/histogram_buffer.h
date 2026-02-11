@@ -2,6 +2,7 @@
 
 #include "kakuhen/histogram/histogram_data.h"
 #include "kakuhen/util/accumulator.h"
+#include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
 #include <algorithm>
 #include <bit>
@@ -97,7 +98,7 @@ class HistogramBuffer {
     sparse_map_.assign(static_cast<std::size_t>(n_total_bins), S(0));
 
     // Heuristic reserve
-    reserve_size = std::min(static_cast<std::size_t>(n_total_bins), reserve_size);
+    reserve_size = util::math::min(static_cast<std::size_t>(n_total_bins), reserve_size);
     dense_ids_.reserve(reserve_size);
     dense_acc_.reserve(reserve_size);
 
