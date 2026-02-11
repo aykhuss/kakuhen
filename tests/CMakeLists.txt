@@ -24,6 +24,7 @@ set(TEST_SOURCES
   test_printer.cpp
   test_result.cpp
   test_serialize.cpp
+  test_small_vector.cpp
   test_user_data.cpp
   test_vegas.cpp
   test_coverage_misc.cpp
