@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <type_traits>
@@ -67,7 +66,7 @@ template <typename T>
 /*!
  * @brief Returns the larger of two values.
  *
- * Provided as a `constexpr` alternative to `std::max`.
+ * Provided as a `constexpr` alternative to `max`.
  *
  * @tparam T The value type.
  * @param a First value.
@@ -157,11 +156,11 @@ template <typename T>
   // if (std::isnan(a) || std::isnan(b)) return false;
   // if (std::isinf(a) || std::isinf(b)) return a == b;
   // if (a == b) return true;  // also handles +0.0 vs -0.0
-  // const T diff = std::abs(a - b);
-  // const T ulp_a = std::abs(std::nextafter(a, b) - a);
-  // const T ulp_b = std::abs(std::nextafter(b, a) - b);
-  // const T threshold = std::max(ulp_a, ulp_b) * max_steps;
-  // return diff <= std::max(threshold, abs_tol);
+  // const T diff = abs(a - b);
+  // const T ulp_a = abs(std::nextafter(a, b) - a);
+  // const T ulp_b = abs(std::nextafter(b, a) - b);
+  // const T threshold = max(ulp_a, ulp_b) * max_steps;
+  // return diff <= max(threshold, abs_tol);
 }
 
 }  // namespace kakuhen::util::math
