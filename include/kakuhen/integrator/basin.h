@@ -78,10 +78,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         grid_({ndim, ndim, ndiv1, ndiv2}),
         accumulator_count_{0},
         accumulator_({ndim, ndim, ndiv1, ndiv2}),
-        order_({ndim, 2}) {
+        order_({ndim, 2}),
+        ordered_grid_({ndim, ndiv1, ndiv2}) {
     assert(ndim > 0 && ndiv1 > 1 && ndiv2 > 1);
     grid0_ = grid_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
     accumulator0_ = accumulator_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
+    ordered_grid0_ = ordered_grid_.reshape({ndim_, ndiv0_});
     reset();
   };
 
@@ -210,38 +212,48 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
+    std::vector<S> grid_vec(ndim_);  // vector in `ndiv0_` space
 
-    std::vector<S> grid_vec(ndim_);  // vetor in `ndiv0_` space
-
-    for (U i = 0; i < neval; ++i) {
-      generate_point(point, grid_vec, i);
-      const T fval = point.weight * integrand(point);
-      const T fval2 = fval * fval;
-      result_.accumulate(fval, fval2);
-      /// accumulators for the grid
-      const T acc = fval2;
-      accumulator_count_++;
-      for (S idim = 0; idim < ndim_; ++idim) {
-        const S ig0 = grid_vec[idim];
-        accumulator0_(idim, ig0).accumulate(acc);
-        const S ig1 = ig0 / ndiv2_;
-        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-          if (idim2 == idim) continue;
-          S ig2 = 0;
-          S ig2_hi = ndiv2_;
-          while (ig2 < ig2_hi) {
-            const S mid = ig2 + ((ig2_hi - ig2) >> 1);
-            if (point.x[idim2] < grid_(idim, idim2, ig1, mid))
-              ig2_hi = mid;
-            else
-              ig2 = mid + 1;
+    if (opts_.adapt && !*opts_.adapt) {
+      for (U i = 0; i < neval; ++i) {
+        // generate_point(point, grid_vec, i);
+        generate_point_sorted(point, grid_vec, i);
+        const T fval = point.weight * integrand(point);
+        const T fval2 = fval * fval;
+        result_.accumulate(fval, fval2);
+      }  // for i
+    } else {
+      for (U i = 0; i < neval; ++i) {
+        // generate_point(point, grid_vec, i);
+        generate_point_sorted(point, grid_vec, i);
+        const T fval = point.weight * integrand(point);
+        const T fval2 = fval * fval;
+        result_.accumulate(fval, fval2);
+        /// accumulators for the grid
+        const T acc = fval2;
+        accumulator_count_++;
+        for (S idim = 0; idim < ndim_; ++idim) {
+          const S ig0 = grid_vec[idim];
+          accumulator0_(idim, ig0).accumulate(acc);
+          const S ig1 = ig0 / ndiv2_;
+          for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+            if (idim2 == idim) continue;
+            S ig2 = 0;
+            S ig2_hi = ndiv2_;
+            while (ig2 < ig2_hi) {
+              const S mid = ig2 + ((ig2_hi - ig2) >> 1);
+              if (point.x[idim2] < grid_(idim, idim2, ig1, mid))
+                ig2_hi = mid;
+              else
+                ig2 = mid + 1;
+            }
+            assert(ig2 >= 0 && ig2 < ndiv2_);
+            assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
+            assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
+            accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
           }
-          assert(ig2 >= 0 && ig2 < ndiv2_);
-          assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
-          assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
-          accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
         }
-      }
+      }  // for i
     }
 
     return result_;
@@ -281,6 +293,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       order_(idim, 0) = idim;
       order_(idim, 1) = idim;
     }
+    sort_order();
     /// also clear the accumulators
     clear_data();
   }
@@ -298,7 +311,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     using kakuhen::ndarray::NDView;
 
     if (accumulator_count_ <= U(0)) {
-      std::cout << "no data collected for adaption" << std::endl;
+      std::cout << "no data collected for adaptation" << std::endl;
       return;
     }
 
@@ -417,7 +430,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         }
       }  // for ig1_new
 
-      /// adation done & weights saved: overwrite old grid
+      /// adaptation done & weights saved: overwrite old grid
       for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
         grid0_(idim1, ig0) = grid0_new(ig0);
       }
@@ -643,6 +656,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
 
     }  // for iord
+
+    sort_order();
 
 #ifndef NDEBUG
     /// check order that all dimensions are covered
@@ -883,6 +898,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
     order_ = ndarray::NDArray<S, S>({ndim_, 2});
     order_.deserialize(in);
+    sort_order();
     /// reset the result & accumulator
     clear_data();
   }
@@ -1025,6 +1041,133 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDView<grid_acc_type, S> accumulator0_;
   /// define the sampling order
   ndarray::NDArray<S, S> order_;
+  /// ordered grid
+  S nblocks_;
+  ndarray::NDArray<T, S> ordered_grid_;
+  ndarray::NDView<T, S> ordered_grid0_;
+
+  /*!
+   * @brief Reorders sampling order so diagonal steps come first.
+   *
+   * This also builds the ordered grids used by generate_point_sorted().
+   */
+  void sort_order() {
+    /// first we want to shuffle the order_ entries, such that all
+    /// "diagonal" samplings come first, then the conditional samplings
+    /// number of diagonal samplings equals the number of uncorrelated blocks (nblocks_)
+    ndarray::NDArray<S, S> order_sorted(order_.shape());
+    order_sorted.fill(S(0));
+    nblocks_ = 0;
+    for (S idim = 0; idim < ndim_; ++idim) {
+      if (order_(idim, 0) != order_(idim, 1)) continue;
+      order_sorted(nblocks_, 0) = order_(idim, 0);
+      order_sorted(nblocks_, 1) = order_(idim, 1);
+      ++nblocks_;
+    }
+    S offset = nblocks_;
+    for (S idim = 0; idim < ndim_; ++idim) {
+      if (order_(idim, 0) == order_(idim, 1)) continue;
+      order_sorted(offset, 0) = order_(idim, 0);
+      order_sorted(offset, 1) = order_(idim, 1);
+      ++offset;
+    }
+    assert(offset == ndim_);
+    order_ = std::move(order_sorted);
+    /// copy over the grid information in the sampling order
+    ordered_grid_.fill(T(0));
+    for (S iord = 0; iord < nblocks_; ++iord) {
+      assert(order_(iord, 0) == order_(iord, 1));
+      const S idim0 = order_(iord, 0);
+      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
+        ordered_grid0_(iord, ig0) = grid0_(idim0, ig0);
+      }
+    }  // for iord
+    for (S iord = nblocks_; iord < ndim_; ++iord) {
+      assert(order_(iord, 0) != order_(iord, 1));
+      const S idim1 = order_(iord, 0);
+      const S idim2 = order_(iord, 1);
+      for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
+        for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
+          ordered_grid_(iord, ig1, ig2) = grid_(idim1, idim2, ig1, ig2);
+        }
+      }
+    }  // for iord
+    ///
+  }
+
+  /*!
+   * @brief Generates a random point using the pre-ordered grids.
+   *
+   * @param point The point object to populate.
+   * @param grid_vec A vector to store the grid indices for each dimension.
+   * @param sample_index The index of the current sample.
+   */
+  inline void generate_point_sorted(Point<num_traits>& point, std::vector<S>& grid_vec,
+                                    U sample_index = U(0)) {
+    point.sample_index = sample_index;
+    point.weight = T(1);
+
+    /// (a) diagonal map
+    for (S iord = 0; iord < nblocks_; ++iord) {
+      T rand = Base::ran();
+      assert(order_(iord, 0) == order_(iord, 1));
+      const S idim0 = order_(iord, 0);
+      //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
+      const S ig0 = S(rand * ndiv0_);  // 0 .. (ndiv0_-1)
+      assert(ig0 >= 0 && ig0 < ndiv0_);
+      assert(rand * ndiv0_ >= T(ig0) && rand * ndiv0_ <= T(ig0 + 1));
+      //> map rand back to [ 0, 1 ]
+      rand = rand * ndiv0_ - T(ig0);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig0 > 0 ? ordered_grid0_(iord, ig0 - 1) : T(0);
+      const T x_upp = ordered_grid0_(iord, ig0);
+      point.x[idim0] = x_low + rand * (x_upp - x_low);
+      // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
+      point.weight *= ndiv0_ * (x_upp - x_low);
+      grid_vec[idim0] = ig0;
+    }  // for iord
+
+    /// (b) conditional map
+    for (S iord = nblocks_; iord < ndim_; ++iord) {
+      T rand = Base::ran();
+      assert(order_(iord, 0) != order_(iord, 1));
+      const S idim1 = order_(iord, 0);
+      const S idim2 = order_(iord, 1);
+      /// check that the 1st dimension is set properly
+      assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
+      assert(grid_vec[idim1] >= 0 && grid_vec[idim1] < ndiv0_);
+      /// this is correct because `grid_vec` always stores `ig0`
+      const S ig1 = grid_vec[idim1] / ndiv2_;
+      assert(ig1 >= 0 && ig1 < ndiv1_);
+      //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
+      const S ig2 = S(rand * ndiv2_);  // 0 .. (ndiv2_-1)
+      assert(ig2 >= 0 && ig2 < ndiv2_);
+      assert(rand * ndiv2_ >= T(ig2) && rand * ndiv2_ <= T(ig2 + 1));
+      //> map rand back to [ 0, 1 ]
+      rand = rand * ndiv2_ - T(ig2);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig2 > 0 ? ordered_grid_(iord, ig1, ig2 - 1) : T(0);
+      const T x_upp = ordered_grid_(iord, ig1, ig2);
+      const T x = x_low + rand * (x_upp - x_low);
+      point.x[idim2] = x;
+      // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
+      point.weight *= ndiv2_ * (x_upp - x_low);
+      /// need to get index ig0 for idim2
+      S ig0 = 0;
+      S ig0_hi = ndiv0_;
+      while (ig0 < ig0_hi) {
+        const S mid =
+            ig0 + ((ig0_hi - ig0) >> 1);  // same as `(ig0 + ig0_hi)/2` but safer against overflow
+        if (x < grid0_(idim2, mid))
+          ig0_hi = mid;
+        else
+          ig0 = mid + 1;
+      }
+      assert(ig0 >= 0 && ig0 < ndiv0_);
+      assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
+      grid_vec[idim2] = ig0;
+    }  // for iord
+  }
 
   /*!
    * @brief Generates a random point in the integration volume using nested grids.
@@ -1040,7 +1183,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S iord = 0; iord < ndim_; ++iord) {
       T rand = Base::ran();
       if (order_(iord, 0) == order_(iord, 1)) {
-        /// (a) diagnoal map
+        /// (a) diagonal map
         const S idim0 = order_(iord, 0);
         //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
         const S ig0 = S(rand * ndiv0_);  // 0 .. (ndiv0_-1)
