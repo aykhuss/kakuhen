@@ -2,7 +2,7 @@
 
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/histogram/bin_range.h"
-#include "kakuhen/util/algorithm.h"
+// #include "kakuhen/util/algorithm.h"
 #include <algorithm>
 #include <cassert>
 #include <limits>
@@ -393,9 +393,9 @@ class VariableAxisView : public AxisView<VariableAxisView<T, S>, T, S> {
     if (x < *begin) return 0;
     if (x >= *(end - 1)) return meta_.n_bins - 1;
 
-    // auto it = std::upper_bound(begin, end, x);
-    const auto comp = [](const T& a, const T& b) { return a < b; };
-    auto it = kakuhen::util::algorithm::upper_bound(begin, end, x, comp);
+    auto it = std::upper_bound(begin, end, x);
+    // const auto comp = [](const T& a, const T& b) { return a < b; };
+    // auto it = kakuhen::util::algorithm::upper_bound(begin, end, x, comp);
     const S local_idx = static_cast<S>(std::distance(begin, it)) - 1;
     return 1 + local_idx;
   }

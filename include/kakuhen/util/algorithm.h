@@ -93,49 +93,52 @@ template <class RandomIt, class T, class Compare>
                                                        const T& value, Compare comp) {
   if (first == last) return first;
 
-  // Clamp hint to valid range [first, last-1]
-  if (hint < first) hint = first;
-  if (hint >= last) hint = last - 1;
-
   using diff_t = typename std::iterator_traits<RandomIt>::difference_type;
+  const diff_t len = last - first;
+
+  // Clamp hint to valid index range [0, len-1]
+  diff_t hint_idx = hint - first;
+  if (hint_idx < 0) hint_idx = 0;
+  if (hint_idx >= len) hint_idx = len - 1;
+  hint = first + hint_idx;
 
   if (comp(*hint, value)) {
     // Value is in (hint, last)
     diff_t step = 1;
-    RandomIt lo = hint + 1;
-    RandomIt hi = hint + 1;
-    if (lo >= last) return last;
+    diff_t lo = hint_idx + 1;
+    diff_t hi = hint_idx + 1;
+    if (lo >= len) return last;
 
-    while (hi < last && comp(*hi, value)) {
+    while (hi < len && comp(*(first + hi), value)) {
       lo = hi + 1;
       step *= 2;
-      hi = hint + step;
-      if (hi >= last) {
-        hi = last - 1;
-        if (comp(*hi, value)) return last;
+      hi = hint_idx + step;
+      if (hi >= len) {
+        hi = len - 1;
+        if (comp(*(first + hi), value)) return last;
         break;
       }
     }
-    return ::kakuhen::util::algorithm::lower_bound(lo, hi + 1, value, comp);
+    return ::kakuhen::util::algorithm::lower_bound(first + lo, first + hi + 1, value, comp);
   } else {
     // Value is in [first, hint]
     if (hint == first || comp(*(hint - 1), value)) return hint;
 
     diff_t step = 1;
-    RandomIt hi = hint;
-    RandomIt lo = hint;
+    diff_t hi = hint_idx;
+    diff_t lo = hint_idx;
 
-    while (lo != first) {
-      diff_t offset = std::min(step, static_cast<diff_t>(lo - first));
+    while (lo > 0) {
+      diff_t offset = std::min(step, lo);
       lo -= offset;
-      if (comp(*lo, value)) {
-        lo++;
+      if (comp(*(first + lo), value)) {
+        lo += 1;
         break;
       }
       hi = lo;
       step *= 2;
     }
-    return ::kakuhen::util::algorithm::lower_bound(lo, hi + 1, value, comp);
+    return ::kakuhen::util::algorithm::lower_bound(first + lo, first + hi + 1, value, comp);
   }
 }
 
@@ -157,48 +160,51 @@ template <class RandomIt, class T, class Compare>
                                                        const T& value, Compare comp) {
   if (first == last) return first;
 
-  if (hint < first) hint = first;
-  if (hint >= last) hint = last - 1;
-
   using diff_t = typename std::iterator_traits<RandomIt>::difference_type;
+  const diff_t len = last - first;
+
+  diff_t hint_idx = hint - first;
+  if (hint_idx < 0) hint_idx = 0;
+  if (hint_idx >= len) hint_idx = len - 1;
+  hint = first + hint_idx;
 
   if (!comp(value, *hint)) {
     // Value is in (hint, last)
     diff_t step = 1;
-    RandomIt lo = hint + 1;
-    RandomIt hi = hint + 1;
-    if (lo >= last) return last;
+    diff_t lo = hint_idx + 1;
+    diff_t hi = hint_idx + 1;
+    if (lo >= len) return last;
 
-    while (hi < last && !comp(value, *hi)) {
+    while (hi < len && !comp(value, *(first + hi))) {
       lo = hi + 1;
       step *= 2;
-      hi = hint + step;
-      if (hi >= last) {
-        hi = last - 1;
-        if (!comp(value, *hi)) return last;
+      hi = hint_idx + step;
+      if (hi >= len) {
+        hi = len - 1;
+        if (!comp(value, *(first + hi))) return last;
         break;
       }
     }
-    return ::kakuhen::util::algorithm::upper_bound(lo, hi + 1, value, comp);
+    return ::kakuhen::util::algorithm::upper_bound(first + lo, first + hi + 1, value, comp);
   } else {
     // Value is in [first, hint]
     if (hint == first || !comp(value, *(hint - 1))) return hint;
 
     diff_t step = 1;
-    RandomIt hi = hint;
-    RandomIt lo = hint;
+    diff_t hi = hint_idx;
+    diff_t lo = hint_idx;
 
-    while (lo != first) {
-      diff_t offset = std::min(step, static_cast<diff_t>(lo - first));
+    while (lo > 0) {
+      diff_t offset = std::min(step, lo);
       lo -= offset;
-      if (!comp(value, *lo)) {
-        lo++;
+      if (!comp(value, *(first + lo))) {
+        lo += 1;
         break;
       }
       hi = lo;
       step *= 2;
     }
-    return ::kakuhen::util::algorithm::upper_bound(lo, hi + 1, value, comp);
+    return ::kakuhen::util::algorithm::upper_bound(first + lo, first + hi + 1, value, comp);
   }
 }
 
