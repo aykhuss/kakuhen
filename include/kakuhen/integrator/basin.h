@@ -215,49 +215,42 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<S> grid_vec(ndim_);  // vector in `ndiv0_` space
 
-    if (opts_.adapt && !*opts_.adapt) {
-      for (U i = 0; i < neval; ++i) {
-        // generate_point(point, grid_vec, i);
-        generate_point_sorted(point, grid_vec, i);
-        const T fval = point.weight * integrand(point);
-        const T fval2 = fval * fval;
-        result_.accumulate(fval, fval2);
-      }  // for i
-    } else {
-      for (U i = 0; i < neval; ++i) {
-        // generate_point(point, grid_vec, i);
-        generate_point_sorted(point, grid_vec, i);
-        const T fval = point.weight * integrand(point);
-        const T fval2 = fval * fval;
-        result_.accumulate(fval, fval2);
-        /// accumulators for the grid
-        const T acc = fval2;
-        accumulator_count_++;
-        for (S idim = 0; idim < ndim_; ++idim) {
-          const S ig0 = grid_vec[idim];
-          accumulator0_(idim, ig0).accumulate(acc);
-          const S ig1 = ig0 / ndiv2_;
-          for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-            if (idim2 == idim) continue;
-            const T* row = &grid_(idim, idim2, ig1, 0);
-            const T x = point.x[idim2];
-            const T* it = std::lower_bound(row, row + ndiv2_, x);
-            /// custom binary search
-            // const auto comp = [](const T& a, const T& b) { return a < b; };
-            // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
-            /// custom binary search with hint
-            // const S ig2_hint = grid_vec[idim] / ndiv1_;
-            // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
-            // row + ig2_hint, x, comp);
-            const S ig2 = static_cast<S>(it - row);
-            assert(ig2 >= 0 && ig2 < ndiv2_);
-            assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
-            assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
-            accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
-          }
+    const bool collect_adapt_data = opts_.collect_adapt_data && *opts_.collect_adapt_data;
+    for (U i = 0; i < neval; ++i) {
+      // generate_point(point, grid_vec, i);
+      generate_point_sorted(point, grid_vec, i);
+      const T fval = point.weight * integrand(point);
+      const T fval2 = fval * fval;
+      result_.accumulate(fval, fval2);
+      if (!collect_adapt_data) continue;
+
+      /// accumulators for the grid
+      const T acc = fval2;
+      accumulator_count_++;
+      for (S idim = 0; idim < ndim_; ++idim) {
+        const S ig0 = grid_vec[idim];
+        accumulator0_(idim, ig0).accumulate(acc);
+        const S ig1 = ig0 / ndiv2_;
+        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+          if (idim2 == idim) continue;
+          const T* row = &grid_(idim, idim2, ig1, 0);
+          const T x = point.x[idim2];
+          const T* it = std::lower_bound(row, row + ndiv2_, x);
+          /// custom binary search
+          // const auto comp = [](const T& a, const T& b) { return a < b; };
+          // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
+          /// custom binary search with hint
+          // const S ig2_hint = grid_vec[idim] / ndiv1_;
+          // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
+          // row + ig2_hint, x, comp);
+          const S ig2 = static_cast<S>(it - row);
+          assert(ig2 >= 0 && ig2 < ndiv2_);
+          assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
+          assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
+          accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
         }
-      }  // for i
-    }
+      }
+    }  // for i
 
     return result_;
   }

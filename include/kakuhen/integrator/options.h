@@ -27,14 +27,15 @@ struct Options {
   using count_type = U;
   using seed_type = R;
 
-  std::optional<count_type> neval;    //!< Number of evaluations for an integration step.
-  std::optional<count_type> niter;    //!< Number of iterations for an integration run.
-  std::optional<bool> adapt;          //!< Whether to run adaptation after integration.
-  std::optional<seed_type> seed;      //!< Seed of the random number generator.
-  std::optional<value_type> rel_tol;  //!< Relative precision goal for convergence.
-  std::optional<value_type> abs_tol;  //!< Absolute precision goal for convergence.
-  std::optional<int> verbosity;       //!< Verbosity level of output messages.
-  std::optional<void*> user_data;     //!< Pointer to user-defined data (non-owning).
+  std::optional<count_type> neval;         //!< Number of evaluations for an integration step.
+  std::optional<count_type> niter;         //!< Number of iterations for an integration run.
+  std::optional<bool> adapt;               //!< Whether to run adaptation after integration.
+  std::optional<bool> collect_adapt_data;  //!< Whether to collect data needed for adaptation.
+  std::optional<seed_type> seed;           //!< Seed of the random number generator.
+  std::optional<value_type> rel_tol;       //!< Relative precision goal for convergence.
+  std::optional<value_type> abs_tol;       //!< Absolute precision goal for convergence.
+  std::optional<int> verbosity;            //!< Verbosity level of output messages.
+  std::optional<void*> user_data;          //!< Pointer to user-defined data (non-owning).
   std::optional<std::filesystem::path> file_path;  //!< Path for saving state/data.
 
   /*!
@@ -49,6 +50,7 @@ struct Options {
     if (opts.neval) neval = *opts.neval;
     if (opts.niter) niter = *opts.niter;
     if (opts.adapt) adapt = *opts.adapt;
+    if (opts.collect_adapt_data) collect_adapt_data = *opts.collect_adapt_data;
     if (opts.seed) seed = *opts.seed;
     if (opts.rel_tol) rel_tol = *opts.rel_tol;
     if (opts.abs_tol) abs_tol = *opts.abs_tol;
@@ -92,6 +94,7 @@ struct Options {
     add(".neval", opts.neval);
     add(".niter", opts.niter);
     add(".adapt", opts.adapt);
+    add(".collect_adapt_data", opts.collect_adapt_data);
     add(".seed", opts.seed);
     add(".rel_tol", opts.rel_tol);
     add(".abs_tol", opts.abs_tol);
@@ -138,10 +141,12 @@ struct Options {
    * Usage example: `integrator.integrate(func, Options::keys::neval = 1000);`
    */
   struct keys {
-    static constexpr OptionKey<&Options::neval> neval{};          //!< Key for `neval` option.
-    static constexpr OptionKey<&Options::niter> niter{};          //!< Key for `niter` option.
-    static constexpr OptionKey<&Options::adapt> adapt{};          //!< Key for `adapt` option.
-    static constexpr OptionKey<&Options::seed> seed{};            //!< Key for `seed` option.
+    static constexpr OptionKey<&Options::neval> neval{};  //!< Key for `neval` option.
+    static constexpr OptionKey<&Options::niter> niter{};  //!< Key for `niter` option.
+    static constexpr OptionKey<&Options::adapt> adapt{};  //!< Key for `adapt` option.
+    static constexpr OptionKey<&Options::collect_adapt_data>
+        collect_adapt_data{};                           //!< Key for `collect_adapt_data` option.
+    static constexpr OptionKey<&Options::seed> seed{};  //!< Key for `seed` option.
     static constexpr OptionKey<&Options::rel_tol> rel_tol{};      //!< Key for `rel_tol` option.
     static constexpr OptionKey<&Options::abs_tol> abs_tol{};      //!< Key for `abs_tol` option.
     static constexpr OptionKey<&Options::verbosity> verbosity{};  //!< Key for `verbosity` option.

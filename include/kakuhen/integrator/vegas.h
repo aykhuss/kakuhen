@@ -156,11 +156,13 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
     std::vector<S> grid_vec(ndim_);
 
+    const bool collect_adapt_data = opts_.collect_adapt_data && *opts_.collect_adapt_data;
     for (U i = 0; i < neval; ++i) {
       generate_point(point, grid_vec, i);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
+      if (!collect_adapt_data) continue;
       /// accumulator for the grid
       const T acc = fval2;
       accumulator_count_++;
