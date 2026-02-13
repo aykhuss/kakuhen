@@ -365,7 +365,7 @@ if ( !exists("ndiv") && exists("ndiv0") ) {
           }
         }
         if (int_id_ == kakuhen::integrator::IntegratorId::BASIN) {
-          out << R"(do for [o=1:3] { if (word($ORDER[o], 1) == )" << idim
+          out << R"(do for [o=1:ndim] { if (word($ORDER[o], 1) == )" << idim
               << R"( && word($ORDER[o], 2) == )" << jdim
               << R"() { set label 9 "".o at graph 0.9, 0.9 back center font ",10" textcolor rgb "#23d20f39" } })"
               << "\n";

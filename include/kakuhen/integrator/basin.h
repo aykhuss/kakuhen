@@ -894,6 +894,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
     order_ = ndarray::NDArray<S, S>({ndim_, 2});
     order_.deserialize(in);
+    ordered_grid_ = ndarray::NDArray<T, S>({ndim_, ndiv1_, ndiv2_});
+    ordered_grid0_ = ordered_grid_.reshape({ndim_, ndiv0_});
     sort_order();
     /// reset the result & accumulator
     clear_data();
