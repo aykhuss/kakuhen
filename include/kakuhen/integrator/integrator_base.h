@@ -102,7 +102,7 @@ class IntegratorBase {
     // if the integrator supports adaption, set default to true
     if constexpr (Derived::has_feature(IntegratorFeature::ADAPT)) {
       if (!opts_.adapt) opts_.adapt = true;
-      if (!opts_.collect_adapt_data) opts_.collect_adapt_data = true;
+      if (!opts_.frozen) opts_.frozen = false;
     }
     // set default values for options
     if (!opts_.niter) opts_.niter = 1;
@@ -160,8 +160,8 @@ class IntegratorBase {
     }
     opts_.set(opts);
     if constexpr (has_feature(IntegratorFeature::ADAPT)) {
-      if (opts_.adapt && *opts_.adapt && opts_.collect_adapt_data && !*opts_.collect_adapt_data) {
-        opts_.collect_adapt_data = true;
+      if (opts_.frozen && *opts_.frozen) {
+        opts_.adapt = false;
       }
     }
     if (opts.seed) random_generator_.seed(opts_.seed.value());

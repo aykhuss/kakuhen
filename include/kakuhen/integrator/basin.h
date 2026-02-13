@@ -215,14 +215,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<S> grid_vec(ndim_);  // vector in `ndiv0_` space
 
-    const bool collect_adapt_data = opts_.collect_adapt_data && *opts_.collect_adapt_data;
+    const bool skip_accum = opts_.frozen && *opts_.frozen;
     for (U i = 0; i < neval; ++i) {
       // generate_point(point, grid_vec, i);
       generate_point_sorted(point, grid_vec, i);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
-      if (!collect_adapt_data) continue;
+      if (skip_accum) continue;
 
       /// accumulators for the grid
       const T acc = fval2;

@@ -136,7 +136,7 @@ int main() {
   auto integrator = Basin(3);  // 3 dimensions
   integrand.set_stage(0);      // warmup: switch off histogram filling
   integrator.integrate(integrand, {.neval = 50000, .niter = 7, .adapt = true});
-  integrator.set_options({.adapt = false});  // freeze the grid -> production phase
+  integrator.set_options({.frozen = true});  // freeze the grid -> production phase
   integrand.set_stage(1);                    // production with histogram filling
   integrator.save();
   auto result = integrator.integrate(integrand, {.neval = 1000000, .niter = 3, .verbosity = 1});

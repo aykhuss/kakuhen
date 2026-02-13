@@ -51,7 +51,7 @@ int main() {
   vegas_int.adapt();
 
   // let's freeze the grid and do a production run
-  vegas_int.set_options({.adapt = false});
+  vegas_int.set_options({.frozen = true});
   vegas_int.integrate(func, {.neval = 10000, .niter = 5});
   vegas_int.print_grid();
 
