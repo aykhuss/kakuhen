@@ -383,7 +383,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   void save(const std::filesystem::path& filepath) const
-    requires detail::has_state_stream<D>::value
+    requires detail::HasStateStream<D>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
@@ -406,7 +406,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   std::filesystem::path save() const
-    requires detail::has_state_stream<D>::value
+    requires detail::HasStateStream<D>
   {
     std::filesystem::path fstate = file_state();
     save(fstate);
@@ -428,7 +428,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   void load(const std::filesystem::path& filepath)
-    requires detail::has_state_stream<D>::value
+    requires detail::HasStateStream<D>
   {
     if (!has_feature(IntegratorFeature::STATE)) {
       throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
@@ -459,7 +459,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   std::filesystem::path load()
-    requires detail::has_state_stream<D>::value
+    requires detail::HasStateStream<D>
   {
     std::filesystem::path fstate = file_state();
     load(fstate);
@@ -478,7 +478,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   void save_data(const std::filesystem::path& filepath) const
-    requires detail::has_data_stream<D>::value
+    requires detail::HasDataStream<D>
   {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(std::string(to_string(id())) +
@@ -502,7 +502,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   std::filesystem::path save_data() const
-    requires detail::has_data_stream<D>::value
+    requires detail::HasDataStream<D>
   {
     std::filesystem::path fdata = file_data();
     save_data(fdata);
@@ -522,7 +522,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   void append_data(const std::filesystem::path& filepath)
-    requires detail::has_data_stream<D>::value
+    requires detail::HasDataStream<D>
   {
     if (!has_feature(IntegratorFeature::DATA)) {
       throw std::runtime_error(std::string(to_string(id())) +
@@ -546,7 +546,7 @@ class IntegratorBase {
    */
   template <typename D = Derived>
   std::filesystem::path append_data()
-    requires detail::has_data_stream<D>::value
+    requires detail::HasDataStream<D>
   {
     std::filesystem::path fdata = file_data();
     append_data(fdata);
@@ -620,7 +620,7 @@ class IntegratorBase {
  private:
   template <typename D = Derived>
   [[nodiscard]] inline std::filesystem::path file_state() const noexcept
-    requires detail::has_prefix<D>::value
+    requires detail::HasPrefix<D>
   {
     std::filesystem::path fstate = derived().prefix() + std::string(detail::suffix_state);
     if (opts_.file_path) {
@@ -632,7 +632,7 @@ class IntegratorBase {
 
   template <typename D = Derived>
   [[nodiscard]] inline std::filesystem::path file_data() const noexcept
-    requires detail::has_prefix<D>::value
+    requires detail::HasPrefix<D>
   {
     std::string seed_suffix = ".s" + std::to_string(opts_.seed.value_or(0));
     std::filesystem::path fdata =

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
+#include <string>
 #include <type_traits>
 
 namespace kakuhen::integrator {
@@ -30,6 +32,7 @@ enum class IntegratorFeature : std::uint16_t {
  * @return The underlying integer value.
  */
 template <typename Enum>
+  requires std::is_enum_v<Enum>
 constexpr auto to_underlying(Enum e) noexcept {
   return static_cast<std::underlying_type_t<Enum>>(e);
 }
@@ -96,71 +99,51 @@ constexpr bool has_flag(IntegratorFeature value, IntegratorFeature flag) noexcep
   return to_underlying(value & flag) != 0;
 }
 
-// // concepts were replaced by
-// template <typename T>
-// concept HasAdapt = requires(T t) {
-//   { t.adapt() } -> std::same_as<void>;
-// };
-// template <typename T>
-// concept HasStateStream = requires(T t, std::ostream& out, std::istream& in) {
-//   { t.write_state_stream(out) } -> std::same_as<void>;
-//   { t.read_state_stream(in) } -> std::same_as<void>;
-// };
-// template <typename T>
-// concept HasDataStream = requires(T t, std::ostream& out, std::istream& in) {
-//   { t.write_data_stream(out) } -> std::same_as<void>;
-//   { t.read_data_stream(in) } -> std::same_as<void>;
-//   { t.accumulate_data_stream(in) } -> std::same_as<void>;
-// };
-// template <typename T>
-// concept HasPrefix = requires(T t, bool b) {
-//   { t.prefix(b) } -> std::same_as<std::string>;
-// };
-
-template <typename, typename = void>
-struct has_adapt : std::false_type {};
-
-template <typename T>
-struct has_adapt<T, std::void_t<decltype(std::declval<T>().adapt())>> : std::true_type {};
-
 /*!
- * @brief Helper to detect if a type has state stream methods.
+ * @brief Concept for integrators that implement adaptation.
  *
- * Checks for `write_state_stream` and `read_state_stream`.
+ * Requires a callable `adapt()` method with `void` return type.
  */
-template <typename, typename = void>
-struct has_state_stream : std::false_type {};
-
 template <typename T>
-struct has_state_stream<
-    T, std::void_t<decltype(std::declval<T>().write_state_stream(std::declval<std::ostream&>())),
-                   decltype(std::declval<T>().read_state_stream(std::declval<std::istream&>()))>>
-    : std::true_type {};
+concept HasAdapt = requires(T t) {
+  { t.adapt() } -> std::same_as<void>;
+};
 
 /*!
- * @brief Helper to detect if a type has data stream methods.
+ * @brief Concept for integrators that support state serialization.
  *
- * Checks for `write_data_stream`, `read_data_stream`, and `accumulate_data_stream`.
+ * Requires `write_state_stream(std::ostream&)` and
+ * `read_state_stream(std::istream&)`, both returning `void`.
  */
-template <typename, typename = void>
-struct has_data_stream : std::false_type {};
-
 template <typename T>
-struct has_data_stream<
-    T,
-    std::void_t<decltype(std::declval<T>().write_data_stream(std::declval<std::ostream&>())),
-                decltype(std::declval<T>().read_data_stream(std::declval<std::istream&>())),
-                decltype(std::declval<T>().accumulate_data_stream(std::declval<std::istream&>()))>>
-    : std::true_type {};
+concept HasStateStream = requires(T t, std::ostream& out, std::istream& in) {
+  { t.write_state_stream(out) } -> std::same_as<void>;
+  { t.read_state_stream(in) } -> std::same_as<void>;
+};
 
 /*!
- * @brief Helper to detect if a type has a `prefix(bool)` method.
+ * @brief Concept for integrators that support data serialization/accumulation.
+ *
+ * Requires `write_data_stream(std::ostream&)`,
+ * `read_data_stream(std::istream&)`, and
+ * `accumulate_data_stream(std::istream&)`, all returning `void`.
  */
-template <typename, typename = void>
-struct has_prefix : std::false_type {};
-
 template <typename T>
-struct has_prefix<T, std::void_t<decltype(std::declval<T>().prefix(true))>> : std::true_type {};
+concept HasDataStream = requires(T t, std::ostream& out, std::istream& in) {
+  { t.write_data_stream(out) } -> std::same_as<void>;
+  { t.read_data_stream(in) } -> std::same_as<void>;
+  { t.accumulate_data_stream(in) } -> std::same_as<void>;
+};
+
+/*!
+ * @brief Concept for integrators that provide path prefix generation.
+ *
+ * Requires a callable `prefix(bool)` that returns `std::string`.
+ */
+template <typename T>
+concept HasPrefix = requires(T t, bool with_hash) {
+  { t.prefix(with_hash) } -> std::same_as<std::string>;
+};
 
 /// @}
 
