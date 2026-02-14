@@ -100,7 +100,7 @@ class IntegratorBase {
   explicit IntegratorBase(size_type ndim = 0, const options_type& opts = {})
       : ndim_{ndim}, random_generator_{}, uniform_distribution_{0, 1}, opts_{opts} {
     // if the integrator supports adaption, set default to true
-    if constexpr (Derived::has_feature(IntegratorFeature::ADAPT)) {
+    if constexpr (detail::HasAdapt<Derived>) {
       if (!opts_.adapt) opts_.adapt = true;
       if (!opts_.frozen) opts_.frozen = false;
     }
@@ -132,16 +132,6 @@ class IntegratorBase {
   }
 
   /*!
-   * @brief Check if the integrator supports a specific feature.
-   *
-   * @param flag The `IntegratorFeature` flag to check.
-   * @return True if the feature is supported, false otherwise.
-   */
-  [[nodiscard]] static constexpr bool has_feature(IntegratorFeature flag) noexcept {
-    return detail::has_flag(Derived::features, flag);
-  }
-
-  /*!
    * @brief Gets the number of dimensions for the integration.
    *
    * @return The number of dimensions.
@@ -164,11 +154,14 @@ class IntegratorBase {
    * @throws std::invalid_argument if an option is incompatible with the integrator's features.
    */
   inline void set_options(const options_type& opts) {
-    if (opts.adapt && *opts.adapt && !has_feature(IntegratorFeature::ADAPT)) {
-      throw std::invalid_argument(std::string(to_string(id())) + " does not support grid adaption");
+    if constexpr (!detail::HasAdapt<Derived>) {
+      if (opts.adapt && *opts.adapt) {
+        throw std::invalid_argument(std::string(to_string(id())) +
+                                    " does not support grid adaption");
+      }
     }
     opts_.set(opts);
-    if constexpr (has_feature(IntegratorFeature::ADAPT)) {
+    if constexpr (detail::HasAdapt<Derived>) {
       if (opts_.frozen && *opts_.frozen) {
         opts_.adapt = false;
       }
@@ -314,14 +307,14 @@ class IntegratorBase {
       // }
 
       // adapt the grid if requested
-      if constexpr (has_feature(IntegratorFeature::ADAPT)) {
+      if constexpr (detail::HasAdapt<Derived>) {
         if (opts_.adapt && *opts_.adapt) {
           derived().adapt();
         }
       }
 
       // save state/data if requested
-      if constexpr (has_feature(IntegratorFeature::STATE)) {
+      if constexpr (detail::HasStateStream<Derived> && detail::HasPrefix<Derived>) {
         if (opts_.file_path) {
           derived().save();
         }
@@ -363,7 +356,7 @@ class IntegratorBase {
       prt.print_one("size_type", get_type_name<size_type>());
       prt.print_one("count_type", get_type_name<count_type>());
       prt.print_one("ndim", ndim_);
-      if constexpr (has_feature(IntegratorFeature::STATE)) {
+      if constexpr (detail::HasStateStream<Derived>) {
         derived().print_state(prt);
       }
     }
@@ -377,7 +370,7 @@ class IntegratorBase {
    * This method serializes the internal state of the integrator to the
    * specified file. This allows the integration to be resumed later.
    *
-   * @note Available only if `IntegratorFeature::STATE` is supported.
+   * @note Available only if the derived type models `detail::HasStateStream`.
    *
    * @param filepath The path to the file where the state should be saved.
    */
@@ -385,9 +378,6 @@ class IntegratorBase {
   void save(const std::filesystem::path& filepath) const
     requires detail::HasStateStream<D>
   {
-    if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
-    }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
       throw std::ios_base::failure("Failed to open state file: " + filepath.string());
@@ -421,7 +411,7 @@ class IntegratorBase {
    * specified file. This allows the integration to be resumed from a previous
    * state.
    *
-   * @note Available only if `IntegratorFeature::STATE` is supported.
+   * @note Available only if the derived type models `detail::HasStateStream`.
    *
    * @param filepath The path to the file from which the state should be
    * loaded.
@@ -430,9 +420,6 @@ class IntegratorBase {
   void load(const std::filesystem::path& filepath)
     requires detail::HasStateStream<D>
   {
-    if (!has_feature(IntegratorFeature::STATE)) {
-      throw std::runtime_error(std::string(to_string(id())) + " does not support saving state");
-    }
     std::error_code ec;
     if (std::filesystem::exists(filepath, ec)) {
       if (ec) {
@@ -472,7 +459,7 @@ class IntegratorBase {
    * This method is for integrators that support data accumulation. It serializes
    * the accumulated sample data to the specified file.
    *
-   * @note Available only if `IntegratorFeature::DATA` is supported.
+   * @note Available only if the derived type models `detail::HasDataStream`.
    *
    * @param filepath The path to the file where the data should be saved.
    */
@@ -480,10 +467,6 @@ class IntegratorBase {
   void save_data(const std::filesystem::path& filepath) const
     requires detail::HasDataStream<D>
   {
-    if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(std::string(to_string(id())) +
-                               " does not support data accumulation");
-    }
     std::ofstream ofs(filepath, std::ios::binary);
     if (!ofs.is_open()) {
       throw std::ios_base::failure("Failed to open data file: " + filepath.string());
@@ -516,7 +499,7 @@ class IntegratorBase {
    * to the integrator's internal data accumulator, allowing for the combination
    * of data from multiple independent runs.
    *
-   * @note Available only if `IntegratorFeature::DATA` is supported.
+   * @note Available only if the derived type models `detail::HasDataStream`.
    *
    * @param filepath The path to the file from which to append the data.
    */
@@ -524,10 +507,6 @@ class IntegratorBase {
   void append_data(const std::filesystem::path& filepath)
     requires detail::HasDataStream<D>
   {
-    if (!has_feature(IntegratorFeature::DATA)) {
-      throw std::runtime_error(std::string(to_string(id())) +
-                               " does not support data accumulation");
-    }
     std::ifstream ifs(filepath, std::ios::binary);
     if (!ifs.is_open()) {
       throw std::ios_base::failure("Failed to open data file: " + filepath.string());

@@ -43,8 +43,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   static constexpr IntegratorId static_id() noexcept {
     return IntegratorId::BASIN;
   }
-  static constexpr IntegratorFeature features =
-      IntegratorFeature::STATE | IntegratorFeature::DATA | IntegratorFeature::ADAPT;
 
   // dependent class: need to explicitly load things from the Base
   using Base = IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST>;

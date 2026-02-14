@@ -1,103 +1,12 @@
 #pragma once
 
 #include <concepts>
-#include <cstdint>
 #include <iosfwd>
 #include <string>
-#include <type_traits>
 
 namespace kakuhen::integrator {
 
-/*!
- * @brief Defines feature flags for integrators.
- *
- * These flags are used to indicate which features a particular integrator
- * supports, such as saving/restoring state, accumulating data, or adaptive
- * integration.
- */
-enum class IntegratorFeature : std::uint16_t {
-  NONE = 0,         //!< No special features.
-  STATE = 1u << 0,  //!< Supports saving and restoring its internal state.
-  DATA = 1u << 1,   //!< Supports accumulating and dumping intermediate data.
-  ADAPT = 1u << 2,  //!< Supports adaptive integration (e.g., grid refinement).
-};  // enum class IntegratorFeature
-
-/*!
- * @brief Converts an enum class to its underlying integer type.
- *
- * This acts as a backport of `std::to_underlying` (C++23) for earlier standards.
- *
- * @tparam Enum The enum class type.
- * @param e The enum value.
- * @return The underlying integer value.
- */
-template <typename Enum>
-  requires std::is_enum_v<Enum>
-constexpr auto to_underlying(Enum e) noexcept {
-  return static_cast<std::underlying_type_t<Enum>>(e);
-}
-
-/// @name Bitwise Operators
-/// @{
-
-/*!
- * @brief Bitwise OR operator for IntegratorFeature.
- */
-constexpr IntegratorFeature operator|(IntegratorFeature lhs, IntegratorFeature rhs) noexcept {
-  return static_cast<IntegratorFeature>(to_underlying(lhs) | to_underlying(rhs));
-}
-/*!
- * @brief Bitwise AND operator for IntegratorFeature.
- */
-constexpr IntegratorFeature operator&(IntegratorFeature lhs, IntegratorFeature rhs) noexcept {
-  return static_cast<IntegratorFeature>(to_underlying(lhs) & to_underlying(rhs));
-}
-/*!
- * @brief Bitwise XOR operator for IntegratorFeature.
- */
-constexpr IntegratorFeature operator^(IntegratorFeature lhs, IntegratorFeature rhs) noexcept {
-  return static_cast<IntegratorFeature>(to_underlying(lhs) ^ to_underlying(rhs));
-}
-/*!
- * @brief Bitwise NOT operator for IntegratorFeature.
- */
-constexpr IntegratorFeature operator~(IntegratorFeature f) noexcept {
-  return static_cast<IntegratorFeature>(~to_underlying(f));
-}
-
-/*!
- * @brief Compound bitwise OR assignment operator for IntegratorFeature.
- */
-inline IntegratorFeature& operator|=(IntegratorFeature& lhs, IntegratorFeature rhs) noexcept {
-  return lhs = lhs | rhs;
-}
-/*!
- * @brief Compound bitwise AND assignment operator for IntegratorFeature.
- */
-inline IntegratorFeature& operator&=(IntegratorFeature& lhs, IntegratorFeature rhs) noexcept {
-  return lhs = lhs & rhs;
-}
-/*!
- * @brief Compound bitwise XOR assignment operator for IntegratorFeature.
- */
-inline IntegratorFeature& operator^=(IntegratorFeature& lhs, IntegratorFeature rhs) noexcept {
-  return lhs = lhs ^ rhs;
-}
-
-/// @}
-
 namespace detail {
-
-/*!
- * @brief Checks if a specific feature flag is set.
- *
- * @param value The feature set to check.
- * @param flag The specific flag to look for.
- * @return True if the flag is set, false otherwise.
- */
-constexpr bool has_flag(IntegratorFeature value, IntegratorFeature flag) noexcept {
-  return to_underlying(value & flag) != 0;
-}
 
 /*!
  * @brief Concept for integrators that implement adaptation.

@@ -39,8 +39,6 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   static constexpr IntegratorId static_id() noexcept {
     return IntegratorId::VEGAS;
   }
-  static constexpr IntegratorFeature features =
-      IntegratorFeature::STATE | IntegratorFeature::DATA | IntegratorFeature::ADAPT;
 
   // dependent class: need to explicitly load things from the Base
   using Base = IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST>;

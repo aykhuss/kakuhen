@@ -28,7 +28,6 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
   static constexpr IntegratorId static_id() noexcept {
     return IntegratorId::PLAIN;
   }
-  static constexpr IntegratorFeature features = IntegratorFeature::NONE;
 
   // dependent class: need to explicitly load things from the Base
   using Base = IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST>;
