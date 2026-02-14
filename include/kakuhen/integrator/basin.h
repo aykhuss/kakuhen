@@ -1057,17 +1057,29 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     order_sorted.fill(S(0));
     nblocks_ = 0;
     for (S idim = 0; idim < ndim_; ++idim) {
-      if (order_(idim, 0) != order_(idim, 1)) continue;
-      order_sorted(nblocks_, 0) = order_(idim, 0);
-      order_sorted(nblocks_, 1) = order_(idim, 1);
-      ++nblocks_;
+      for (S iord = 0; iord < ndim_; ++iord) {
+        if (order_(iord, 0) != order_(iord, 1)) continue;
+        if (order_(iord, 0) != idim) continue;
+        order_sorted(nblocks_, 0) = order_(iord, 0);
+        order_sorted(nblocks_, 1) = order_(iord, 1);
+        ++nblocks_;
+        break;
+      }
     }
     S offset = nblocks_;
-    for (S idim = 0; idim < ndim_; ++idim) {
-      if (order_(idim, 0) == order_(idim, 1)) continue;
-      order_sorted(offset, 0) = order_(idim, 0);
-      order_sorted(offset, 1) = order_(idim, 1);
-      ++offset;
+    for (S isord = 0; isord < ndim_; ++isord) {
+      assert(isord >= offset);
+      const S idim1 = order_sorted(isord, 1);
+      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+        for (S iord = 0; iord < ndim_; ++iord) {
+          if (order_(iord, 0) == order_(iord, 1)) continue;
+          if (order_(iord, 0) != idim1 || order_(iord, 1) != idim2) continue;
+          order_sorted(offset, 0) = order_(iord, 0);
+          order_sorted(offset, 1) = order_(iord, 1);
+          ++offset;
+          break;
+        }
+      }
     }
     assert(offset == ndim_);
     order_ = std::move(order_sorted);
