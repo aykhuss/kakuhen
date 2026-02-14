@@ -40,7 +40,9 @@ template <typename NT = util::num_traits_t<>,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  public:
-  static constexpr IntegratorId id = IntegratorId::BASIN;
+  static constexpr IntegratorId static_id() noexcept {
+    return IntegratorId::BASIN;
+  }
   static constexpr IntegratorFeature features =
       IntegratorFeature::STATE | IntegratorFeature::DATA | IntegratorFeature::ADAPT;
 

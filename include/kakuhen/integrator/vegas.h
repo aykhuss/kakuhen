@@ -36,7 +36,9 @@ template <typename NT = util::num_traits_t<>,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
  public:
-  static constexpr IntegratorId id = IntegratorId::VEGAS;
+  static constexpr IntegratorId static_id() noexcept {
+    return IntegratorId::VEGAS;
+  }
   static constexpr IntegratorFeature features =
       IntegratorFeature::STATE | IntegratorFeature::DATA | IntegratorFeature::ADAPT;
 

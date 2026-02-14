@@ -20,11 +20,14 @@ namespace kakuhen::integrator {
  * @tparam RNG The random number generator to use.
  * @tparam DIST The random number distribution to use.
  */
-template <typename NT = util::num_traits_t<>, typename RNG = typename IntegratorDefaults<NT>::rng_type,
+template <typename NT = util::num_traits_t<>,
+          typename RNG = typename IntegratorDefaults<NT>::rng_type,
           typename DIST = typename IntegratorDefaults<NT>::dist_type>
 class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
  public:
-  static constexpr IntegratorId id = IntegratorId::PLAIN;
+  static constexpr IntegratorId static_id() noexcept {
+    return IntegratorId::PLAIN;
+  }
   static constexpr IntegratorFeature features = IntegratorFeature::NONE;
 
   // dependent class: need to explicitly load things from the Base

@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
             }
             intg.print(gp);
             gp << "\n";
-            GnuplotSample<num_traits> sample(intg.id, ndim, ndivs, output);
+            GnuplotSample<num_traits> sample(intg.id(), ndim, ndivs, output);
             intg.integrate(sample, {.neval = nsamples,
                                     .niter = 1,
                                     .frozen = true,

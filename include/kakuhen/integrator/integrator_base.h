@@ -114,12 +114,21 @@ class IntegratorBase {
   }
 
   /*!
+   * @brief Get the unique ID of the integrator type.
+   *
+   * @return The compile-time `IntegratorId` of the derived class.
+   */
+  [[nodiscard]] static constexpr IntegratorId class_id() noexcept {
+    return Derived::static_id();
+  }
+
+  /*!
    * @brief Get the unique ID of the integrator.
    *
    * @return The `IntegratorId` of the derived class.
    */
   [[nodiscard]] constexpr IntegratorId id() const noexcept {
-    return Derived::id;
+    return class_id();
   }
 
   /*!
