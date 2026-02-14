@@ -77,7 +77,7 @@ cmake --install build
 
 ## Quick Start
 
-Here is a simple example integrating a 2D function using the VEGAS algorithm:
+Here is a simple example integrating a 2D function using the BASIN algorithm:
 
 ```cpp
 #include "kakuhen/kakuhen.h"
@@ -97,23 +97,23 @@ int main() {
   };
 
   // 2. Initialize Integrator (2 Dimensions)
-  // Vegas(ndim, n_grid_bins)
-  auto vegas = Vegas(2, 32); 
-  vegas.set_seed(42); // Reproducibility
+  // Basin(ndim, ndiv1, ndiv2)
+  auto basin = Basin(2, 8, 16);
+  basin.set_seed(42); // Reproducibility
 
   // 3. Warmup (Adapt grid without recording final result)
   std::cout << "Warming up...\n";
-  vegas.integrate(func, {
+  basin.integrate(func, {
       .neval = 1000, 
       .niter = 5, 
       .adapt = true  // Update grid
   });
 
-  // 4. Production Run (Fix grid, accumulate results)
+  // 4. Production Run (Fix/freeze grid, accumulate results)
   std::cout << "Running integration...\n";
-  vegas.set_options({.adapt = false}); // Freeze grid
+  basin.set_options({.frozen = true}); // Freeze grid
   
-  auto result = vegas.integrate(func, {
+  auto result = basin.integrate(func, {
       .neval = 10000, 
       .niter = 10
   });
@@ -126,6 +126,9 @@ int main() {
 }
 ```
 
+`frozen = true` is the recommended option for production phases: it disables
+further grid adaptation and skips collecting adaptation data.
+
 ## Advanced Usage
 
 ### Serialization & Checkpointing
@@ -134,25 +137,25 @@ int main() {
 
 ```cpp
 // Save state
-vegas.save("checkpoint.khs");
+basin.save("checkpoint.khs");
 
 // ... application restart ...
 
 // Load state
-auto vegas_resumed = Vegas("checkpoint.khs");
-vegas_resumed.integrate(func, {.neval = 5000, .niter = 5});
+auto basin_resumed = Basin("checkpoint.khs");
+basin_resumed.integrate(func, {.neval = 5000, .niter = 5});
 ```
 
 ### Distributed Data Collection
 
 You can run identical integrators in parallel (with different seeds), save their data to disk, and merge them later.
 
-1.  Run N instances, each saving data: `vegas.save_data("run_1.khd");`
+1.  Run N instances, each saving data: `basin.save_data("run_1.khd");`
 2.  Merge in a master process:
     ```cpp
-    vegas.append_data("run_1.khd");
-    vegas.append_data("run_2.khd");
-    vegas.adapt(); // Refine grid based on combined data
+    basin.append_data("run_1.khd");
+    basin.append_data("run_2.khd");
+    basin.adapt(); // Refine grid based on combined data
     ```
 
 ## Development

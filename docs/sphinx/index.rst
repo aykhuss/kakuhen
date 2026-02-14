@@ -8,7 +8,7 @@ Key features
 ------------
 
 * Header-only, C++20, no build system required to consume.
-* Multiple integrators (Plain, Vegas, Basin Hopping).
+* Multiple integrators (Plain, Vegas, Basin).
 * Thread-friendly histogramming utilities.
 
 Getting started

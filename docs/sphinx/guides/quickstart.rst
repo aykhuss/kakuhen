@@ -63,4 +63,4 @@ To compile and run this example:
 
 This should print the estimated integral value and error to the console.
 
-For more advanced usage and different integration algorithms (e.g., ``Vegas``, ``Basin Hopping``), refer to the :doc:`API Reference <../api/index>` and other guides.
+For more advanced usage and different integration algorithms (e.g., ``Vegas``, ``Basin``), refer to the :doc:`API Reference <../api/index>` and other guides.

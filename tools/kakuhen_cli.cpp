@@ -140,16 +140,13 @@ int main(int argc, char* argv[]) {
             if (nsamples == 0) {
               nsamples = 100 * ipow(ndivs, 2) * ipow(ndim + 1, 2);
             }
+            std::cerr << std::format("# driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n",
+                                     driver, ndim, nsamples, ndivs);
             intg.print(gp);
             gp << "\n";
             GnuplotSample<num_traits> sample(intg.id(), ndim, ndivs, output);
-            intg.integrate(sample, {.neval = nsamples,
-                                    .niter = 1,
-                                    .frozen = true,
-                                    .verbosity = 0});
+            intg.integrate(sample, {.neval = nsamples, .niter = 1, .frozen = true, .verbosity = 0});
             sample.print(std::cout);
-            std::cerr << std::format("# driver: \"{}\", ndim : {}, nsamples : {}, ndivs : {}\n",
-                                     driver, ndim, nsamples, ndivs);
           },
           vint);
     } else {
