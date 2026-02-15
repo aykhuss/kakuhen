@@ -1068,7 +1068,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
     S offset = nblocks_;
     for (S isord = 0; isord < ndim_; ++isord) {
-      assert(isord >= offset);
+      assert(isord < offset);
       const S idim1 = order_sorted(isord, 1);
       for (S idim2 = 0; idim2 < ndim_; ++idim2) {
         for (S iord = 0; iord < ndim_; ++iord) {
