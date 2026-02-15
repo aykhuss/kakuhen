@@ -3,18 +3,23 @@
 #include "kakuhen/histogram/bin_range.h"
 #include "kakuhen/util/numeric_traits.h"
 #include <cassert>
+#include <concepts>
 #include <cstddef>
-#include <cstdint>
-#include <format>
 #include <iomanip>
 #include <iostream>
-#include <limits>
-#include <string>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace kakuhen::histogram {
+
+template <std::floating_point F>
+inline void write_sci16(std::ostream& os, F value) {
+  const auto old_flags = os.flags();
+  const auto old_precision = os.precision();
+  os << std::scientific << std::setprecision(16) << value;
+  os.flags(old_flags);
+  os.precision(old_precision);
+}
 
 /**
  * @brief Base class for writers using CRTP.
@@ -150,13 +155,14 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
                              [[maybe_unused]] const std::vector<std::vector<BinRange<T>>>& ranges,
                              U neval) {
     assert(ndim == 1 && "NNLOJET only support 1D histograms");
-    os_ << std::format("#name: {}\n", name);
-    os_ << std::format("#labels: {0}_lower[1]   {0}_center[2]   {0}_upper[3] ", name);
+    os_ << "#name: " << name << '\n';
+    os_ << "#labels: " << name << "_lower[1]   " << name << "_center[2]   " << name << "_upper[3] ";
     for (S ival = 0; ival < nvalues; ++ival) {
-      os_ << std::format(" value{0}[{1}] error{0}[{2}] ", ival + 1, ival + 4, ival + 5);
+      os_ << " value" << (ival + 1) << '[' << (ival + 4) << "] error" << (ival + 1) << '['
+          << (ival + 5) << "] ";
     }
-    os_ << std::format("\n");
-    os_ << std::format("#neval: {}\n", neval);
+    os_ << '\n';
+    os_ << "#neval: " << neval << '\n';
   }
 
   /**
@@ -175,19 +181,28 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
       const auto upp = r.upp;
       const auto mid = 0.5 * (low + upp);
       jac /= (upp - low);
-      os_ << std::format("{:.16e} {:.16e} {:.16e} ", low, mid, upp);
+      write_sci16(os_, low);
+      os_ << ' ';
+      write_sci16(os_, mid);
+      os_ << ' ';
+      write_sci16(os_, upp);
+      os_ << ' ';
     }
     for (std::size_t i = 0; i < values.size(); ++i) {
-      os_ << std::format(" {:.16e} {:.16e} ", jac * values[i], jac * errors[i]);
+      os_ << ' ';
+      write_sci16(os_, jac * values[i]);
+      os_ << ' ';
+      write_sci16(os_, jac * errors[i]);
+      os_ << ' ';
     }
-    os_ << std::format("\n");
+    os_ << '\n';
   }
 
   /**
    * @brief Implementation of histogram_footer.
    */
   void histogram_footer_impl() {
-    os_ << std::format("#nx: {}\n\n", 3);
+    os_ << "#nx: 3\n\n";
   }
 
   /**
