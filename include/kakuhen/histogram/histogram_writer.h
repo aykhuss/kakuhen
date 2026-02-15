@@ -138,15 +138,17 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
    * @brief Implementation of global_header.
    */
   template <typename Registry>
-  void global_header_impl(const Registry& reg) {}
+  void global_header_impl([[maybe_unused]] const Registry& reg) {}
 
   /**
    * @brief Implementation of histogram_header.
    *
    * Writes the NNLOJET-specific header including name, labels, and number of evaluations.
    */
-  void histogram_header_impl(S i, const std::string_view name, S nbins, S nvalues, S ndim,
-                             const std::vector<std::vector<BinRange<T>>>& ranges, U neval) {
+  void histogram_header_impl([[maybe_unused]] S i, const std::string_view name,
+                             [[maybe_unused]] S nbins, S nvalues, S ndim,
+                             [[maybe_unused]] const std::vector<std::vector<BinRange<T>>>& ranges,
+                             U neval) {
     assert(ndim == 1 && "NNLOJET only support 1D histograms");
     os_ << std::format("#name: {}\n", name);
     os_ << std::format("#labels: {0}_lower[1]   {0}_center[2]   {0}_upper[3] ", name);
@@ -163,7 +165,7 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
    * Writes the bin edges, centers, values, and errors.
    * Normalizes the values by the bin width (Jacobian).
    */
-  void histogram_row_impl(S ibin, const std::vector<BinRange<T>>& bin_range,
+  void histogram_row_impl([[maybe_unused]] S ibin, const std::vector<BinRange<T>>& bin_range,
                           const std::vector<T>& values, const std::vector<T>& errors) {
     assert(bin_range.size() == 1 && "NNLOJET only support 1D histograms");
     T jac = T(1);
@@ -175,7 +177,7 @@ class NNLOJETWriter : public HistogramWriter<NNLOJETWriter<NT>, NT> {
       jac /= (upp - low);
       os_ << std::format("{:.16e} {:.16e} {:.16e} ", low, mid, upp);
     }
-    for (auto i = 0; i < values.size(); ++i) {
+    for (std::size_t i = 0; i < values.size(); ++i) {
       os_ << std::format(" {:.16e} {:.16e} ", jac * values[i], jac * errors[i]);
     }
     os_ << std::format("\n");

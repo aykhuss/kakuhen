@@ -25,7 +25,8 @@ class MockWriter : public HistogramWriter<MockWriter<NT>, NT> {
                              const std::vector<std::vector<BinRange<T>>>&, U) {}
 
   void histogram_row_impl(S ibin, const std::vector<BinRange<T>>& bin_range,
-                          const std::vector<T>& values, const std::vector<T>& errors) {
+                          [[maybe_unused]] const std::vector<T>& values,
+                          [[maybe_unused]] const std::vector<T>& errors) {
     // Basic checks
     if (expected_ndim > 0) {
       REQUIRE(bin_range.size() == expected_ndim);
@@ -56,7 +57,7 @@ TEST_CASE("HistogramRegistry::write 2D bug reproduction", "[HistogramRegistry][W
   UniformAxis<> y_ax(2, 0.0, 20.0);
 
   // Book 2D Histogram
-  auto h2d = registry.book("h2d", 1, x_ax, y_ax);
+  [[maybe_unused]] auto h2d = registry.book("h2d", 1, x_ax, y_ax);
 
   // Total bins = 4 * 4 = 16.
   // X ranges vector size = 4.

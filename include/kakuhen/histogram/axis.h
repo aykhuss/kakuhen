@@ -2,6 +2,10 @@
 
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/histogram/axis_view.h"
+#include <concepts>
+#include <tuple>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace kakuhen::histogram {
@@ -34,6 +38,21 @@ class Axis {
   explicit Axis(std::initializer_list<T> list) : data_(), view_(data_, std::vector<T>(list)) {}
 
   /**
+   * @brief Constructs a uniform axis with an integral bin-count argument.
+   *
+   * This overload avoids signed/unsigned conversion warnings at call sites
+   * where literals like `10` are passed for an unsigned size type.
+   *
+   * @tparam I Integral type of the bin-count argument.
+   * @param n_bins Number of regular bins.
+   * @param min Lower axis boundary.
+   * @param max Upper axis boundary.
+   */
+  template <std::integral I>
+  explicit Axis(I n_bins, const T& min, const T& max)
+      : data_(), view_(data_, static_cast<S>(n_bins), min, max) {}
+
+  /**
    * @brief Constructs an Axis by forwarding arguments to the concrete axis view.
    *
    * The arguments are used to populate the internal AxisData and initialize the view.
@@ -42,6 +61,8 @@ class Axis {
    * @param args Arguments forwarded to the ConcreteAxis constructor.
    */
   template <typename... Args>
+    requires(!(sizeof...(Args) == 3 &&
+               std::integral<std::remove_cvref_t<std::tuple_element_t<0, std::tuple<Args...>>>>))
   explicit Axis(Args&&... args) : data_(), view_(data_, std::forward<Args>(args)...) {}
 
   /**

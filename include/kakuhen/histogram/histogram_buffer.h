@@ -133,7 +133,8 @@ class HistogramBuffer {
       const S new_idx = static_cast<S>(dense_ids_.size());
 
       // Update map: Store (CurrentGen << Shift) | NewIndex
-      sparse_map_[static_cast<std::size_t>(global_idx)] = (current_gen_ << shift_amount_) | new_idx;
+      const S packed_new = static_cast<S>((current_gen_ << shift_amount_) | new_idx);
+      sparse_map_[static_cast<std::size_t>(global_idx)] = packed_new;
 
       // Track this bin for flushing
       dense_ids_.push_back(global_idx);

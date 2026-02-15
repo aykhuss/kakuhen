@@ -11,7 +11,6 @@
 #include "kakuhen/util/numeric_traits.h"
 #include <cassert>
 #include <cmath>
-#include <locale>
 #include <stdexcept>
 #include <string>
 #include <string_view>
