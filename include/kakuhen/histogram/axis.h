@@ -3,7 +3,6 @@
 #include "kakuhen/histogram/axis_data.h"
 #include "kakuhen/histogram/axis_view.h"
 #include <concepts>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -61,9 +60,14 @@ class Axis {
    * @param args Arguments forwarded to the ConcreteAxis constructor.
    */
   template <typename... Args>
-    requires(!(sizeof...(Args) == 3 &&
-               std::integral<std::remove_cvref_t<std::tuple_element_t<0, std::tuple<Args...>>>>))
+    requires(sizeof...(Args) != 3)
   explicit Axis(Args&&... args) : data_(), view_(data_, std::forward<Args>(args)...) {}
+
+  template <typename A0, typename A1, typename A2>
+    requires(!std::integral<std::remove_cvref_t<A0>>)
+  explicit Axis(A0&& a0, A1&& a1, A2&& a2)
+      : data_(), view_(data_, std::forward<A0>(a0), std::forward<A1>(a1),
+                       std::forward<A2>(a2)) {}
 
   /**
    * @brief Maps a coordinate to a bin index.
