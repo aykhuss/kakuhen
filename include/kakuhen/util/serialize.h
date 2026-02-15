@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <iostream>
 #include <iterator>
@@ -10,30 +11,24 @@
 
 namespace kakuhen::util::serialize {
 
-/// @name SFINAE detection idioms
+/// @name Serialization Concepts
 /// @{
 
 /**
- * @brief SFINAE helper to detect if a type has a `serialize` method.
+ * @brief Concept for types providing `serialize(std::ostream&) const`.
  */
-template <typename, typename = void>
-struct has_serialize : std::false_type {};
-
 template <typename T>
-struct has_serialize<
-    T, std::void_t<decltype(std::declval<const T&>().serialize(std::declval<std::ostream&>()))>>
-    : std::true_type {};
+concept HasSerialize = requires(const T& obj, std::ostream& out) {
+  { obj.serialize(out) } -> std::same_as<void>;
+};
 
 /**
- * @brief SFINAE helper to detect if a type has a `deserialize` method.
+ * @brief Concept for types providing `deserialize(std::istream&)`.
  */
-template <typename, typename = void>
-struct has_deserialize : std::false_type {};
-
 template <typename T>
-struct has_deserialize<
-    T, std::void_t<decltype(std::declval<T&>().deserialize(std::declval<std::istream&>()))>>
-    : std::true_type {};
+concept HasDeserialize = requires(T& obj, std::istream& in) {
+  { obj.deserialize(in) } -> std::same_as<void>;
+};
 
 /// @}
 
@@ -98,7 +93,7 @@ inline void deserialize_size(std::istream& in, std::size_t& size) {
  *
  * Dispatches to:
  * 1. Special handling for `std::string`.
- * 2. `obj.serialize(out)` if the type satisfies `has_serialize`.
+ * 2. `obj.serialize(out)` if the type satisfies `HasSerialize`.
  * 3. Byte-wise copy for trivially copyable non-pointer types.
  *
  * @tparam T The type of the object to serialize.
@@ -114,7 +109,7 @@ void serialize_one(std::ostream& out, const T& obj) {
     if (!obj.empty()) {
       write_bytes(out, obj.data(), obj.size());
     }
-  } else if constexpr (has_serialize<DT>::value) {
+  } else if constexpr (HasSerialize<DT>) {
     obj.serialize(out);
   } else {
     static_assert(std::is_trivially_copyable_v<DT>,
@@ -129,7 +124,7 @@ void serialize_one(std::ostream& out, const T& obj) {
  *
  * Dispatches to:
  * 1. Special handling for `std::string`.
- * 2. `obj.deserialize(in)` if the type satisfies `has_deserialize`.
+ * 2. `obj.deserialize(in)` if the type satisfies `HasDeserialize`.
  * 3. Byte-wise copy for trivially copyable non-pointer types.
  *
  * @tparam T The type of the object to deserialize.
@@ -147,7 +142,7 @@ void deserialize_one(std::istream& in, T& obj) {
     if (size > 0) {
       read_bytes(in, obj.data(), size);
     }
-  } else if constexpr (has_deserialize<DT>::value) {
+  } else if constexpr (HasDeserialize<DT>) {
     obj.deserialize(in);
   } else {
     static_assert(std::is_trivially_copyable_v<DT>,

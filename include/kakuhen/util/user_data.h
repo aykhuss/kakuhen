@@ -33,7 +33,7 @@ void write_user_data_stream(std::ostream& out, const UD& user_data,
                             const std::string_view header = "USERDATA") {
   using namespace kakuhen::util::serialize;
   using DUD = std::decay_t<UD>;
-  static_assert(std::is_trivially_copyable_v<DUD> || has_serialize<DUD>::value,
+  static_assert(std::is_trivially_copyable_v<DUD> || HasSerialize<DUD>,
                 "UD must be trivially copyable or provide a serialize() method");
 
   if (header.empty()) throw std::invalid_argument("Header cannot be empty");
@@ -66,7 +66,7 @@ void read_user_data_stream(std::istream& in, UD& user_data,
                            const std::string_view header = "USERDATA") {
   using namespace kakuhen::util::serialize;
   using DUD = std::decay_t<UD>;
-  static_assert(std::is_trivially_copyable_v<DUD> || has_deserialize<DUD>::value,
+  static_assert(std::is_trivially_copyable_v<DUD> || HasDeserialize<DUD>,
                 "UD must be trivially copyable or provide a deserialize() method");
 
   if (header.empty()) throw std::invalid_argument("Header cannot be empty");
