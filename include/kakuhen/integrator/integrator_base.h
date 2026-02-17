@@ -11,10 +11,15 @@
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 #include <random>
+#include <sstream>
+#include <string>
 #include <string_view>
 #include <system_error>
 
@@ -272,21 +277,14 @@ class IntegratorBase {
     // call the integration implementation for each iteration & accumulate
     result_type result;
     for (count_type iter = 0; iter < *opts_.niter; ++iter) {
-      // if (opts_.verbosity && *opts_.verbosity > 0) {
-      //   std::cout << "=== Iteration " << (iter + 1) << " / " << *opts_.niter << " [" <<
-      //   *opts_.neval
-      //             << "] ===\n";
-      // }
+      const auto start_time = std::chrono::high_resolution_clock::now();
       int_acc_type res_it = derived().integrate_impl(integrand_ref, *opts_.neval);
+      const auto end_time = std::chrono::high_resolution_clock::now();
+      const std::chrono::duration<double> elapsed = end_time - start_time;
+
       result.accumulate(res_it);
       if (opts_.verbosity && *opts_.verbosity > 0) {
-        std::cout << "\n***** Integration by " << to_string(id());
-        std::cout << " (Iteration " << iter + 1 << " / " << *opts_.niter << " ) *****\n";
-        std::cout << "  integral(iter) = " << res_it.value() << " +/- " << res_it.error();
-        std::cout << " (n=" << res_it.count() << ")\n";
-        std::cout << "  integral(acc.) = " << result.value() << " +/- " << result.error();
-        std::cout << " (n=" << result.count() << ")\n";
-        std::cout << "***** chi^2/dof = " << result.chi2dof() << " *****\n";
+        print_iteration_summary(iter + 1, *opts_.niter, res_it, result, elapsed.count());
       }
 
       // // check for convergence
@@ -435,7 +433,8 @@ class IntegratorBase {
         throw std::ios_base::failure("Error reading state file: " + filepath.string());
       }
     } else {
-      std::cout << "state file " << filepath.string() << " not found; skip loading\n";
+      print_info_message("state",
+                         "state file \"" + filepath.string() + "\" not found; skipping load");
     }
   }
 
@@ -597,6 +596,54 @@ class IntegratorBase {
   }
 
  private:
+  static std::string fmt_scientific(long double value, int precision = 6) {
+    std::ostringstream out;
+    out << std::scientific << std::setprecision(precision) << value;
+    return out.str();
+  }
+
+  static std::string fmt_fixed(double value, int precision = 3) {
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(precision) << value;
+    return out.str();
+  }
+
+  void print_info_message(std::string_view channel, const std::string& message) const {
+    const std::string name{to_string(id())};
+    std::cout << "[" << name << ":" << channel << "] " << message << "\n";
+  }
+
+  void print_iteration_summary(count_type iter, count_type niter, const int_acc_type& res_it,
+                               const result_type& result, double elapsed_seconds) const {
+    const int verbosity = opts_.verbosity.value_or(0);
+    if (verbosity <= 0) return;
+
+    const std::string name{to_string(id())};
+    if (verbosity == 1) {
+      std::cout << "[" << name << ": iter " << iter << "/" << niter << "] "
+                << "I_it=" << fmt_scientific(static_cast<long double>(res_it.value())) << " +/- "
+                << fmt_scientific(static_cast<long double>(res_it.error())) << " | "
+                << "I_acc=" << fmt_scientific(static_cast<long double>(result.value())) << " +/- "
+                << fmt_scientific(static_cast<long double>(result.error())) << " | "
+                << "chi2/dof=" << result.chi2dof() << " | "
+                << "t=" << fmt_fixed(elapsed_seconds) << "s\n";
+      return;
+    }
+
+    std::cout << "\n=== Integration Report =====================================\n";
+    std::cout << "integrator    : " << name << "\n";
+    std::cout << "iteration     : " << iter << " / " << niter << "\n";
+    std::cout << "integral(iter): " << fmt_scientific(static_cast<long double>(res_it.value()))
+              << " +/- " << fmt_scientific(static_cast<long double>(res_it.error())) << "\n";
+    std::cout << "samples(it)   : " << res_it.count() << "\n";
+    std::cout << "integral(acc.): " << fmt_scientific(static_cast<long double>(result.value()))
+              << " +/- " << fmt_scientific(static_cast<long double>(result.error())) << "\n";
+    std::cout << "samples(acc)  : " << result.count() << "\n";
+    std::cout << "chi2/dof      : " << result.chi2dof() << "\n";
+    std::cout << "time          : " << fmt_fixed(elapsed_seconds) << " s\n";
+    std::cout << "============================================================\n";
+  }
+
   template <typename D = Derived>
   [[nodiscard]] inline std::filesystem::path file_state() const noexcept
     requires detail::HasPrefix<D>

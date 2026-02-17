@@ -9,6 +9,8 @@
 #include "kakuhen/integrator/vegas.h"
 #include "kakuhen/integrator/basin.h"
 #include "kakuhen/util/printer.h"
+#include <filesystem>
+#include <iostream>
 #include <sstream>
 
 using namespace kakuhen;
@@ -126,6 +128,56 @@ TEST_CASE("Coverage: Integrator and Utils misc", "[coverage]") {
         integrator::Vegas<> vegas(3);
         REQUIRE(vegas.prefix(false) == "vegas_3d");
         REQUIRE(vegas.prefix(true).find("vegas_3d_") == 0);
+    }
+
+    SECTION("Integrator verbosity output formatting") {
+        auto integrand = [](const integrator::Point<>& p) {
+            return p.x[0] + p.x[1];
+        };
+
+        integrator::Vegas<> veg(2);
+        std::stringstream capture;
+        std::streambuf* old_buf = std::cout.rdbuf(capture.rdbuf());
+
+        veg.integrate(integrand, {.neval = 64, .niter = 1, .adapt = false, .verbosity = 1});
+        std::string out_v1 = capture.str();
+        REQUIRE(out_v1.find("[Vegas iter 1/1]") != std::string::npos);
+        REQUIRE(out_v1.find("I_it=") != std::string::npos);
+        REQUIRE(out_v1.find("I_acc=") != std::string::npos);
+        REQUIRE(out_v1.find("samples(it)") == std::string::npos);
+
+        capture.str("");
+        capture.clear();
+        veg.integrate(integrand, {.neval = 64, .niter = 1, .adapt = false, .verbosity = 2});
+        std::string out_v2 = capture.str();
+
+        std::cout.rdbuf(old_buf);
+
+        REQUIRE(out_v2.find("=== Integration Report") != std::string::npos);
+        REQUIRE(out_v2.find("integral(iter):") != std::string::npos);
+        REQUIRE(out_v2.find("samples(it)") != std::string::npos);
+        REQUIRE(out_v2.find("samples(acc)") != std::string::npos);
+        const bool has_scientific = (out_v2.find("e+") != std::string::npos) ||
+                                    (out_v2.find("e-") != std::string::npos);
+        REQUIRE(has_scientific);
+    }
+
+    SECTION("State load message formatting") {
+        integrator::Vegas<> veg(2);
+        std::stringstream capture;
+        std::streambuf* old_buf = std::cout.rdbuf(capture.rdbuf());
+
+        const auto missing =
+            std::filesystem::temp_directory_path() / "kakuhen_missing_state_for_coverage_test.khs";
+        std::error_code ec;
+        std::filesystem::remove(missing, ec);
+
+        veg.load(missing);
+        std::cout.rdbuf(old_buf);
+
+        const std::string out = capture.str();
+        REQUIRE(out.find("[kakuhen:state]") != std::string::npos);
+        REQUIRE(out.find("skipping load") != std::string::npos);
     }
 
     SECTION("JSONPrinter special chars") {
