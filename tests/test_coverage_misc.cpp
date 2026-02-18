@@ -141,7 +141,7 @@ TEST_CASE("Coverage: Integrator and Utils misc", "[coverage]") {
 
         veg.integrate(integrand, {.neval = 64, .niter = 1, .adapt = false, .verbosity = 1});
         std::string out_v1 = capture.str();
-        REQUIRE(out_v1.find("[Vegas iter 1/1]") != std::string::npos);
+        REQUIRE(out_v1.find("[Vegas: iter 1/1]") != std::string::npos);
         REQUIRE(out_v1.find("I_it=") != std::string::npos);
         REQUIRE(out_v1.find("I_acc=") != std::string::npos);
         REQUIRE(out_v1.find("samples(it)") == std::string::npos);
@@ -176,7 +176,7 @@ TEST_CASE("Coverage: Integrator and Utils misc", "[coverage]") {
         std::cout.rdbuf(old_buf);
 
         const std::string out = capture.str();
-        REQUIRE(out.find("[kakuhen:state]") != std::string::npos);
+        REQUIRE(out.find("[Vegas:state]") != std::string::npos);
         REQUIRE(out.find("skipping load") != std::string::npos);
     }
 
