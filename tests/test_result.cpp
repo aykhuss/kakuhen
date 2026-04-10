@@ -66,3 +66,30 @@ TEST_CASE("accumulate", "[result]") {
   REQUIRE(result.variance() == Catch::Approx(0.00142634854771785));
   REQUIRE(result.error() == Catch::Approx(0.03776702990331442));
 }
+
+TEST_CASE("read-only entry access", "[result]") {
+  using kakuhen::integrator::Result;
+
+  Result<double, uint32_t> result;
+  using IntAcc = decltype(result)::int_acc_type;
+
+  IntAcc a;
+  a.accumulate(1.0);
+  a.accumulate(3.0);
+  result.accumulate(a);
+
+  IntAcc b;
+  b.accumulate(2.0);
+  b.accumulate(4.0);
+  b.accumulate(6.0);
+  result.accumulate(b);
+
+  auto entries = result.entries();
+  REQUIRE(entries.size() == 2);
+  REQUIRE(entries[0].count() == 2);
+  REQUIRE(entries[1].count() == 3);
+
+  REQUIRE(result[0].value() == Catch::Approx(2.0));
+  REQUIRE(result.at(1).value() == Catch::Approx(4.0));
+  REQUIRE_THROWS_AS(result.at(2), std::out_of_range);
+}

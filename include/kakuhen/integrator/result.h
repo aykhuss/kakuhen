@@ -4,6 +4,7 @@
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
 #include <cmath>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -26,6 +27,7 @@ class Result {
   using value_type = T;
   using count_type = U;
   using int_acc_type = IntegralAccumulator<T, U>;
+  using const_reference = const int_acc_type&;
 
   /*!
    * @brief Accumulate a single integral result.
@@ -71,6 +73,39 @@ class Result {
    */
   [[nodiscard]] U size() const noexcept {
     return static_cast<U>(results_.size());
+  }
+
+  /*!
+   * @brief Provides a read-only view of the stored per-iteration entries.
+   *
+   * This is a non-owning view into the internal storage. It remains valid only
+   * as long as the `Result` object is alive and its storage is not reallocated.
+   *
+   * @return A read-only span over the stored `IntegralAccumulator` objects.
+   */
+  [[nodiscard]] std::span<const int_acc_type> entries() const noexcept {
+    return std::span<const int_acc_type>(results_);
+  }
+
+  /*!
+   * @brief Provides unchecked read-only indexed access to an entry.
+   *
+   * @param i Zero-based entry index.
+   * @return A const reference to the requested entry.
+   */
+  [[nodiscard]] const_reference operator[](std::size_t i) const noexcept {
+    return results_[i];
+  }
+
+  /*!
+   * @brief Provides bounds-checked read-only indexed access to an entry.
+   *
+   * @param i Zero-based entry index.
+   * @return A const reference to the requested entry.
+   * @throws std::out_of_range if `i >= results_.size()`.
+   */
+  [[nodiscard]] const_reference at(std::size_t i) const {
+    return results_.at(i);
   }
 
   /*!
