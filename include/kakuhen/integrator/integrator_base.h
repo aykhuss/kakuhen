@@ -262,9 +262,10 @@ class IntegratorBase {
    */
   template <typename I>
   result_type integrate(I&& integrand, const options_type& opts) {
-    // Merge progress_bar from call-site opts, then persistent opts_, defaulting to true.
-    bool show_bar = opts.progress_bar.value_or(opts_.progress_bar.value_or(true)) &&
-                    opts_.verbosity.value_or(0) > 0;
+    // Merge call-site overrides with persistent defaults before deciding whether
+    // to install the built-in progress bar.
+    const bool show_bar = opts.progress_bar.value_or(opts_.progress_bar.value_or(true)) &&
+                          opts.verbosity.value_or(opts_.verbosity.value_or(0)) > 0;
     if (show_bar) {
       util::ProgressBar bar;
       auto cb = [&bar](const progress_event_type& ev) -> EventSignal {
