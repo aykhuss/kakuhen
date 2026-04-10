@@ -8,6 +8,7 @@
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
+#include "kakuhen/util/user_data.h"
 #include "plot/gnuplot.h"
 #include <algorithm>
 #include <argparse/argparse.hpp>
@@ -105,6 +106,12 @@ int main(int argc, char* argv[]) {
           jp << "\n";
         },
         vint);
+    const auto user_data_records = util::list_user_data_records(file);
+    std::cout << "USER_DATA records: " << user_data_records.size() << "\n";
+    for (const auto& record : user_data_records) {
+      std::cout << std::format("  - keyword: \"{}\", payload_size: {} bytes\n", record.keyword,
+                               record.payload_size);
+    }
   }  // dump
 
   if (program.is_subcommand_used("plot")) {
