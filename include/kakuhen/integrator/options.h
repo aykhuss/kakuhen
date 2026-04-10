@@ -14,8 +14,8 @@ namespace kakuhen::integrator {
  * configure the behavior of the integrators. All options are `std::optional`
  * to allow for default values to be used when an option is not explicitly set.
  *
- * It supports designated initializers (C++20) for easy configuration:
- * `Options{.neval = 1000, .seed = 42}`
+ * It supports designated initializers (C++20) for easy configuration, for
+ * example `Options{.neval = 1000, .seed = 42}`.
  *
  * @tparam T The value type for integral results (e.g., double).
  * @tparam U The count type for the number of evaluations (e.g., uint64_t).
@@ -37,10 +37,14 @@ struct Options {
   std::optional<int> verbosity;                    //!< Verbosity level of output messages.
   std::optional<void*> user_data;                  //!< Pointer to user-defined data (non-owning).
   std::optional<std::filesystem::path> file_path;  //!< Path for saving state/data.
+  std::optional<bool> progress_bar;  //!< Whether the built-in progress bar may be enabled by the
+                                     //!< two-argument `integrate()` overload. When unset, the base
+                                     //!< integrator currently defaults this to enabled.
   std::optional<double> progress_step;  //!< Fraction of a single iteration's evaluations between
-                                        //!< EVAL_MILESTONE callbacks, in (0, 1]. For example, 0.25
-                                        //!< fires four milestones per iteration regardless of niter.
-                                        //!< Defaults to DEFAULT_PROGRESS_STEP when a callback is supplied.
+                                        //!< `EVAL_MILESTONE` callbacks, in `(0, 1]`. For example,
+                                        //!< `0.25` fires four milestones per iteration regardless
+                                        //!< of `niter`. Defaults to `DEFAULT_PROGRESS_STEP` when a
+                                        //!< callback is supplied.
 
   /*!
    * @brief Sets options from another Options object.
@@ -61,6 +65,7 @@ struct Options {
     if (opts.verbosity) verbosity = *opts.verbosity;
     if (opts.user_data) user_data = *opts.user_data;
     if (opts.file_path) file_path = *opts.file_path;
+    if (opts.progress_bar) progress_bar = *opts.progress_bar;
     if (opts.progress_step) progress_step = *opts.progress_step;
   }
 
@@ -78,7 +83,7 @@ struct Options {
   /*!
    * @brief Stream insertion operator for Options.
    *
-   * Prints the set options in a readable format.
+   * Prints the currently set options in a readable format.
    *
    * @param os The output stream.
    * @param opts The Options object to print.
@@ -110,6 +115,7 @@ struct Options {
       os << ".file_path=\"" << opts.file_path->string() << std::string("\"");
       comma = true;
     }
+    add(".progress_bar", opts.progress_bar);
     add(".progress_step", opts.progress_step);
 
     return os << "}";
@@ -118,8 +124,8 @@ struct Options {
   /*!
    * @brief Helper for keyword-argument-like option setting.
    *
-   * This struct facilitates a fluent interface for setting individual options
-   * using a syntax similar to keyword arguments in other languages.
+   * This helper enables a fluent, keyword-style syntax for setting individual
+   * options.
    *
    * @tparam MemberPtr A pointer to a member of the `Options` struct.
    */
@@ -142,7 +148,7 @@ struct Options {
    * @brief Provides keyword objects for setting options.
    *
    * This struct contains static `OptionKey` members for each option field,
-   * allowing for syntax like `keys::neval = 1000`.
+   * allowing syntax such as `keys::neval = 1000`.
    *
    * Usage example: `integrator.integrate(func, Options::keys::neval = 1000);`
    */
@@ -157,6 +163,7 @@ struct Options {
     static constexpr OptionKey<&Options::verbosity> verbosity{};  //!< Key for `verbosity` option.
     static constexpr OptionKey<&Options::user_data> user_data{};  //!< Key for `user_data` option.
     static constexpr OptionKey<&Options::file_path> file_path{};  //!< Key for `file_path` option.
+    static constexpr OptionKey<&Options::progress_bar> progress_bar{};  //!< Key for `progress_bar`.
     static constexpr OptionKey<&Options::progress_step> progress_step{};  //!< Key for `progress_step`.
   };  // struct keys
 

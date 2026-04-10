@@ -5,16 +5,16 @@
 
 namespace kakuhen::integrator {
 
-/// @brief Types of progress events fired during integration.
+/// @brief Types of progress events emitted during one integration call.
 enum class ProgressEventKind : uint8_t {
   START,           ///< Fired before the first iteration begins.
   ITER_START,      ///< Fired before each iteration begins.
-  EVAL_MILESTONE,  ///< Fired when per-iteration progress reaches a milestone (e.g., 25%, 50% of neval).
+  EVAL_MILESTONE,  ///< Fired when per-iteration progress reaches a milestone such as 25% or 50% of `neval`.
   ITER_END,        ///< Fired after each iteration completes.
   END              ///< Fired after all iterations complete (or on cancellation/exception).
 };
 
-/// @brief Signal returned by progress callbacks to control integration flow.
+/// @brief Control signals returned by progress callbacks.
 enum class EventSignal : uint8_t {
   NONE = 0,       ///< Continue normally.
   CANCEL = 1,     ///< Stop integration gracefully, return partial results.
@@ -44,7 +44,7 @@ constexpr EventSignal operator&(EventSignal a, EventSignal b) noexcept {
   return (static_cast<U>(flags) & static_cast<U>(test)) != 0;
 }
 
-/// @brief Default fraction of a single iteration's evaluations between progress milestone callbacks (5%).
+/// @brief Default milestone spacing within one iteration: 5% of `neval`.
 inline constexpr double DEFAULT_PROGRESS_STEP = 0.05;
 
 /// @brief True when `Cb` is a real progress callback (not `std::nullptr_t`).
@@ -55,13 +55,13 @@ inline constexpr bool is_progress_callback_v =
 /*!
  * @brief Event data passed to progress callbacks.
  *
- * Contains information about the current state of integration when a
- * progress event is fired.
+ * Contains a snapshot of the current integration state when a progress event
+ * is emitted.
  *
  * @note For `EVAL_MILESTONE` events fired mid-iteration, `value` and `error`
- * reflect the accumulated result from *completed* iterations only, not the
- * current partial iteration. For `ITER_END` events, they include the just-
- * completed iteration.
+ * reflect the aggregate result from completed iterations only, not the
+ * still-running partial iteration. For `ITER_END` events, they include the
+ * iteration that just finished.
  *
  * @tparam T The value type for integral results (e.g., double).
  * @tparam U The count type for evaluation counts (e.g., uint64_t).
@@ -72,11 +72,11 @@ struct ProgressEvent {
   U niter;                 ///< Total number of iterations.
   U current_iter;          ///< Current iteration (0-indexed).
   U neval;                 ///< Number of evaluations per iteration.
-  U current_eval;          ///< Evaluations completed so far in the current iteration (1-indexed).
+  U current_eval;          ///< Number of evaluations completed so far in the current iteration.
   T value;                 ///< Current integral estimate (from completed iterations).
   T error;                 ///< Current error estimate (from completed iterations).
-  double fraction;         ///< Per-iteration progress fraction: current_eval / neval, in [0.0, 1.0].
-                           ///< Resets to 0 at each ITER_START and reaches 1.0 at ITER_END.
+  double fraction;         ///< Per-iteration progress fraction `current_eval / neval`, in [0.0, 1.0].
+                           ///< Resets to 0 at `ITER_START` and reaches 1.0 at `ITER_END`.
   double elapsed_start;    ///< Elapsed time in seconds since integration started.
   double elapsed_iter;     ///< Elapsed time in seconds since current iteration started.
 };

@@ -13,8 +13,8 @@ namespace kakuhen::integrator {
  * It samples points uniformly within the unit hypercube and accumulates the
  * function values. This integrator is straightforward but less efficient than
  * adaptive methods for many integrands, as it does not attempt to concentrate
- * samples in important regions. It does not support any special features like
- * adaptation or state serialization.
+ * samples in important regions. It does not support adaptive grids or
+ * integrator-specific state serialization.
  *
  * @tparam NT The numeric traits for the integrator.
  * @tparam RNG The random number generator to use.
@@ -63,6 +63,7 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
    * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param tracker Per-call progress bookkeeping shared with the base class.
    * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
@@ -93,6 +94,12 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   int_acc_type result_;
 
+  /*!
+   * @brief Generates one uniformly distributed sample point in the unit hypercube.
+   *
+   * @param point The point object to populate.
+   * @param sample_index Zero-based sample index stored in the point metadata.
+   */
   inline void generate_point(Point<num_traits>& point, count_type sample_index = count_type(0)) {
     point.sample_index = sample_index;
     point.weight = value_type(1);

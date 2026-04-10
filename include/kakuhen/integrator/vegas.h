@@ -148,6 +148,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param tracker Per-call progress bookkeeping shared with the base class.
    * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
@@ -188,9 +189,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Reset the grid to a uniform state.
    *
-   * This method resets the grid to a uniform state, where each dimension is
-   * divided into `ndiv` equal-sized intervals. It also clears the accumulator
-   * and the result.
+   * This method resets the importance-sampling grid so each dimension is
+   * divided into `ndiv` equally sized intervals. It also clears all
+   * accumulated per-cell statistics and the current iteration result.
    */
   void reset() {
     grid_.fill(T(0));
@@ -207,10 +208,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Adapt the grid based on the accumulated data.
    *
-   * This method adapts the grid based on the data that has been accumulated
-   * during the integration. It uses the accumulated function values to refine
-   * the grid, so that more points are sampled in the regions where the
-   * integrand is large.
+   * This method refines the one-dimensional importance-sampling grid using the
+   * accumulated squared weights from the previous iteration so that subsequent
+   * samples are concentrated in regions with larger contribution.
    */
   void adapt() {
     using kakuhen::ndarray::NDArray;
@@ -235,7 +235,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     T dsum, davg, dacc;
 
     for (S idim = 0; idim < ndim_; ++idim) {
-      /// initialize & check count compatibility
+      /// initialize the adaptation weights and verify count compatibility
       {
         dval.fill(T(0));
         U nsum{0};
@@ -246,7 +246,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         assert(nsum == accumulator_count_);
       }
 
-      /// smoothen out
+      /// smooth the raw weights to reduce noise
       d.fill(T(0));
       dacc = T(0);
       for (S ig = 0; ig < ndiv_; ++ig) {
@@ -260,7 +260,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         dacc += d(ig);
       }  // for ig
 
-      /// dampen
+      /// damp the smoothed weights to limit aggressive reshaping
       dsum = T(0);
       for (S ig = 0; ig < ndiv_; ++ig) {
         if (d(ig) > T(0)) {
@@ -269,7 +269,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         dsum += d(ig);
       }
 
-      /// refine the grid using `d`
+      /// refine the grid using the damped weights
       grid_new.fill(T(0));
       davg = dsum / T(ndiv_);
       dacc = T(0);
@@ -306,12 +306,12 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }  // for idim
 
-    /// clear the accumulator to prepare for next iteration
+    /// clear the accumulators to prepare for the next iteration
     clear_data();
   }
 
   /*!
-   * @brief Clears accumulated integration data.
+   * @brief Clears accumulated grid statistics and the current iteration result.
    */
   void clear_data() {
     accumulator_count_ = U(0);
@@ -320,7 +320,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Prints the current grid structure to standard output.
+   * @brief Prints the current VEGAS grid to standard output.
    */
   void print_grid() const {
     for (S i = 0; i < ndim_; ++i) {

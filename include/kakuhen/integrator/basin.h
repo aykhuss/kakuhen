@@ -208,6 +208,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param tracker Per-call progress bookkeeping shared with the base class.
    * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
@@ -266,7 +267,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Resets the grid and all accumulators to their initial state.
+   * @brief Resets the nested grids, sampling order, and accumulated data.
    */
   void reset() {
     grid_.fill(T(0));
@@ -279,7 +280,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S idim = 0; idim < ndim_; ++idim) {
       std::copy_n(flat0.begin(), ndiv0_, &grid0_(idim, 0));
     }
-    /// the non-diagonal entries (2D grids)
+    /// the off-diagonal conditional grids
     std::vector<T> flat2(ndiv2_);
     for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
       flat2[ig2] = T(ig2 + 1) / T(ndiv2_);
@@ -307,10 +308,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Adapts the nested grids based on the accumulated data.
    *
-   * This method performs the core logic of the BASIN algorithm. It refines
-   * the diagonal (1D) and off-diagonal (2D) grids based on the variance
-   * of the integrand and then determines the optimal sampling order for the
-   * next iteration based on dimension correlations.
+   * This method performs the core BASIN update. It refines the diagonal
+   * one-dimensional grids and the off-diagonal conditional grids from the
+   * accumulated squared weights, then recomputes the preferred dimension
+   * sampling order from the inferred correlations.
    */
   void adapt() {
     using kakuhen::ndarray::NDArray;
@@ -447,7 +448,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       for (S idim2 = 0; idim2 < ndim_; ++idim2) {
         if (idim1 == idim2) continue;  // diagonal <-> fine grid already dealt with
 
-        /// set up views
+        /// set up views into the scratch buffers
         auto d12val = dval.reshape({ndiv1_, ndiv2_});
         auto d12 = d.reshape({ndiv1_, ndiv2_});
         auto grid12_new = grid_new.reshape({ndiv1_, ndiv2_});
@@ -459,12 +460,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         /// (2.1)  initialize accumulator d-values, smoothen & dampen
         ///------------
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          /// init dval
+          /// initialize raw sub-grid weights
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
             d12val(ig1, ig2) = nrm * accumulator_(idim1, idim2, ig1, ig2).value();
           }  // for ig2
 
-          /// smoothen
+          /// smooth the raw weights
           {
             dacc = T(0);
             for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
@@ -482,7 +483,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             }  // for ig2
           }
 
-          /// dampen (w/o assuming normalization & stable for `eps`)
+          /// damp the smoothed weights without assuming normalization
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
             if (d12(ig1, ig2) > T(0)) {
               d12(ig1, ig2) = std::pow(
@@ -491,18 +492,18 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             }
           }
 
-          /// attention:  no normalization!
+          /// intentionally no normalization at this stage
 
         }  // for ig1
 
         ///------------
-        /// (2.2)  apply the weight matrix; accumulate & adapt sub-grid
+        /// (2.2)  apply the weight matrix, accumulate, and adapt the sub-grid
         ///------------
         ///  `d12val` served its purpose; re-use `dval` for super-grid accumulator
         auto d_mrg = dval.reshape({ndiv0_});
 
         for (S ig1_new = 0; ig1_new < ndiv1_; ++ig1_new) {
-          /// (a)  first need to initialize a super-grid
+          /// (a)  first initialize a merged super-grid
           grid_mrg.fill(T(0));
           grid_mrg_size = 0;
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
@@ -511,7 +512,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             grid_mrg_size += ndiv2_;
           }  // for ig1
           std::sort(grid_mrg.data(), grid_mrg.data() + grid_mrg_size);
-          /// checks
+          /// consistency checks
           if (grid_mrg_size > 0) {
             assert(grid_mrg(0) > T(0));
             assert(grid_mrg(grid_mrg_size - 1) == T(1));
@@ -519,7 +520,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
               assert(grid_mrg(ig_mrg - 1) <= grid_mrg(ig_mrg));
           }
 
-          /// (b)  apply weights and accumulate
+          /// (b)  apply the overlap weights and accumulate
           d_mrg.fill(T(0));
           dsum = T(0);
           for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
@@ -551,10 +552,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             }  // for ig_mrg
           }  // for ig1
 
-          /// attention: no normalization (potential ~eps entries)
-          /// attention: no damping (already done at the pre-merge step)
+          /// intentionally no normalization (entries can remain near `eps`)
+          /// intentionally no extra damping (already applied before the merge)
 
-          /// (c)  refine the sub-grid using `d_mrg` -> into ndiv2_ bins
+          /// (c)  refine the sub-grid using `d_mrg` into `ndiv2_` bins
           davg = dsum / T(ndiv2_);
           dacc = T(0);
           S ig2_new = 0;
@@ -666,7 +667,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     sort_order();
 
 #ifndef NDEBUG
-    /// check order that all dimensions are covered
+    /// verify that the order covers every dimension
     bool all_dimensions_covered = true;
     for (S idim = 0; idim < ndim_; ++idim) {
       bool covered = false;
@@ -683,12 +684,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
     assert(all_dimensions_covered);
 #endif
-    /// clear the accumulator to prepare for next iteration
+    /// clear the accumulators to prepare for the next iteration
     clear_data();
   }  // adpat
 
   /*!
-   * @brief Clears accumulated integration data.
+   * @brief Clears accumulated grid statistics and the current iteration result.
    */
   void clear_data() {
     accumulator_count_ = U(0);
