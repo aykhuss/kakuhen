@@ -23,6 +23,7 @@ set(TEST_SOURCES
   test_math.cpp
   test_ndarray.cpp
   test_printer.cpp
+  test_progress_callback.cpp
   test_result.cpp
   test_serialize.cpp
   test_small_vector.cpp

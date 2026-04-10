@@ -50,6 +50,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
+  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -204,51 +205,60 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Implementation of the integration loop for a single iteration.
    *
    * @tparam I The type of the integrand function.
+   * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
-  template <typename I>
-  int_acc_type integrate_impl(I&& integrand, U neval) {
+  template <typename I, typename ProgressCb = std::nullptr_t>
+  int_acc_type integrate_impl(I&& integrand, U neval,
+                              [[maybe_unused]] ProgressTracker& tracker,
+                              [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<S> grid_vec(ndim_);  // vector in `ndiv0_` space
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
+
     for (U i = 0; i < neval; ++i) {
       // generate_point(point, grid_vec, i);
       generate_point_sorted(point, grid_vec, i);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
-      if (skip_accum) continue;
-
-      /// accumulators for the grid
-      const T acc = fval2;
-      accumulator_count_++;
-      for (S idim = 0; idim < ndim_; ++idim) {
-        const S ig0 = grid_vec[idim];
-        accumulator0_(idim, ig0).accumulate(acc);
-        const S ig1 = ig0 / ndiv2_;
-        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-          if (idim2 == idim) continue;
-          const T* row = &grid_(idim, idim2, ig1, 0);
-          const T x = point.x[idim2];
-          const T* it = std::lower_bound(row, row + ndiv2_, x);
-          /// custom binary search
-          // const auto comp = [](const T& a, const T& b) { return a < b; };
-          // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
-          /// custom binary search with hint
-          // const S ig2_hint = grid_vec[idim] / ndiv1_;
-          // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
-          // row + ig2_hint, x, comp);
-          const S ig2 = static_cast<S>(it - row);
-          assert(ig2 >= 0 && ig2 < ndiv2_);
-          assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
-          assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
-          accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
+      if (!skip_accum) {
+        /// accumulators for the grid
+        const T acc = fval2;
+        accumulator_count_++;
+        for (S idim = 0; idim < ndim_; ++idim) {
+          const S ig0 = grid_vec[idim];
+          accumulator0_(idim, ig0).accumulate(acc);
+          const S ig1 = ig0 / ndiv2_;
+          for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+            if (idim2 == idim) continue;
+            const T* row = &grid_(idim, idim2, ig1, 0);
+            const T x = point.x[idim2];
+            const T* it = std::lower_bound(row, row + ndiv2_, x);
+            /// custom binary search
+            // const auto comp = [](const T& a, const T& b) { return a < b; };
+            // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
+            /// custom binary search with hint
+            // const S ig2_hint = grid_vec[idim] / ndiv1_;
+            // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
+            // row + ig2_hint, x, comp);
+            const S ig2 = static_cast<S>(it - row);
+            assert(ig2 >= 0 && ig2 < ndiv2_);
+            assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
+            assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
+            accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
+          }
         }
+      }
+
+      if constexpr (is_progress_callback_v<ProgressCb>) {
+        if (Base::check_eval_milestone(tracker, progress_cb, i)) break;
       }
     }  // for i
 

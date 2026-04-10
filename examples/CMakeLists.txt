@@ -3,6 +3,7 @@ set(EXAMPLES
   example_functor
   example_histogram
   example_benchmark
+  example_live_progress
   # example_mapping
   # plot_data
   # playground

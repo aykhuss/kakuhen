@@ -4,12 +4,14 @@
 #include "kakuhen/integrator/integrator_feature.h"
 #include "kakuhen/integrator/options.h"
 #include "kakuhen/integrator/point.h"
+#include "kakuhen/integrator/progress.h"
 #include "kakuhen/integrator/result.h"
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/printer.h"
 #include "kakuhen/util/scope_exit.h"
 #include "kakuhen/util/serialize.h"
 #include "kakuhen/util/type.h"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -95,6 +97,7 @@ class IntegratorBase {
   using int_acc_type = IntegralAccumulator<value_type, count_type>;
   using result_type = Result<value_type, count_type>;
   using options_type = Options<value_type, count_type, seed_type>;
+  using progress_event_type = ProgressEvent<value_type, count_type>;
 
   /*!
    * @brief Constructs an integrator base.
@@ -240,28 +243,47 @@ class IntegratorBase {
   result_type integrate(I&& integrand, const Keys&... keys) {
     options_type opts{};
     (keys.apply(opts), ...);
-    return integrate(std::forward<I>(integrand), opts);
+    return integrate(std::forward<I>(integrand), opts, nullptr);
   }
 
   /*!
-   * @brief The main integration routine.
+   * @brief The main integration routine (without progress callback).
+   *
+   * @tparam I The type of the integrand function.
+   * @param integrand The function to integrate.
+   * @param opts The options for this integration call.
+   * @return A `result_type` object containing the result of the integration.
+   */
+  template <typename I>
+  result_type integrate(I&& integrand, const options_type& opts) {
+    return integrate(std::forward<I>(integrand), opts, nullptr);
+  }
+
+  /*!
+   * @brief The main integration routine with progress callback.
    *
    * This method performs the numerical integration of the given function. It
    * iterates a number of times, and in each iteration, it calls the
    * `integrate_impl` method of the derived integrator class. The results of
    * each iteration are accumulated, and a final result is returned.
    *
+   * The progress callback is invoked at lifecycle events (START, ITER_END, END)
+   * and at milestone intervals specified by `opts.progress_step`. The callback
+   * can return `EventSignal::CANCEL` to stop integration early.
+   *
    * @tparam I The type of the integrand function.
+   * @tparam CB The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate. It should take a `point_type`
    * as input and return a `value_type`.
    * @param opts The options for this integration call. These are temporary
    * overrides for the persistent options of the integrator.
+   * @param progress_cb The progress callback, or nullptr for no callback.
    * @return A `result_type` object containing the result of the integration.
-   * @throws std::invalid_argument if required options like `neval` or `niter` are missing.
+   * @throws std::invalid_argument if required options like `neval` or `niter` are missing,
+   *         or if `progress_step` is invalid.
    */
-  template <typename I>
-  result_type integrate(I&& integrand, const options_type& opts) {
-    // std::cout << "integrate: " << opts << std::endl;
+  template <typename I, typename CB>
+  result_type integrate(I&& integrand, const options_type& opts, CB&& progress_cb) {
     // local lvalue reference to make it callable multiple times
     auto& integrand_ref = integrand;
     // set up local options & check settings
@@ -274,15 +296,83 @@ class IntegratorBase {
     if (!opts_.niter) {
       throw std::invalid_argument("number of iterations (niter) not set");
     }
-    // call the integration implementation for each iteration & accumulate
-    result_type result;
-    for (count_type iter = 0; iter < *opts_.niter; ++iter) {
-      const auto start_time = std::chrono::high_resolution_clock::now();
-      int_acc_type res_it = derived().integrate_impl(integrand_ref, *opts_.neval);
-      const auto end_time = std::chrono::high_resolution_clock::now();
-      const std::chrono::duration<double> elapsed = end_time - start_time;
 
-      result.accumulate(res_it);
+    constexpr bool has_callback = is_progress_callback_v<CB>;
+
+    result_type result;
+
+    // Always create tracker on the stack; only populated when has_callback = true.
+    // Lifetime is scoped to this call, so the result pointer below never dangles.
+    ProgressTracker tracker{};
+
+    if constexpr (has_callback) {
+      double progress_step = opts_.progress_step.value_or(DEFAULT_PROGRESS_STEP);
+      if (progress_step <= 0.0 || progress_step > 1.0) {
+        throw std::invalid_argument("progress_step must be > 0 and <= 1");
+      }
+      tracker.signal = EventSignal::NONE;
+      tracker.niter = *opts_.niter;
+      tracker.current_iter = 0;
+      tracker.neval = *opts_.neval;
+      tracker.current_eval = 0;
+      tracker.step_milestone_eval =
+          std::max(count_type{1},
+                   static_cast<count_type>(static_cast<double>(tracker.neval) * progress_step));
+      tracker.next_milestone_eval = 0;
+      tracker.result = &result;
+      tracker.time_start = std::chrono::steady_clock::now();
+      tracker.time_iter = tracker.time_start;
+
+      // Fire START event
+      EventSignal sig = fire_progress_event(tracker, progress_cb, ProgressEventKind::START);
+      if (has_signal(sig, EventSignal::CANCEL)) {
+        fire_progress_event(tracker, progress_cb, ProgressEventKind::END);
+        return result;
+      }
+    }
+
+    // call the integration implementation for each iteration & accumulate
+    for (count_type iter = 0; iter < *opts_.niter; ++iter) {
+      // track start time and fire ITER_START event
+      const auto iter_start_time = std::chrono::steady_clock::now();
+      if constexpr (has_callback) {
+        if (tracker.is_cancelled()) break;
+        tracker.current_iter = iter;
+        tracker.current_eval = 0;
+        tracker.time_iter = iter_start_time;
+        tracker.next_milestone_eval = tracker.step_milestone_eval;
+        EventSignal sig_start =
+            fire_progress_event(tracker, progress_cb, ProgressEventKind::ITER_START);
+        tracker.signal |= sig_start;
+        if (tracker.is_cancelled()) break;
+      }
+
+      int_acc_type res_it =
+          derived().integrate_impl(integrand_ref, *opts_.neval, tracker, progress_cb);
+      result.accumulate(res_it);  // always accumulate, including partial cancelled iterations
+
+      // compute elapsed time and fire ITER_END event
+      const auto iter_end_time = std::chrono::steady_clock::now();
+      const std::chrono::duration<double> elapsed = iter_end_time - iter_start_time;
+      if constexpr (has_callback) {
+        if (tracker.is_cancelled()) {
+          // Discard partial adaptive accumulation so the next integrate() call starts clean.
+          if constexpr (detail::HasAdapt<Derived>) {
+            if (opts_.adapt && *opts_.adapt) derived().clear_data();
+          }
+          break;
+        }
+        tracker.current_eval = tracker.neval;  // mark iteration as fully completed
+        EventSignal sig = fire_progress_event(tracker, progress_cb, ProgressEventKind::ITER_END);
+        if (has_signal(sig, EventSignal::CANCEL)) {
+          tracker.signal |= sig;
+          if constexpr (detail::HasAdapt<Derived>) {
+            if (opts_.adapt && *opts_.adapt) derived().clear_data();
+          }
+          break;
+        }
+      }
+
       if (opts_.verbosity && *opts_.verbosity > 0) {
         print_iteration_summary(iter + 1, *opts_.niter, res_it, result, elapsed.count());
       }
@@ -320,9 +410,11 @@ class IntegratorBase {
 
     }  // for iter
 
-    // int_acc_type res =
-    //     derived().integrate_impl(std::forward<I>(integrand), *opts_.neval);
-    // return all iterations
+    // Fire END event (always, even on cancel/exception)
+    if constexpr (has_callback) {
+      fire_progress_event(tracker, progress_cb, ProgressEventKind::END);
+    }
+
     return result;
   }
 
@@ -563,6 +655,122 @@ class IntegratorBase {
   RNG random_generator_;       //!< The random number generator.
   DIST uniform_distribution_;  //!< The uniform random number distribution.
   options_type opts_;          //!< The persistent options for the integrator.
+
+  /*!
+   * @brief Progress tracking state passed through a single integrate() call.
+   *
+   * Created as a local variable inside integrate() and passed by reference to
+   * integrate_impl(). This scope-bound lifetime guarantees the `result` pointer
+   * is never dangling. Derived classes read/write this struct only when a
+   * real callback is present (guarded by `if constexpr`).
+   */
+  struct ProgressTracker {
+    EventSignal signal{EventSignal::NONE};
+    count_type niter{0};                 ///< Total number of iterations.
+    count_type current_iter{0};          ///< Current iteration (0-indexed).
+    count_type neval{0};                 ///< Evaluations per iteration (denominator for fraction).
+    count_type current_eval{0};          ///< Evaluations completed in current iteration.
+    count_type step_milestone_eval{1};   ///< Evaluations between milestones (within one iteration).
+    count_type next_milestone_eval{0};   ///< Next per-iteration milestone trigger.
+    const result_type* result{nullptr};  ///< Non-owning pointer to the cross-iteration result
+                                         ///< (valid only during integrate()).
+    std::chrono::steady_clock::time_point time_start{};
+    std::chrono::steady_clock::time_point time_iter{};
+
+    /// @brief Check if integration has been cancelled.
+    [[nodiscard]] bool is_cancelled() const noexcept {
+      return has_signal(signal, EventSignal::CANCEL);
+    }
+  };
+
+  /*!
+   * @brief Fire a progress event to the callback.
+   *
+   * Static to emphasise that it has no side-effects on the integrator instance;
+   * all mutable state lives in `tracker`. Exceptions thrown by the callback
+   * (including from an END event) are caught and converted to EXCEPTION|CANCEL
+   * so that integration always terminates cleanly.
+   *
+   * @tparam Cb The callback type (must not be std::nullptr_t).
+   * @param tracker Progress tracking state for this integrate() call.
+   * @param cb The callback to invoke.
+   * @param kind The type of progress event.
+   * @param evals Current evaluation count.
+   * @return The signal returned by the callback.
+   */
+  template <typename Cb>
+  static EventSignal fire_progress_event(ProgressTracker& tracker, Cb&& cb,
+                                         ProgressEventKind kind) {
+    if constexpr (!is_progress_callback_v<Cb>) {
+      return EventSignal::NONE;
+    } else {
+      value_type val{0};
+      value_type err{0};
+      if (tracker.result && tracker.result->size() > 0) {
+        val = tracker.result->value();
+        err = tracker.result->error();
+      }
+
+      auto now = std::chrono::steady_clock::now();
+      double elapsed_start = std::chrono::duration<double>(now - tracker.time_start).count();
+      double elapsed_iter = std::chrono::duration<double>(now - tracker.time_iter).count();
+      // Fraction is within the current iteration so each iteration's bar sweeps 0→1.
+      // current_eval is 1-indexed (number of completed evaluations), so no +1 needed.
+      double fraction = tracker.neval > 0
+                            ? std::min(1.0, static_cast<double>(tracker.current_eval) /
+                                                static_cast<double>(tracker.neval))
+                            : 0.0;
+
+      progress_event_type event{.kind = kind,
+                                .niter = tracker.niter,
+                                .current_iter = tracker.current_iter,
+                                .neval = tracker.neval,
+                                .current_eval = tracker.current_eval,
+                                .value = val,
+                                .error = err,
+                                .fraction = fraction,
+                                .elapsed_start = elapsed_start,
+                                .elapsed_iter = elapsed_iter};
+
+      try {
+        return cb(event);
+      } catch (...) {
+        tracker.signal |= EventSignal::EXCEPTION | EventSignal::CANCEL;
+        return EventSignal::EXCEPTION | EventSignal::CANCEL;
+      }
+    }
+  }
+
+  /*!
+   * @brief Fire an EVAL_MILESTONE event if the current sample crosses the next threshold.
+   *
+   * Encapsulates the per-sample progress check that would otherwise be duplicated
+   * in every derived integrator's inner loop. When `ProgressCb` is `std::nullptr_t`
+   * the entire body compiles away and the function unconditionally returns `false`.
+   *
+   * @tparam ProgressCb The callback type (or std::nullptr_t for no callback).
+   * @param tracker Progress tracking state for this integrate() call.
+   * @param progress_cb The callback to invoke on a milestone.
+   * @param i Zero-based index of the sample just evaluated.
+   * @return `true` if integration should be cancelled (break out of the eval loop).
+   */
+  template <typename ProgressCb>
+  [[nodiscard]] static bool check_eval_milestone(ProgressTracker& tracker,
+                                                 ProgressCb&& progress_cb,
+                                                 count_type i) {
+    if constexpr (!is_progress_callback_v<ProgressCb>) {
+      return false;
+    } else {
+      if ((i + 1) >= tracker.next_milestone_eval) {
+        tracker.current_eval = i + 1;
+        EventSignal sig =
+            fire_progress_event(tracker, progress_cb, ProgressEventKind::EVAL_MILESTONE);
+        tracker.signal |= sig;
+        tracker.next_milestone_eval += tracker.step_milestone_eval;
+      }
+      return tracker.is_cancelled();
+    }
+  }
 
   /*!
    * @brief Generates a random number in the range [0, 1).

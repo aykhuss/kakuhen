@@ -35,6 +35,7 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
+  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -59,12 +60,16 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Implementation of the integration loop for a single iteration.
    *
    * @tparam I The type of the integrand function.
+   * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
-  template <typename I>
-  int_acc_type integrate_impl(I&& integrand, count_type neval) {
+  template <typename I, typename ProgressCb = std::nullptr_t>
+  int_acc_type integrate_impl(I&& integrand, count_type neval,
+                              [[maybe_unused]] ProgressTracker& tracker,
+                              [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
@@ -74,6 +79,10 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
       const value_type func = point.weight * integrand(point);
       const value_type func2 = func * func;
       result_.accumulate(func, func2);
+
+      if constexpr (is_progress_callback_v<ProgressCb>) {
+        if (Base::check_eval_milestone(tracker, progress_cb, i)) break;
+      }
     }
 
     return result_;

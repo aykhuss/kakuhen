@@ -37,6 +37,10 @@ struct Options {
   std::optional<int> verbosity;                    //!< Verbosity level of output messages.
   std::optional<void*> user_data;                  //!< Pointer to user-defined data (non-owning).
   std::optional<std::filesystem::path> file_path;  //!< Path for saving state/data.
+  std::optional<double> progress_step;  //!< Fraction of a single iteration's evaluations between
+                                        //!< EVAL_MILESTONE callbacks, in (0, 1]. For example, 0.25
+                                        //!< fires four milestones per iteration regardless of niter.
+                                        //!< Defaults to DEFAULT_PROGRESS_STEP when a callback is supplied.
 
   /*!
    * @brief Sets options from another Options object.
@@ -57,6 +61,7 @@ struct Options {
     if (opts.verbosity) verbosity = *opts.verbosity;
     if (opts.user_data) user_data = *opts.user_data;
     if (opts.file_path) file_path = *opts.file_path;
+    if (opts.progress_step) progress_step = *opts.progress_step;
   }
 
   /*!
@@ -105,6 +110,7 @@ struct Options {
       os << ".file_path=\"" << opts.file_path->string() << std::string("\"");
       comma = true;
     }
+    add(".progress_step", opts.progress_step);
 
     return os << "}";
   }
@@ -151,6 +157,7 @@ struct Options {
     static constexpr OptionKey<&Options::verbosity> verbosity{};  //!< Key for `verbosity` option.
     static constexpr OptionKey<&Options::user_data> user_data{};  //!< Key for `user_data` option.
     static constexpr OptionKey<&Options::file_path> file_path{};  //!< Key for `file_path` option.
+    static constexpr OptionKey<&Options::progress_step> progress_step{};  //!< Key for `progress_step`.
   };  // struct keys
 
 };  // struct Options

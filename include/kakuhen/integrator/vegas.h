@@ -46,6 +46,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
+  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -144,12 +145,16 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Implementation of the integration loop for a single iteration.
    *
    * @tparam I The type of the integrand function.
+   * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
    * @param integrand The function to integrate.
    * @param neval The number of evaluations to perform.
+   * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
-  template <typename I>
-  int_acc_type integrate_impl(I&& integrand, U neval) {
+  template <typename I, typename ProgressCb = std::nullptr_t>
+  int_acc_type integrate_impl(I&& integrand, U neval,
+                              [[maybe_unused]] ProgressTracker& tracker,
+                              [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
@@ -157,17 +162,23 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     std::vector<S> grid_vec(ndim_);
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
+
     for (U i = 0; i < neval; ++i) {
       generate_point(point, grid_vec, i);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
-      if (skip_accum) continue;
-      /// accumulator for the grid
-      const T acc = fval2;
-      accumulator_count_++;
-      for (S idim = 0; idim < ndim_; ++idim) {
-        accumulator_(idim, grid_vec[idim]).accumulate(acc);
+      if (!skip_accum) {
+        /// accumulator for the grid
+        const T acc = fval2;
+        accumulator_count_++;
+        for (S idim = 0; idim < ndim_; ++idim) {
+          accumulator_(idim, grid_vec[idim]).accumulate(acc);
+        }
+      }
+
+      if constexpr (is_progress_callback_v<ProgressCb>) {
+        if (Base::check_eval_milestone(tracker, progress_cb, i)) break;
       }
     }
 
