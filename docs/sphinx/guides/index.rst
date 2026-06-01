@@ -6,5 +6,6 @@ User Guide
 
    installation
    quickstart
+   progress
    histograms
    building_docs

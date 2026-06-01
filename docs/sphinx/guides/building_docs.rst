@@ -1,14 +1,14 @@
 Building Documentation
 ======================
 
-This guide explains how to build the API reference and Sphinx site locally.
+This guide explains how to build the Doxygen XML and Sphinx site locally.
 
 Requirements
 ------------
 
-* Doxygen (for XML generation)
-* Sphinx + Breathe + Furo
-* CMake 3.18+
+* Doxygen, for XML generation
+* Sphinx with the ``breathe`` and ``furo`` Python packages
+* CMake 3.18 or newer
 
 On Ubuntu, for example:
 
@@ -30,6 +30,9 @@ The docs are generated via CMake targets:
     cmake --build build --target build_sphinx_html
 
 Output is written to ``docs/sphinx/_build/html``.
+
+If the target succeeds, open ``docs/sphinx/_build/html/index.html`` in a
+browser.
 
 Troubleshooting
 ---------------

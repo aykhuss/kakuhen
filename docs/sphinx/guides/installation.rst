@@ -1,7 +1,8 @@
 Installation
 ============
 
-This guide provides recommended ways to consume `kakuhen` in CMake projects.
+This guide summarizes the recommended ways to consume `kakuhen` from a CMake
+project.
 
 Requirements
 ------------
@@ -13,7 +14,8 @@ Requirements
 Option A: Add as subdirectory
 -----------------------------
 
-This is the simplest way to consume a header-only library during development.
+This is usually the simplest option while developing both your application and
+the library side by side.
 
 1. **Vendor or add a submodule**, for example:
 
@@ -30,6 +32,9 @@ This is the simplest way to consume a header-only library during development.
 
 Option B: Install + find_package
 --------------------------------
+
+This option is a better fit when you want a reusable installation or package
+manager style workflow.
 
 1. **Clone and configure**:
 
@@ -68,7 +73,7 @@ Option B: Install + find_package
 Build options
 -------------
 
-Useful CMake options:
+Common CMake options:
 
 * ``KAKUHEN_BUILD_TESTING``: Build tests.
 * ``KAKUHEN_BUILD_CLI``: Build the CLI tool.

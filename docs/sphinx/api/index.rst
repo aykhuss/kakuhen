@@ -1,7 +1,7 @@
 API Reference
 =============
 
-This section provides a detailed reference to the kakuhen library's public API,
+This section provides a detailed reference to the `kakuhen` public API,
 organized by module.
 
 .. toctree::
