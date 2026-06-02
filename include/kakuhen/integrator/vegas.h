@@ -11,7 +11,9 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 namespace kakuhen::integrator {
 
@@ -153,19 +155,21 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
   template <typename I, typename ProgressCb = std::nullptr_t>
-  int_acc_type integrate_impl(I&& integrand, U neval,
-                              [[maybe_unused]] ProgressTracker& tracker,
+  int_acc_type integrate_impl(I&& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
                               [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
-
-    std::vector<S> grid_vec(ndim_);
+    std::vector<T> u_buf(ndim_);
+    std::vector<S> cell(ndim_);
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
 
     for (U i = 0; i < neval; ++i) {
-      generate_point(point, grid_vec, i);
+      for (S idim = 0; idim < ndim_; ++idim)
+        u_buf[idim] = Base::ran();
+      point.sample_index = i;
+      map_point_impl(u_buf, point, cell);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
@@ -174,7 +178,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         const T acc = fval2;
         accumulator_count_++;
         for (S idim = 0; idim < ndim_; ++idim) {
-          accumulator_(idim, grid_vec[idim]).accumulate(acc);
+          accumulator_(idim, cell[idim]).accumulate(acc);
         }
       }
 
@@ -184,6 +188,42 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     }
 
     return result_;
+  }
+
+  /*!
+   * @brief Maps caller-supplied uniform coordinates through the VEGAS grid.
+   *
+   * For each physical dimension, `u[idim]` selects one VEGAS interval and an
+   * in-cell coordinate. The mapped coordinate and the importance-sampling
+   * Jacobian are written to `point`, while `cell[idim]` receives the selected
+   * VEGAS interval. This method does not draw from the RNG, does not mutate
+   * integrator state, and leaves `point.sample_index` unchanged.
+   *
+   * @param u Uniform randoms in [0, 1), one per physical dimension.
+   * @param point Output point whose coordinates and weight are overwritten.
+   * @param cell Output interval index per physical dimension; must contain
+   *             `ndim()` entries.
+   */
+  inline void map_point_impl(std::span<const T> u, Point<num_traits>& point,
+                             std::span<S> cell) const {
+    assert(cell.size() == static_cast<std::size_t>(ndim_));
+    point.weight = T(1);
+    for (S idim = 0; idim < ndim_; ++idim) {
+      T rand = u[idim];
+      // intervals rand in [ i/ndiv_ , (i+1)/ndiv_ ] mapped to i
+      const S ig = S(rand * ndiv_);
+      assert(ig >= 0 && ig < ndiv_);
+      assert(rand * ndiv_ >= T(ig) && rand * ndiv_ <= T(ig + 1));
+      // map rand back to [ 0, 1 ]
+      rand = rand * ndiv_ - T(ig);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig > 0 ? grid_(idim, ig - 1) : T(0);
+      const T x_upp = grid_(idim, ig);
+      point.x[idim] = x_low + rand * (x_upp - x_low);
+      // point.x[idim] = x_low * (T(1) - rand) + x_upp * rand;
+      cell[idim] = ig;
+      point.weight *= ndiv_ * (x_upp - x_low);
+    }
   }
 
   /*!

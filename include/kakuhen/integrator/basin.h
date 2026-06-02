@@ -13,7 +13,9 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 namespace kakuhen::integrator {
 
@@ -213,19 +215,21 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
   template <typename I, typename ProgressCb = std::nullptr_t>
-  int_acc_type integrate_impl(I&& integrand, U neval,
-                              [[maybe_unused]] ProgressTracker& tracker,
+  int_acc_type integrate_impl(I&& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
                               [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
-    std::vector<S> grid_vec(ndim_);  // vector in `ndiv0_` space
+    std::vector<T> u_buf(ndim_);
+    std::vector<S> cell(ndim_);  // per-dimension ig0 indices in ndiv0_ space
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
 
     for (U i = 0; i < neval; ++i) {
-      // generate_point(point, grid_vec, i);
-      generate_point_sorted(point, grid_vec, i);
+      for (S idim = 0; idim < ndim_; ++idim)
+        u_buf[idim] = Base::ran();
+      point.sample_index = i;
+      map_point_impl(u_buf, point, cell);
       const T fval = point.weight * integrand(point);
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
@@ -234,7 +238,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T acc = fval2;
         accumulator_count_++;
         for (S idim = 0; idim < ndim_; ++idim) {
-          const S ig0 = grid_vec[idim];
+          const S ig0 = cell[idim];
           accumulator0_(idim, ig0).accumulate(acc);
           const S ig1 = ig0 / ndiv2_;
           for (S idim2 = 0; idim2 < ndim_; ++idim2) {
@@ -264,6 +268,85 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }  // for i
 
     return result_;
+  }
+
+  /*!
+   * @brief Maps caller-supplied uniform coordinates through the BASIN grids.
+   *
+   * Each `u[idim]` drives the physical dimension `idim`. Diagonal dimensions are
+   * mapped through the ordered one-dimensional grids, then conditional
+   * dimensions are mapped through the ordered nested grids. The mapped
+   * coordinates and importance-sampling Jacobian are written to `point`, while
+   * `cell[idim]` receives the corresponding diagonal `ig0` cell index. This
+   * method does not draw from the RNG, does not mutate integrator state, and
+   * leaves `point.sample_index` unchanged.
+   *
+   * @param u Uniform randoms in [0, 1), one per physical dimension.
+   * @param point Output point whose coordinates and weight are overwritten.
+   * @param cell Output diagonal `ig0` cell per physical dimension; must contain
+   *             `ndim()` entries.
+   */
+  inline void map_point_impl(std::span<const T> u, Point<num_traits>& point,
+                             std::span<S> cell) const {
+    assert(cell.size() == static_cast<std::size_t>(ndim_));
+    point.weight = T(1);
+
+    /// (a) diagonal map
+    for (S iord = 0; iord < nblocks_; ++iord) {
+      assert(order_(iord, 0) == order_(iord, 1));
+      const S idim0 = order_(iord, 0);
+      T rand = u[idim0];
+      //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
+      const S ig0 = S(rand * ndiv0_);
+      assert(ig0 >= 0 && ig0 < ndiv0_);
+      assert(rand * ndiv0_ >= T(ig0) && rand * ndiv0_ <= T(ig0 + 1));
+      //> map rand back to [ 0, 1 ]
+      rand = rand * ndiv0_ - T(ig0);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig0 > 0 ? ordered_grid0_(iord, ig0 - 1) : T(0);
+      const T x_upp = ordered_grid0_(iord, ig0);
+      point.x[idim0] = x_low + rand * (x_upp - x_low);
+      // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
+      point.weight *= ndiv0_ * (x_upp - x_low);
+      cell[idim0] = ig0;
+    }  // for iord
+
+    /// (b) conditional map
+    for (S iord = nblocks_; iord < ndim_; ++iord) {
+      assert(order_(iord, 0) != order_(iord, 1));
+      const S idim1 = order_(iord, 0);
+      const S idim2 = order_(iord, 1);
+      /// check that the 1st dimension is set properly
+      assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
+      assert(cell[idim1] >= 0 && cell[idim1] < ndiv0_);
+      /// this is correct because `cell` always stores `ig0`
+      const S ig1 = cell[idim1] / ndiv2_;
+      assert(ig1 >= 0 && ig1 < ndiv1_);
+      T rand = u[idim2];
+      //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
+      const S ig2 = S(rand * ndiv2_);
+      assert(ig2 >= 0 && ig2 < ndiv2_);
+      assert(rand * ndiv2_ >= T(ig2) && rand * ndiv2_ <= T(ig2 + 1));
+      //> map rand back to [ 0, 1 ]
+      rand = rand * ndiv2_ - T(ig2);
+      assert(rand >= T(0) && rand <= T(1));
+      const T x_low = ig2 > 0 ? ordered_grid_(iord, ig1, ig2 - 1) : T(0);
+      const T x_upp = ordered_grid_(iord, ig1, ig2);
+      const T x = x_low + rand * (x_upp - x_low);
+      point.x[idim2] = x;
+      // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
+      point.weight *= ndiv2_ * (x_upp - x_low);
+      /// need to get index ig0 for idim2
+      const T* row0 = &grid0_(idim2, 0);
+      const T* it0 = std::lower_bound(row0, row0 + ndiv0_, x);
+      /// custom binary search
+      // const auto comp = [](const T& a, const T& b) { return a < b; };
+      // const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
+      const S ig0 = static_cast<S>(it0 - row0);
+      assert(ig0 >= 0 && ig0 < ndiv0_);
+      assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
+      cell[idim2] = ig0;
+    }  // for iord
   }
 
   /*!

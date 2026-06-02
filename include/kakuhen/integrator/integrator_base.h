@@ -14,6 +14,7 @@
 #include "kakuhen/util/type.h"
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -21,10 +22,12 @@
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace kakuhen::integrator {
 
@@ -442,6 +445,30 @@ class IntegratorBase {
     }
 
     return result;
+  }
+
+  /// @}
+
+  /// @name Map Random Number Vector to Point
+  /// @{
+
+  /*!
+   * @brief Maps a buffer of uniform randoms to a sample point.
+   *
+   * Forwards to the derived class's `map_point_impl`. Extra arguments (e.g. a
+   * cell-index output span for grid-based integrators) are forwarded as-is.
+   *
+   * @tparam Args Extra argument types forwarded to the derived implementation.
+   * @param u Uniform randoms in [0, 1), one per physical dimension.
+   * @param point Output: `point.x` and `point.weight` are set; `point.sample_index` is not.
+   * @param args Extra outputs forwarded to the derived `map_point_impl`.
+   */
+  template <typename... Args>
+  inline void map_point(std::span<const value_type> u, point_type& point, Args&&... args) const {
+    assert(u.size() == static_cast<std::size_t>(ndim_));
+    assert(point.ndim == ndim_);
+    assert(point.x.size() == static_cast<std::size_t>(ndim_));
+    derived().map_point_impl(u, point, std::forward<Args>(args)...);
   }
 
   /// @}

@@ -3,6 +3,8 @@
 #include "kakuhen/integrator/integrator_base.h"
 #include <cassert>
 #include <cstddef>
+#include <span>
+#include <vector>
 
 namespace kakuhen::integrator {
 
@@ -74,9 +76,13 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
     result_.reset();
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
+    std::vector<value_type> u_buf(ndim_);
 
     for (count_type i = 0; i < neval; ++i) {
-      generate_point(point, i);
+      for (size_type idim = 0; idim < ndim_; ++idim)
+        u_buf[idim] = Base::ran();
+      point.sample_index = i;
+      map_point_impl(u_buf, point);
       const value_type func = point.weight * integrand(point);
       const value_type func2 = func * func;
       result_.accumulate(func, func2);
@@ -87,6 +93,25 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
     }
 
     return result_;
+  }
+
+  /*!
+   * @brief Maps caller-supplied uniform coordinates to a plain sample point.
+   *
+   * The plain integrator uses the identity map on the unit hypercube, so each
+   * coordinate is copied directly from the corresponding entry in `u`. This
+   * method does not draw from the RNG, does not mutate integrator state, and
+   * leaves `point.sample_index` unchanged.
+   *
+   * @param u Uniform randoms in [0, 1), one per physical dimension.
+   * @param point Output point whose coordinate buffer is filled from `u`; its
+   *              weight is set to 1.
+   */
+  inline void map_point_impl(std::span<const value_type> u, Point<num_traits>& point) const {
+    point.weight = value_type(1);
+    for (size_type idim = 0; idim < ndim_; ++idim) {
+      point.x[idim] = u[idim];
+    }
   }
 
   /// @}

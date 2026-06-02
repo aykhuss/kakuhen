@@ -21,6 +21,7 @@ set(TEST_SOURCES
   test_histogram_view.cpp
   test_histogram_serialize.cpp
   test_math.cpp
+  test_map_point.cpp
   test_ndarray.cpp
   test_printer.cpp
   test_progress_callback.cpp
