@@ -32,10 +32,9 @@ TEST_CASE("Vegas map_point maps supplied uniforms and cells", "[map_point][vegas
   point.sample_index = 7;
 
   const std::array<double, 2> u{0.125, 0.875};
-  std::vector<Vegas<>::size_type> cell(2);
+  Vegas<>::cell_ctx_type cell({2});
 
-  vegas.map_point(std::span<const double>{u.data(), u.size()}, point,
-                  std::span<Vegas<>::size_type>{cell.data(), cell.size()});
+  vegas.map_point(std::span<const double>{u.data(), u.size()}, point, cell);
 
   REQUIRE(point.x[0] == Approx(u[0]));
   REQUIRE(point.x[1] == Approx(u[1]));
@@ -77,13 +76,11 @@ TEST_CASE("Adaptive map_point is deterministic for fixed input", "[map_point]") 
     const std::array<double, 2> u{0.13, 0.77};
     Point<> point_a(2);
     Point<> point_b(2);
-    std::vector<Vegas<>::size_type> cell_a(2);
-    std::vector<Vegas<>::size_type> cell_b(2);
+    Vegas<>::cell_ctx_type cell_a({2});
+    Vegas<>::cell_ctx_type cell_b({2});
 
-    vegas.map_point(std::span<const double>{u.data(), u.size()}, point_a,
-                    std::span<Vegas<>::size_type>{cell_a.data(), cell_a.size()});
-    vegas.map_point(std::span<const double>{u.data(), u.size()}, point_b,
-                    std::span<Vegas<>::size_type>{cell_b.data(), cell_b.size()});
+    vegas.map_point(std::span<const double>{u.data(), u.size()}, point_a, cell_a);
+    vegas.map_point(std::span<const double>{u.data(), u.size()}, point_b, cell_b);
 
     REQUIRE(point_a.x[0] == Approx(point_b.x[0]));
     REQUIRE(point_a.x[1] == Approx(point_b.x[1]));

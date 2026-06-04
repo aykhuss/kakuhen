@@ -2,6 +2,7 @@ set(EXAMPLES
   example
   example_functor
   example_histogram
+  example_generator
   example_benchmark
   example_live_progress
   # example_mapping

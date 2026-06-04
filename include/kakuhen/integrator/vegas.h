@@ -63,6 +63,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::ndim_;
   using Base::opts_;
 
+  // the cell context type
+  using cell_ctx_type = ndarray::NDArray<S, S>;
+
   /*!
    * @brief Construct a new Vegas object.
    *
@@ -161,7 +164,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<T> u_buf(ndim_);
-    std::vector<S> cell(ndim_);
+    cell_ctx_type cell({ndim_});
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
 
@@ -205,7 +208,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    *             `ndim()` entries.
    */
   inline void map_point_impl(std::span<const T> u, Point<num_traits>& point,
-                             std::span<S> cell) const {
+                             cell_ctx_type& cell) const {
     assert(cell.size() == static_cast<std::size_t>(ndim_));
     point.weight = T(1);
     for (S idim = 0; idim < ndim_; ++idim) {
@@ -499,13 +502,15 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
   /// @}
 
+ protected:
+  S ndiv_;  // number of divisions of the grid along each dimension
+  int_acc_type result_;
+
  private:
   /// parameters that controls the grid refinement
   T alpha_{0.75};
 
-  S ndiv_;  // number of divisions of the grid along each dimension
   ndarray::NDArray<T, S> grid_;
-  int_acc_type result_;
   U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 
