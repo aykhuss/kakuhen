@@ -143,9 +143,20 @@ class ProgressBar {
     bar_buf[pos++] = ']';
     bar_buf[pos] = '\0';
 
-    // Calculate ETA into a stack buffer
+    // Show the running ETA, or the total elapsed time once complete.
     char eta_buf[32];
     format_eta(fraction, eta_buf, sizeof(eta_buf));
+    if (pct >= 100) {
+      auto elapsed =
+          std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                        start_time_)
+              .count();
+      char dur[24];
+      format_duration(elapsed, dur, sizeof(dur));
+      std::snprintf(eta_buf, sizeof(eta_buf), "elapsed: %s", dur);
+    } else {
+      format_eta(fraction, eta_buf, sizeof(eta_buf));
+    }
 
     // Render: \r[====>     ] 45% ETA: 2m 15s  label
     std::cerr << "\r\x1b[2K" << bar_buf << ' ' << std::setw(3) << pct << "% " << eta_buf;
