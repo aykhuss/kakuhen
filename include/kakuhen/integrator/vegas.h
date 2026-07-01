@@ -514,37 +514,6 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 
-  /*!
-   * @brief Generates a random point in the integration volume.
-   *
-   * This method uses the current grid state to perform importance sampling.
-   *
-   * @param point The point object to populate.
-   * @param grid_vec A vector to store the grid indices for each dimension.
-   * @param sample_index The index of the current sample.
-   */
-  inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
-                             U sample_index = U(0)) {
-    point.sample_index = sample_index;
-    point.weight = T(1);
-    for (S idim = 0; idim < ndim_; ++idim) {
-      T rand = Base::ran();
-      // intervals rand in [ i/ndiv_ , (i+1)/ndiv_ ] mapped to i
-      const S ig = S(rand * ndiv_);  // 0 .. (ndiv_-1)
-      assert(ig >= 0 && ig < ndiv_);
-      assert(rand * ndiv_ >= T(ig) && rand * ndiv_ <= T(ig + 1));
-      // map rand back to [ 0, 1 ]
-      rand = rand * ndiv_ - T(ig);
-      assert(rand >= T(0) && rand <= T(1));
-      const T x_low = ig > 0 ? grid_(idim, ig - 1) : T(0);
-      const T x_upp = grid_(idim, ig);
-      point.x[idim] = x_low + rand * (x_upp - x_low);
-      // point.x[idim] = x_low * (T(1) - rand) + x_upp * rand;
-      grid_vec[idim] = ig;
-      point.weight *= ndiv_ * (x_upp - x_low);
-    }
-  }
-
 };  // class Vegas
 
 }  // namespace kakuhen::integrator

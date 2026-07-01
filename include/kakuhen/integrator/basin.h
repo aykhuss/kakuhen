@@ -68,6 +68,18 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   using Base::opts_;
 
   /*!
+   * @brief The cell context type recorded by `map_point`; shape `{ndim, 3}`.
+   *
+   * For each dimension the three entries are `(ig0, cond, ig2)`:
+   * - `ig0`: the diagonal cell index in `[0, ndiv0)`;
+   * - `cond`: the conditioning dimension (the dimension itself if sampled
+   *   diagonally);
+   * - `ig2`: the conditional sub-grid cell in `[0, ndiv2)` (the sentinel
+   *   `ndiv2` if sampled diagonally).
+   */
+  using cell_ctx_type = ndarray::NDArray<S, S>;
+
+  /*!
    * @brief Construct a new Basin object.
    *
    * @param ndim The number of dimensions of the integration.
@@ -80,10 +92,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         ndiv2_{ndiv2},
         ndiv0_{ndiv1 * ndiv2},
         grid_({ndim, ndim, ndiv1, ndiv2}),
-        accumulator_count_{0},
-        accumulator_({ndim, ndim, ndiv1, ndiv2}),
         order_({ndim, 2}),
-        ordered_grid_({ndim, ndiv1, ndiv2}) {
+        ordered_grid_({ndim, ndiv1, ndiv2}),
+        accumulator_count_{0},
+        accumulator_({ndim, ndim, ndiv1, ndiv2}) {
     assert(ndim > 0 && ndiv1 > 1 && ndiv2 > 1);
     grid0_ = grid_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
     accumulator0_ = accumulator_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
@@ -123,6 +135,17 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   [[nodiscard]] inline S ndiv0() const noexcept {
     return ndiv0_;
+  }
+  /*!
+   * @brief Get the number of uncorrelated blocks in the learned sampling order.
+   *
+   * Equals `ndim()` when no inter-dimensional correlations were detected; each
+   * remaining dimension is sampled conditionally on another dimension.
+   *
+   * @return The number of diagonally sampled dimensions.
+   */
+  [[nodiscard]] inline S nblocks() const noexcept {
+    return nblocks_;
   }
 
   /*!
@@ -221,7 +244,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<T> u_buf(ndim_);
-    std::vector<S> cell(ndim_);  // per-dimension ig0 indices in ndiv0_ space
+    cell_ctx_type cell({ndim_, 3});
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
 
@@ -238,7 +261,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         const T acc = fval2;
         accumulator_count_++;
         for (S idim = 0; idim < ndim_; ++idim) {
-          const S ig0 = cell[idim];
+          const S ig0 = cell(idim, 0);
           accumulator0_(idim, ig0).accumulate(acc);
           const S ig1 = ig0 / ndiv2_;
           for (S idim2 = 0; idim2 < ndim_; ++idim2) {
@@ -277,18 +300,20 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * mapped through the ordered one-dimensional grids, then conditional
    * dimensions are mapped through the ordered nested grids. The mapped
    * coordinates and importance-sampling Jacobian are written to `point`, while
-   * `cell[idim]` receives the corresponding diagonal `ig0` cell index. This
-   * method does not draw from the RNG, does not mutate integrator state, and
-   * leaves `point.sample_index` unchanged.
+   * row `idim` of `cell` receives the per-dimension context `(ig0, cond, ig2)`:
+   * the diagonal `ig0` cell index, the conditioning dimension `cond` (the
+   * dimension itself for diagonally sampled dimensions), and the conditional
+   * sub-grid cell `ig2` (the sentinel `ndiv2` for diagonally sampled
+   * dimensions). This method does not draw from the RNG, does not mutate
+   * integrator state, and leaves `point.sample_index` unchanged.
    *
    * @param u Uniform randoms in [0, 1), one per physical dimension.
    * @param point Output point whose coordinates and weight are overwritten.
-   * @param cell Output diagonal `ig0` cell per physical dimension; must contain
-   *             `ndim()` entries.
+   * @param cell Output cell context; must have shape `{ndim(), 3}`.
    */
   inline void map_point_impl(std::span<const T> u, Point<num_traits>& point,
-                             std::span<S> cell) const {
-    assert(cell.size() == static_cast<std::size_t>(ndim_));
+                             cell_ctx_type& cell) const {
+    assert(cell.size() == static_cast<std::size_t>(ndim_) * 3);
     point.weight = T(1);
 
     /// (a) diagonal map
@@ -308,7 +333,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       point.x[idim0] = x_low + rand * (x_upp - x_low);
       // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
       point.weight *= ndiv0_ * (x_upp - x_low);
-      cell[idim0] = ig0;
+      cell(idim0, 0) = ig0;
+      cell(idim0, 1) = idim0;
+      cell(idim0, 2) = ndiv2_;
     }  // for iord
 
     /// (b) conditional map
@@ -318,9 +345,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       const S idim2 = order_(iord, 1);
       /// check that the 1st dimension is set properly
       assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
-      assert(cell[idim1] >= 0 && cell[idim1] < ndiv0_);
+      assert(cell(idim1, 0) >= 0 && cell(idim1, 0) < ndiv0_);
       /// this is correct because `cell` always stores `ig0`
-      const S ig1 = cell[idim1] / ndiv2_;
+      const S ig1 = cell(idim1, 0) / ndiv2_;
       assert(ig1 >= 0 && ig1 < ndiv1_);
       T rand = u[idim2];
       //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
@@ -345,7 +372,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       const S ig0 = static_cast<S>(it0 - row0);
       assert(ig0 >= 0 && ig0 < ndiv0_);
       assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
-      cell[idim2] = ig0;
+      cell(idim2, 0) = ig0;
+      cell(idim2, 1) = idim1;
+      cell(idim2, 2) = ig2;
     }  // for iord
   }
 
@@ -1114,12 +1143,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
   /// @}
 
- private:
-  /// parameters that controls the grid refinement
-  T alpha_{0.75};
-  T weight_smooth_{3};
-  T min_score_{0.05};
-  T penalty_fac_score_{2};
+ protected:
+  int_acc_type result_;
 
   /// division for conditional PDF:  P(x2|x1)
   S ndiv1_;  // number of divisions of the grid along dim 1
@@ -1127,10 +1152,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   S ndiv0_;  // number of divisions of the grid along diagonal
   ndarray::NDArray<T, S> grid_;
   ndarray::NDView<T, S> grid0_;
-  int_acc_type result_;
-  U accumulator_count_{0};
-  ndarray::NDArray<grid_acc_type, S> accumulator_;
-  ndarray::NDView<grid_acc_type, S> accumulator0_;
   /// define the sampling order
   ndarray::NDArray<S, S> order_;
   /// ordered grid
@@ -1138,10 +1159,21 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDArray<T, S> ordered_grid_;
   ndarray::NDView<T, S> ordered_grid0_;
 
+ private:
+  /// parameters that controls the grid refinement
+  T alpha_{0.75};
+  T weight_smooth_{3};
+  T min_score_{0.05};
+  T penalty_fac_score_{2};
+
+  U accumulator_count_{0};
+  ndarray::NDArray<grid_acc_type, S> accumulator_;
+  ndarray::NDView<grid_acc_type, S> accumulator0_;
+
   /*!
    * @brief Reorders sampling order so diagonal steps come first.
    *
-   * This also builds the ordered grids used by generate_point_sorted().
+   * This also builds the ordered grids used by map_point().
    */
   void sort_order() {
     /// first we want to shuffle the order_ entries, such that all
@@ -1197,143 +1229,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }  // for iord
     ///
-  }
-
-  /*!
-   * @brief Generates a random point using the pre-ordered grids.
-   *
-   * @param point The point object to populate.
-   * @param grid_vec A vector to store the grid indices for each dimension.
-   * @param sample_index The index of the current sample.
-   */
-  inline void generate_point_sorted(Point<num_traits>& point, std::vector<S>& grid_vec,
-                                    U sample_index = U(0)) {
-    point.sample_index = sample_index;
-    point.weight = T(1);
-
-    /// (a) diagonal map
-    for (S iord = 0; iord < nblocks_; ++iord) {
-      T rand = Base::ran();
-      assert(order_(iord, 0) == order_(iord, 1));
-      const S idim0 = order_(iord, 0);
-      //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
-      const S ig0 = S(rand * ndiv0_);  // 0 .. (ndiv0_-1)
-      assert(ig0 >= 0 && ig0 < ndiv0_);
-      assert(rand * ndiv0_ >= T(ig0) && rand * ndiv0_ <= T(ig0 + 1));
-      //> map rand back to [ 0, 1 ]
-      rand = rand * ndiv0_ - T(ig0);
-      assert(rand >= T(0) && rand <= T(1));
-      const T x_low = ig0 > 0 ? ordered_grid0_(iord, ig0 - 1) : T(0);
-      const T x_upp = ordered_grid0_(iord, ig0);
-      point.x[idim0] = x_low + rand * (x_upp - x_low);
-      // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
-      point.weight *= ndiv0_ * (x_upp - x_low);
-      grid_vec[idim0] = ig0;
-    }  // for iord
-
-    /// (b) conditional map
-    for (S iord = nblocks_; iord < ndim_; ++iord) {
-      T rand = Base::ran();
-      assert(order_(iord, 0) != order_(iord, 1));
-      const S idim1 = order_(iord, 0);
-      const S idim2 = order_(iord, 1);
-      /// check that the 1st dimension is set properly
-      assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
-      assert(grid_vec[idim1] >= 0 && grid_vec[idim1] < ndiv0_);
-      /// this is correct because `grid_vec` always stores `ig0`
-      const S ig1 = grid_vec[idim1] / ndiv2_;
-      assert(ig1 >= 0 && ig1 < ndiv1_);
-      //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
-      const S ig2 = S(rand * ndiv2_);  // 0 .. (ndiv2_-1)
-      assert(ig2 >= 0 && ig2 < ndiv2_);
-      assert(rand * ndiv2_ >= T(ig2) && rand * ndiv2_ <= T(ig2 + 1));
-      //> map rand back to [ 0, 1 ]
-      rand = rand * ndiv2_ - T(ig2);
-      assert(rand >= T(0) && rand <= T(1));
-      const T x_low = ig2 > 0 ? ordered_grid_(iord, ig1, ig2 - 1) : T(0);
-      const T x_upp = ordered_grid_(iord, ig1, ig2);
-      const T x = x_low + rand * (x_upp - x_low);
-      point.x[idim2] = x;
-      // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
-      point.weight *= ndiv2_ * (x_upp - x_low);
-      /// need to get index ig0 for idim2
-      const T* row0 = &grid0_(idim2, 0);
-      const T* it0 = std::lower_bound(row0, row0 + ndiv0_, x);
-      /// custom binary search
-      // const auto comp = [](const T& a, const T& b) { return a < b; };
-      // const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
-      const S ig0 = static_cast<S>(it0 - row0);
-      assert(ig0 >= 0 && ig0 < ndiv0_);
-      assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
-      grid_vec[idim2] = ig0;
-    }  // for iord
-  }
-
-  /*!
-   * @brief Generates a random point in the integration volume using nested grids.
-   *
-   * @param point The point object to populate.
-   * @param grid_vec A vector to store the grid indices for each dimension.
-   * @param sample_index The index of the current sample.
-   */
-  inline void generate_point(Point<num_traits>& point, std::vector<S>& grid_vec,
-                             U sample_index = U(0)) {
-    point.sample_index = sample_index;
-    point.weight = T(1);
-    for (S iord = 0; iord < ndim_; ++iord) {
-      T rand = Base::ran();
-      if (order_(iord, 0) == order_(iord, 1)) {
-        /// (a) diagonal map
-        const S idim0 = order_(iord, 0);
-        //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
-        const S ig0 = S(rand * ndiv0_);  // 0 .. (ndiv0_-1)
-        assert(ig0 >= 0 && ig0 < ndiv0_);
-        assert(rand * ndiv0_ >= T(ig0) && rand * ndiv0_ <= T(ig0 + 1));
-        //> map rand back to [ 0, 1 ]
-        rand = rand * ndiv0_ - T(ig0);
-        assert(rand >= T(0) && rand <= T(1));
-        const T x_low = ig0 > 0 ? grid0_(idim0, ig0 - 1) : T(0);
-        const T x_upp = grid0_(idim0, ig0);
-        point.x[idim0] = x_low + rand * (x_upp - x_low);
-        // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
-        point.weight *= ndiv0_ * (x_upp - x_low);
-        grid_vec[idim0] = ig0;
-
-      } else {
-        /// (b) conditional map
-        const S idim1 = order_(iord, 0);
-        const S idim2 = order_(iord, 1);
-        /// check that the 1st dimension is set properly
-        assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
-        assert(grid_vec[idim1] >= 0 && grid_vec[idim1] < ndiv0_);
-        /// this is correct because `grid_vec` always stores `ig0`
-        const S ig1 = grid_vec[idim1] / ndiv2_;
-        assert(ig1 >= 0 && ig1 < ndiv1_);
-        //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
-        const S ig2 = S(rand * ndiv2_);  // 0 .. (ndiv2_-1)
-        assert(ig2 >= 0 && ig2 < ndiv2_);
-        assert(rand * ndiv2_ >= T(ig2) && rand * ndiv2_ <= T(ig2 + 1));
-        //> map rand back to [ 0, 1 ]
-        rand = rand * ndiv2_ - T(ig2);
-        assert(rand >= T(0) && rand <= T(1));
-        const T x_low = ig2 > 0 ? grid_(idim1, idim2, ig1, ig2 - 1) : T(0);
-        const T x_upp = grid_(idim1, idim2, ig1, ig2);
-        const T x = x_low + rand * (x_upp - x_low);
-        point.x[idim2] = x;
-        // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
-        point.weight *= ndiv2_ * (x_upp - x_low);
-        /// need to get index ig0 for idim2
-        const T* row0 = &grid0_(idim2, 0);
-        const T* it0 = std::lower_bound(row0, row0 + ndiv0_, x);
-        /// custom binary search
-        // const auto comp = [](const T& a, const T& b) { return a < b; };
-        // const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
-        const S ig0 = static_cast<S>(it0 - row0);
-        assert(ig0 >= 0 && ig0 < ndiv0_);
-        assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
-        grid_vec[idim2] = ig0;
-      }
-    }
   }
 
   /*!

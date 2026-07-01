@@ -119,20 +119,6 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   int_acc_type result_;
 
-  /*!
-   * @brief Generates one uniformly distributed sample point in the unit hypercube.
-   *
-   * @param point The point object to populate.
-   * @param sample_index Zero-based sample index stored in the point metadata.
-   */
-  inline void generate_point(Point<num_traits>& point, count_type sample_index = count_type(0)) {
-    point.sample_index = sample_index;
-    point.weight = value_type(1);
-    for (size_type idim = 0; idim < ndim_; ++idim) {
-      point.x[idim] = Base::ran();
-    }
-  }
-
 };  // class Plain
 
 }  // namespace kakuhen::integrator
