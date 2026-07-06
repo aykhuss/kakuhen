@@ -62,6 +62,19 @@ struct IntegralAccumulator {
   }
 
   /*!
+   * @brief Accumulate `n` zero-valued samples.
+   *
+   * Grows the sample count only; the sums are unchanged. Used to account for
+   * samples that contribute exactly zero (e.g. rejected hit-or-miss trials in
+   * event generation) without touching the compensated sums.
+   *
+   * @param n The number of zero samples to accumulate.
+   */
+  inline void accumulate_zeros(const U& n) noexcept {
+    n_ += n;
+  }
+
+  /*!
    * @brief Accumulate values from another IntegralAccumulator.
    *
    * Adds the accumulated sums and counts from another `IntegralAccumulator`
