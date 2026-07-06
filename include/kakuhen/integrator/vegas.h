@@ -167,6 +167,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     cell_ctx_type cell({ndim_});
 
     const bool skip_accum = opts_.frozen && *opts_.frozen;
+    const bool strict_finite = opts_.strict_finite_integrand.value_or(false);
 
     for (U i = 0; i < neval; ++i) {
       for (S idim = 0; idim < ndim_; ++idim)
@@ -174,6 +175,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       point.sample_index = i;
       map_point_impl(u_buf, point, cell);
       const T fval = point.weight * integrand(point);
+      if (strict_finite && !std::isfinite(fval)) {
+        throw std::runtime_error("integrate: non-finite integrand contribution");
+      }
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
       if (!skip_accum) {

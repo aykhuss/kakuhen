@@ -45,6 +45,12 @@ struct Options {
                                         //!< `0.25` fires four milestones per iteration regardless
                                         //!< of `niter`. Defaults to `DEFAULT_PROGRESS_STEP` when a
                                         //!< callback is supplied.
+  std::optional<bool> strict_finite_integrand;  //!< Throw on non-finite integrand values during
+                                                //!< integration, envelope sampling, and event
+                                                //!< generation. When unset/false, integration
+                                                //!< propagates non-finite values into the result,
+                                                //!< while envelope sampling and generation count
+                                                //!< them and contribute zero.
 
   /*!
    * @brief Sets options from another Options object.
@@ -67,6 +73,7 @@ struct Options {
     if (opts.file_path) file_path = *opts.file_path;
     if (opts.progress_bar) progress_bar = *opts.progress_bar;
     if (opts.progress_step) progress_step = *opts.progress_step;
+    if (opts.strict_finite_integrand) strict_finite_integrand = *opts.strict_finite_integrand;
   }
 
   /*!
@@ -117,6 +124,7 @@ struct Options {
     }
     add(".progress_bar", opts.progress_bar);
     add(".progress_step", opts.progress_step);
+    add(".strict_finite_integrand", opts.strict_finite_integrand);
 
     return os << "}";
   }
@@ -164,7 +172,10 @@ struct Options {
     static constexpr OptionKey<&Options::user_data> user_data{};  //!< Key for `user_data` option.
     static constexpr OptionKey<&Options::file_path> file_path{};  //!< Key for `file_path` option.
     static constexpr OptionKey<&Options::progress_bar> progress_bar{};  //!< Key for `progress_bar`.
-    static constexpr OptionKey<&Options::progress_step> progress_step{};  //!< Key for `progress_step`.
+    static constexpr OptionKey<&Options::progress_step>
+        progress_step{};  //!< Key for `progress_step`.
+    static constexpr OptionKey<&Options::strict_finite_integrand>
+        strict_finite_integrand{};  //!< Key for `strict_finite_integrand`.
   };  // struct keys
 
 };  // struct Options

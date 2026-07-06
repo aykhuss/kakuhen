@@ -2,8 +2,10 @@
 
 #include "kakuhen/integrator/integrator_base.h"
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace kakuhen::integrator {
@@ -78,12 +80,17 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<value_type> u_buf(ndim_);
 
+    const bool strict_finite = opts_.strict_finite_integrand.value_or(false);
+
     for (count_type i = 0; i < neval; ++i) {
       for (size_type idim = 0; idim < ndim_; ++idim)
         u_buf[idim] = Base::ran();
       point.sample_index = i;
       map_point_impl(u_buf, point);
       const value_type func = point.weight * integrand(point);
+      if (strict_finite && !std::isfinite(func)) {
+        throw std::runtime_error("integrate: non-finite integrand contribution");
+      }
       const value_type func2 = func * func;
       result_.accumulate(func, func2);
 
