@@ -3,6 +3,8 @@
 #include "kakuhen/util/accumulator.h"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
+#include <cmath>
+#include <limits>
 #include <sstream>
 
 #include "catch2/catch_approx.hpp"
@@ -110,6 +112,25 @@ TEST_CASE("IntegralAccumulator tests", "[integrator][accumulator]") {
     other.accumulate(5.0);
     intAcc.accumulate(other);
     REQUIRE(intAcc.value() == Catch::Approx(5.0));
+  }
+
+  SECTION("Accumulate zeros grows the count but not the sums") {
+    intAcc.accumulate(3.0);
+    intAcc.accumulate_zeros(2);
+
+    REQUIRE(intAcc.count() == 3);
+    REQUIRE(intAcc.value() == Catch::Approx(1.0));  // mean = 3/3
+    // Variance: (9/3 - 1*1) / 2 = 1
+    REQUIRE(intAcc.variance() == Catch::Approx(1.0));
+  }
+
+  SECTION("Variance clamps rounding but preserves non-finite errors") {
+    // sum of squares rounded just below value^2 * n: a tiny negative variance
+    intAcc.reset(2.0, std::nextafter(2.0, 0.0), 2);
+    REQUIRE(intAcc.variance() == 0.0);
+    REQUIRE(intAcc.error() == 0.0);
+    intAcc.reset(2.0, std::numeric_limits<double>::quiet_NaN(), 2);
+    REQUIRE(std::isnan(intAcc.error()));
   }
 }
 

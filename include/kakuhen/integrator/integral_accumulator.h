@@ -143,7 +143,8 @@ struct IntegralAccumulator {
    */
   [[nodiscard]] inline T variance() const noexcept {
     if (n_ > 1) {
-      return (f2_.result() / T(n_) - value() * value()) / T(n_ - 1);
+      const T variance = (f2_.result() / T(n_) - value() * value()) / T(n_ - 1);
+      return variance < T(0) ? T(0) : variance;
     } else {
       return T(0);
     }
