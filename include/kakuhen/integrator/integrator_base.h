@@ -167,14 +167,14 @@ class IntegratorBase {
    */
   inline void set_options(const options_type& opts) {
     if constexpr (!detail::HasAdapt<Derived>) {
-      if (opts.adapt && *opts.adapt) {
+      if (opts.adapt.value_or(false)) {
         throw std::invalid_argument(std::string(to_string(id())) +
                                     " does not support grid adaption");
       }
     }
     opts_.set(opts);
     if constexpr (detail::HasAdapt<Derived>) {
-      if (opts_.frozen && *opts_.frozen) {
+      if (opts_.frozen.value_or(false)) {
         opts_.adapt = false;
       }
     }
@@ -387,7 +387,7 @@ class IntegratorBase {
         if (tracker.is_cancelled()) {
           // Discard partial adaptive accumulation so the next integrate() call starts clean.
           if constexpr (detail::HasAdapt<Derived>) {
-            if (opts_.adapt && *opts_.adapt) derived().clear_data();
+            if (opts_.adapt.value_or(false)) derived().clear_data();
           }
           break;
         }
@@ -396,13 +396,13 @@ class IntegratorBase {
         if (has_signal(sig, EventSignal::CANCEL)) {
           tracker.signal |= sig;
           if constexpr (detail::HasAdapt<Derived>) {
-            if (opts_.adapt && *opts_.adapt) derived().clear_data();
+            if (opts_.adapt.value_or(false)) derived().clear_data();
           }
           break;
         }
       }
 
-      if (opts_.verbosity && *opts_.verbosity > 0) {
+      if (opts_.verbosity.value_or(0) > 0) {
         print_iteration_summary(iter + 1, *opts_.niter, res_it, result, elapsed.count());
       }
 
@@ -417,23 +417,21 @@ class IntegratorBase {
       //   converged = converged || res.error() <= *opts_.abs_tol;
       // }
       // if (converged) {
-      //   if (opts_.verbosity && *opts_.verbosity > 0) {
+      //   if (opts_.verbosity.value_or(0) > 0) {
       //     std::cout << "Converged.\n";
       //   }
       //   break;
       // }
 
-      // adapt the grid if requested
+      // adapt the grid if requested; the state is the grid, so checkpoint only when it changed
       if constexpr (detail::HasAdapt<Derived>) {
-        if (opts_.adapt && *opts_.adapt) {
+        if (opts_.adapt.value_or(false)) {
           derived().adapt();
-        }
-      }
-
-      // save state/data if requested
-      if constexpr (detail::HasStateStream<Derived> && detail::HasPrefix<Derived>) {
-        if (opts_.file_path) {
-          derived().save();
+          if constexpr (detail::HasStateStream<Derived> && detail::HasPrefix<Derived>) {
+            if (opts_.file_path) {
+              derived().save();
+            }
+          }
         }
       }
 
@@ -521,15 +519,8 @@ class IntegratorBase {
   void save(const std::filesystem::path& filepath) const
     requires detail::HasStateStream<D>
   {
-    std::ofstream ofs(filepath, std::ios::binary);
-    if (!ofs.is_open()) {
-      throw std::ios_base::failure("Failed to open state file: " + filepath.string());
-    }
-    write_header(ofs, detail::FileType::STATE);
-    derived().write_state_stream(ofs);
-    if (!ofs) {
-      throw std::ios_base::failure("Error writing state file: " + filepath.string());
-    }
+    write_file(filepath, detail::FileType::STATE,
+               [this](std::ostream& out) { derived().write_state_stream(out); });
   }
 
   /**
@@ -563,24 +554,9 @@ class IntegratorBase {
   void load(const std::filesystem::path& filepath)
     requires detail::HasStateStream<D>
   {
-    std::error_code ec;
-    if (std::filesystem::exists(filepath, ec)) {
-      if (ec) {
-        throw std::system_error(ec, "Failed to check if file exists");
-      }
-      std::ifstream ifs(filepath, std::ios::binary);
-      if (!ifs.is_open()) {
-        throw std::ios_base::failure("Failed to open state file: " + filepath.string());
-      }
-      read_header(ifs, detail::FileType::STATE);
-      derived().read_state_stream(ifs);
-      if (!ifs) {
-        throw std::ios_base::failure("Error reading state file: " + filepath.string());
-      }
-    } else {
-      print_info_message("state",
-                         "state file \"" + filepath.string() + "\" not found; skipping load");
-    }
+    if (!state_file_exists(filepath)) return;
+    read_file(filepath, detail::FileType::STATE,
+              [this](std::istream& in) { derived().read_state_stream(in); });
   }
 
   /**
@@ -611,15 +587,8 @@ class IntegratorBase {
   void save_data(const std::filesystem::path& filepath) const
     requires detail::HasDataStream<D>
   {
-    std::ofstream ofs(filepath, std::ios::binary);
-    if (!ofs.is_open()) {
-      throw std::ios_base::failure("Failed to open data file: " + filepath.string());
-    }
-    write_header(ofs, detail::FileType::DATA);
-    derived().write_data_stream(ofs);
-    if (!ofs) {
-      throw std::ios_base::failure("Error writing data file: " + filepath.string());
-    }
+    write_file(filepath, detail::FileType::DATA,
+               [this](std::ostream& out) { derived().write_data_stream(out); });
   }
 
   /**
@@ -651,15 +620,8 @@ class IntegratorBase {
   void append_data(const std::filesystem::path& filepath)
     requires detail::HasDataStream<D>
   {
-    std::ifstream ifs(filepath, std::ios::binary);
-    if (!ifs.is_open()) {
-      throw std::ios_base::failure("Failed to open data file: " + filepath.string());
-    }
-    read_header(ifs, detail::FileType::DATA);
-    derived().accumulate_data_stream(ifs);
-    if (!ifs) {
-      throw std::ios_base::failure("Error reading data file: " + filepath.string());
-    }
+    read_file(filepath, detail::FileType::DATA,
+              [this](std::istream& in) { derived().accumulate_data_stream(in); });
   }
 
   /**
@@ -872,6 +834,9 @@ class IntegratorBase {
     return out.str();
   }
 
+  // the file/header plumbing below is protected so that extensions carrying
+  // additional state (e.g. the generators' envelope block) can reuse it
+ protected:
   void print_info_message(std::string_view channel, const std::string& message) const {
     const std::string name{to_string(id())};
     std::cout << "[" << name << ":" << channel << "] " << message << "\n";
@@ -987,6 +952,48 @@ class IntegratorBase {
     if (U_tos != get_type_or_size<count_type>()) {
       throw std::runtime_error("type or size mismatch for typename U");
     }
+  }
+
+  /// @brief Write the file header for `ftype` followed by the payload streamed by `write`.
+  template <typename W>
+  void write_file(const std::filesystem::path& filepath, detail::FileType ftype, W&& write) const {
+    std::ofstream ofs(filepath, std::ios::binary);
+    if (!ofs.is_open()) {
+      throw std::ios_base::failure("Failed to open file: " + filepath.string());
+    }
+    write_header(ofs, ftype);
+    std::forward<W>(write)(ofs);
+    if (!ofs) {
+      throw std::ios_base::failure("Error writing file: " + filepath.string());
+    }
+  }
+
+  /// @brief Validate the file header against `ftype`, then hand the payload to `read`.
+  template <typename R>
+  void read_file(const std::filesystem::path& filepath, detail::FileType ftype, R&& read) const {
+    std::ifstream ifs(filepath, std::ios::binary);
+    if (!ifs.is_open()) {
+      throw std::ios_base::failure("Failed to open file: " + filepath.string());
+    }
+    read_header(ifs, ftype);
+    std::forward<R>(read)(ifs);
+    if (!ifs) {
+      throw std::ios_base::failure("Error reading file: " + filepath.string());
+    }
+  }
+
+  /// @brief Whether a state file exists; a missing file is reported and the load skipped.
+  bool state_file_exists(const std::filesystem::path& filepath) const {
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(filepath, ec);
+    if (ec) {
+      throw std::system_error(ec, "Failed to check if file exists");
+    }
+    if (!exists) {
+      print_info_message("state",
+                         "state file \"" + filepath.string() + "\" not found; skipping load");
+    }
+    return exists;
   }
 };
 

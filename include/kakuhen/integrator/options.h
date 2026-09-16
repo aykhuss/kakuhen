@@ -36,7 +36,8 @@ struct Options {
   std::optional<value_type> abs_tol;               //!< Absolute precision goal for convergence.
   std::optional<int> verbosity;                    //!< Verbosity level of output messages.
   std::optional<void*> user_data;                  //!< Pointer to user-defined data (non-owning).
-  std::optional<std::filesystem::path> file_path;  //!< Path for saving state/data.
+  std::optional<std::filesystem::path> file_path;  //!< Path for saving state/data; `integrate()`
+                                                   //!< checkpoints the state after each adaptation.
   std::optional<bool> progress_bar;  //!< Whether the built-in progress bar may be enabled by the
                                      //!< two-argument `integrate()` overload. When unset, the base
                                      //!< integrator currently defaults this to enabled.

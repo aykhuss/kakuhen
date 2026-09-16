@@ -246,7 +246,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     std::vector<T> u_buf(ndim_);
     cell_ctx_type cell({ndim_, 3});
 
-    const bool skip_accum = opts_.frozen && *opts_.frozen;
+    const bool skip_accum = opts_.frozen.value_or(false);
     const bool strict_finite = opts_.strict_finite_integrand.value_or(false);
 
     for (U i = 0; i < neval; ++i) {
@@ -441,7 +441,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     const T eps = T(10) * std::numeric_limits<T>::min();
     const T nrm = T(1) / (T(accumulator_count_) * T(accumulator_count_));
 
-    if (opts_.verbosity && *opts_.verbosity > 0) {
+    if (opts_.verbosity.value_or(0) > 0) {
       std::cout << "Adapting the grid on " << accumulator_count_ << " collected samples.\n";
     }
 
