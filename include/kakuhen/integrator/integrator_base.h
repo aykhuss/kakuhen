@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -168,8 +169,8 @@ class IntegratorBase {
   inline void set_options(const options_type& opts) {
     if constexpr (!detail::HasAdapt<Derived>) {
       if (opts.adapt.value_or(false)) {
-        throw std::invalid_argument(std::string(to_string(id())) +
-                                    " does not support grid adaption");
+        throw std::invalid_argument(
+            std::format("{} does not support grid adaption", to_string(id())));
       }
     }
     opts_.set(opts);
@@ -274,11 +275,7 @@ class IntegratorBase {
       auto cb = [&bar](const progress_event_type& ev) -> EventSignal {
         if (ev.kind == ProgressEventKind::ITER_START) bar.reset();
         if (ev.kind != ProgressEventKind::START && ev.kind != ProgressEventKind::END) {
-          char label[32];
-          std::snprintf(label, sizeof(label), "iter %llu/%llu",
-                        static_cast<unsigned long long>(ev.current_iter + 1),
-                        static_cast<unsigned long long>(ev.niter));
-          bar.update(ev.fraction, label);
+          bar.update(ev.fraction, std::format("iter {}/{}", ev.current_iter + 1, ev.niter));
         }
         return EventSignal::NONE;
       };
@@ -839,9 +836,8 @@ class IntegratorBase {
   // the file/header plumbing below is protected so that extensions carrying
   // additional state (e.g. the generators' envelope block) can reuse it
  protected:
-  void print_info_message(std::string_view channel, const std::string& message) const {
-    const std::string name{to_string(id())};
-    std::cout << "[" << name << ":" << channel << "] " << message << "\n";
+  void print_info_message(std::string_view channel, std::string_view message) const {
+    std::cout << std::format("[{}:{}] {}\n", to_string(id()), channel, message);
   }
 
   void print_iteration_summary(count_type iter, count_type niter, const int_acc_type& res_it,
@@ -849,7 +845,7 @@ class IntegratorBase {
     const int verbosity = opts_.verbosity.value_or(0);
     if (verbosity <= 0) return;
 
-    const std::string name{to_string(id())};
+    const std::string_view name = to_string(id());
     if (verbosity == 1) {
       std::cout << "[" << name << ": iter " << iter << "/" << niter << "] "
                 << "I_it=" << fmt_scientific(static_cast<long double>(res_it.value())) << " +/- "
@@ -891,7 +887,7 @@ class IntegratorBase {
   [[nodiscard]] inline std::filesystem::path file_data() const noexcept
     requires detail::HasPrefix<D>
   {
-    std::string seed_suffix = ".s" + std::to_string(opts_.seed.value_or(0));
+    const std::string seed_suffix = std::format(".s{}", opts_.seed.value_or(0));
     std::filesystem::path fdata =
         derived().prefix(true) + seed_suffix + std::string(detail::suffix_data);
     if (opts_.file_path) {
@@ -934,9 +930,9 @@ class IntegratorBase {
     detail::FileType ftype_chk;
     deserialize_one<detail::FileType>(in, ftype_chk);
     if (ftype_chk != expected_ftype) {
-      throw std::runtime_error("File type mismatch " +
-                               std::to_string(static_cast<uint8_t>(ftype_chk)) +
-                               " != " + std::to_string(static_cast<uint8_t>(expected_ftype)));
+      throw std::runtime_error(std::format("File type mismatch {} != {}",
+                                           static_cast<uint8_t>(ftype_chk),
+                                           static_cast<uint8_t>(expected_ftype)));
     }
     // type checks
     int16_t T_tos;
@@ -992,8 +988,8 @@ class IntegratorBase {
       throw std::system_error(ec, "Failed to check if file exists");
     }
     if (!exists) {
-      print_info_message("state",
-                         "state file \"" + filepath.string() + "\" not found; skipping load");
+      print_info_message(
+          "state", std::format("state file \"{}\" not found; skipping load", filepath.string()));
     }
     return exists;
   }

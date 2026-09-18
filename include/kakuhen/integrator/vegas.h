@@ -9,10 +9,12 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace kakuhen::integrator {
@@ -138,9 +140,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * @return A prefix string for filenames.
    */
   [[nodiscard]] inline std::string prefix(bool with_hash = false) const noexcept {
-    std::string pref = "vegas_" + std::to_string(ndim_) + "d";
-    if (with_hash) pref += "_" + hash().encode_hex();
-    return pref;
+    if (with_hash) return std::format("vegas_{}d_{}", ndim_, hash().encode_hex());
+    return std::format("vegas_{}d", ndim_);
   }
 
   /// @name Integration Implementation
@@ -510,12 +511,12 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
  protected:
   S ndiv_;  // number of divisions of the grid along each dimension
   int_acc_type result_;
+  ndarray::NDArray<T, S> grid_;
 
  private:
   /// parameters that controls the grid refinement
   T alpha_{0.75};
 
-  ndarray::NDArray<T, S> grid_;
   U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
 

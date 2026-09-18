@@ -11,10 +11,12 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace kakuhen::integrator {
@@ -218,9 +220,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @return A prefix string for filenames.
    */
   [[nodiscard]] inline std::string prefix(bool with_hash = false) const noexcept {
-    std::string pref = "basin_" + std::to_string(ndim_) + "d";
-    if (with_hash) pref += "_" + hash().encode_hex();
-    return pref;
+    if (with_hash) return std::format("basin_{}d_{}", ndim_, hash().encode_hex());
+    return std::format("basin_{}d", ndim_);
   }
 
   /// @name Integration Implementation

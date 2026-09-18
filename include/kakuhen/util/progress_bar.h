@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <format>
 #include <iomanip>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 #if defined(_WIN32)
@@ -137,69 +139,51 @@ class ProgressBar {
     const int empty = bar_width_ - filled;
     int pos = 0;
     bar_buf[pos++] = '[';
-    for (int k = 0; k < filled - 1; ++k) bar_buf[pos++] = '=';
+    for (int k = 0; k < filled - 1; ++k)
+      bar_buf[pos++] = '=';
     if (filled > 0) bar_buf[pos++] = '>';
-    for (int k = 0; k < empty; ++k) bar_buf[pos++] = ' ';
+    for (int k = 0; k < empty; ++k)
+      bar_buf[pos++] = ' ';
     bar_buf[pos++] = ']';
     bar_buf[pos] = '\0';
 
     // Show the running ETA, or the total elapsed time once complete.
-    char eta_buf[32];
-    format_eta(fraction, eta_buf, sizeof(eta_buf));
+    std::string eta;
     if (pct >= 100) {
-      auto elapsed =
-          std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                        start_time_)
-              .count();
-      char dur[24];
-      format_duration(elapsed, dur, sizeof(dur));
-      std::snprintf(eta_buf, sizeof(eta_buf), "elapsed: %s", dur);
+      const double elapsed =
+          std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+      eta = "elapsed: " + format_duration(elapsed);
     } else {
-      format_eta(fraction, eta_buf, sizeof(eta_buf));
+      eta = format_eta(fraction);
     }
 
     // Render: \r[====>     ] 45% ETA: 2m 15s  label
-    std::cerr << "\r\x1b[2K" << bar_buf << ' ' << std::setw(3) << pct << "% " << eta_buf;
+    std::cerr << "\r\x1b[2K" << bar_buf << ' ' << std::setw(3) << pct << "% " << eta;
     if (!label.empty()) {
       std::cerr << "  " << label;
     }
     std::cerr << std::flush;
   }
 
-  void format_eta(double fraction, char* buf, std::size_t buf_size) const {
-    if (fraction < 0.01) {
-      std::snprintf(buf, buf_size, "ETA: --:--");
-      return;
-    }
+  std::string format_eta(double fraction) const {
+    if (fraction < 0.01) return "ETA: --:--";
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration<double>(now - start_time_).count();
-    if (elapsed < 0.1) {
-      std::snprintf(buf, buf_size, "ETA: --:--");
-      return;
-    }
+    if (elapsed < 0.1) return "ETA: --:--";
     // remaining = elapsed * (1 - fraction) / fraction
-    double remaining = elapsed * (1.0 - fraction) / fraction;
-    char dur[24];
-    format_duration(remaining, dur, sizeof(dur));
-    std::snprintf(buf, buf_size, "ETA: %s", dur);
+    const double remaining = elapsed * (1.0 - fraction) / fraction;
+    return "ETA: " + format_duration(remaining);
   }
 
-  static void format_duration(double seconds, char* buf, std::size_t buf_size) {
-    if (seconds < 0 || seconds > 86400.0 * 7) {  // Cap at 7 days
-      std::snprintf(buf, buf_size, "--:--");
-      return;
-    }
+  static std::string format_duration(double seconds) {
+    if (seconds < 0 || seconds > 86400.0 * 7) return "--:--";  // Cap at 7 days
     const int total_secs = static_cast<int>(seconds + 0.5);
     const int hours = total_secs / 3600;
     const int mins = (total_secs % 3600) / 60;
     const int secs = total_secs % 60;
-    if (hours > 0) {
-      std::snprintf(buf, buf_size, "%dh %02dm", hours, mins);
-    } else if (mins > 0) {
-      std::snprintf(buf, buf_size, "%dm %02ds", mins, secs);
-    } else {
-      std::snprintf(buf, buf_size, "%ds", secs);
-    }
+    if (hours > 0) return std::format("{}h {:02}m", hours, mins);
+    if (mins > 0) return std::format("{}m {:02}s", mins, secs);
+    return std::format("{}s", secs);
   }
 
   int bar_width_;
