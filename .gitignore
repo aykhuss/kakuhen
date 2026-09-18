@@ -44,3 +44,14 @@ playground
 v2
 just_vegas
 compensated_sum
+
+# Local run artifacts
+Testing/
+build-docs/
+*.log
+*.khs
+*.khd
+compile_commands.json
+
+# LaTeX build cache
+_minted*/

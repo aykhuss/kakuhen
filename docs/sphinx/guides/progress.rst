@@ -69,7 +69,7 @@ The callback can receive the following events:
 * ``ITER_START``: emitted before each iteration
 * ``EVAL_MILESTONE``: emitted when the current iteration crosses the next progress threshold
 * ``ITER_END``: emitted after the current iteration is accumulated into the final ``Result``
-* ``END``: emitted once after integration finishes or is cancelled
+* ``END``: emitted once after integration finishes or is stopped
 
 Milestone spacing is controlled by ``progress_step``, which is interpreted per
 iteration rather than over the entire run.
@@ -96,16 +96,16 @@ cross-iteration aggregates. Mid-iteration milestone events therefore report the
 state accumulated from completed iterations, not the partially completed
 current iteration.
 
-Cancelling an integration
--------------------------
+Stopping an integration
+-----------------------
 
-The callback can stop integration early by returning ``EventSignal::CANCEL``.
+The callback can stop integration early by returning ``EventSignal::STOP``.
 
 .. code-block:: cpp
 
     auto stop_early = [](const ProgressEvent<double, std::uint64_t>& ev) {
       if (ev.kind == ProgressEventKind::EVAL_MILESTONE && ev.fraction >= 0.5) {
-        return EventSignal::CANCEL;
+        return EventSignal::STOP;
       }
       return EventSignal::NONE;
     };
