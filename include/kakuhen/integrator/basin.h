@@ -231,14 +231,15 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * @tparam I The type of the integrand function.
    * @tparam ProgressCb The type of the progress callback (or std::nullptr_t).
-   * @param integrand The function to integrate.
+   * @param integrand The function to integrate. Only invoked, never consumed, hence
+   *        taken by lvalue reference (the caller invokes it once per iteration).
    * @param neval The number of evaluations to perform.
    * @param tracker Per-call progress bookkeeping shared with the base class.
    * @param progress_cb The progress callback for milestone notifications.
    * @return An `int_acc_type` containing the accumulated results for this iteration.
    */
   template <typename I, typename ProgressCb = std::nullptr_t>
-  int_acc_type integrate_impl(I&& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
+  int_acc_type integrate_impl(I& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
                               [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
     result_.reset();
 

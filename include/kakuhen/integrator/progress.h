@@ -11,13 +11,13 @@ enum class ProgressEventKind : uint8_t {
   ITER_START,      ///< Fired before each iteration begins.
   EVAL_MILESTONE,  ///< Fired when per-iteration progress reaches a milestone such as 25% or 50% of `neval`.
   ITER_END,        ///< Fired after each iteration completes.
-  END              ///< Fired after all iterations complete (or on cancellation/exception).
+  END              ///< Fired after all iterations complete (or on stop/exception).
 };
 
-/// @brief Control signals returned by progress callbacks.
+/// @brief Control signals returned by progress and event callbacks.
 enum class EventSignal : uint8_t {
   NONE = 0,       ///< Continue normally.
-  CANCEL = 1,     ///< Stop integration gracefully, return partial results.
+  STOP = 1,       ///< Stop gracefully, return partial results.
   EXCEPTION = 2,  ///< Indicates an exception occurred in the callback.
 };
 
