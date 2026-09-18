@@ -8,7 +8,7 @@
 ///
 /// Here's a minimal example to illustate such use-cases
 
-#include "kakuhen/integrator/vegas_generator.h"
+#include "kakuhen/integrator/basin_generator.h"
 #include "kakuhen/kakuhen.h"
 #include <algorithm>
 #include <cmath>
@@ -67,14 +67,11 @@ class MyFunctor {
     return fval;
   }
 
-
   void operator()(const Point<>& point, const double& evt_wgt) {
     assert(point.ndim == 3);
     const auto& x = point.x;  // shorthand
     bin_histogram(x, evt_wgt);
   }
-
-
 
   /// get/set the stage of the calculation
   inline int stage() const noexcept {
@@ -121,7 +118,11 @@ class MyFunctor {
     histogram_data_.at(ibin).valuesq += valsq;
   }
 
-  void print_histogram() {
+  /// print the histograms; `scale` and `count` override the default
+  /// per-entry normalization (used for event samples, where the correct
+  /// normalization is V_B / n_trials)
+  void print_histogram(double scale = 1.0, uint64_t count = 0) {
+    const uint64_t n = count > 0 ? count : count_;
     /// loop over all histogram data bins in one go
     double sum_val = 0.;
     double sum_err = 0.;
@@ -163,9 +164,10 @@ class MyFunctor {
       /// result and stddev for the histogram bin
       /// note: we do *not* divide by the bin width!
       /// to get "df/dO", you will want to divide by (xupp-xlow)
-      const double res = sumf / double(count_);
+      const double mean = sumf / double(n);
+      const double res = scale * mean;
       const double err =
-          count_ > 0 ? ((sumf2 / double(count_) - res * res) / double(count_ - 1)) : 0.;
+          n > 1 ? (scale * scale * (sumf2 / double(n) - mean * mean) / double(n - 1)) : 0.;
       /// output the row of the histogram bin:
       /// [1] bin idx, [2,3] bin range, [4] value, [5] error
       std::cout << jbin << "   " << xlow << " " << xupp << "   ";
@@ -174,13 +176,13 @@ class MyFunctor {
       sum_val += res;
       sum_err += err;
       if (ibin == 9)
-        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << count_ << "]\n";
+        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << n << "]\n";
       if (ibin == 19)
-        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << count_ << "]\n";
+        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << n << "]\n";
       if (ibin == 39)
-        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << count_ << "]\n";
+        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << n << "]\n";
       if (ibin == 40)
-        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << count_ << "]\n";
+        std::cout << "#Σ " << sum_val << " +/- " << std::sqrt(sum_err) << " [" << n << "]\n";
     }
   }
 
@@ -210,8 +212,9 @@ int main() {
   /// initialize a `MyFunctor` object
   MyFunctor integrand{};
 
-  auto integrator = VegasGenerator(3);  // 3 dimensions
-  integrand.set_stage(0);      // warmup: switch off histogram filling
+  /// `VegasGenerator(3)` is a drop-in replacement with the same interface
+  auto integrator = BasinGenerator(3);  // 3 dimensions
+  integrand.set_stage(0);               // warmup: switch off histogram filling
   integrator.integrate(integrand, {.neval = 50000, .niter = 7, .adapt = true});
   integrator.set_options({.frozen = true});  // freeze the grid -> production phase
   integrand.set_stage(1);                    // production with histogram filling
@@ -223,15 +226,35 @@ int main() {
 
   /// test the generator part
 
+  /// during generation, the integrand is evaluated for *trials*; only accepted
+  /// events (delivered through the two-argument callback) should be binned, so
+  /// switch off the integrand-side histogram filling
+  integrand.set_stage(0);
+
   std::cout << "\n\n";
-  auto abs_res = integrator.optimize_bound(integrand, 1000000);
-  std::cout << "abs_res = " << abs_res.value() << " +/- " << abs_res.error() << std::endl;
+  /// seed from an absolute-integral estimate, then drive
+  /// raising passes until the violation rate is acceptable (`raise_envelope`
+  /// is the single-pass primitive)
+  integrator.initialize_envelope(integrand, 10000);
+  auto env_res = integrator.optimize_envelope(integrand, 1000000);
+  std::cout << "envelope: A = " << env_res.abs_integral() << " +/- " << env_res.abs_error()
+            << " | V_B = " << env_res.volume() << " | predicted eff = " << env_res.efficiency()
+            << " | violations = " << env_res.n_violations() << std::endl;
 
   std::cout << "\n\n";
   integrand.reset_histogram();
-  auto gen_res = integrator.generate_events(integrand, 100000, integrand, abs_res.value());
-  std::cout << "gen_res = " << gen_res.value() << " +/- " << gen_res.error() << std::endl;
-  integrand.print_histogram();
+  /// events are delivered unnormalized (weights +-1, rare overweights +-|f|/B);
+  /// the physical normalization is V_B / n_trials from the returned result
+  // A fixed trial budget avoids accepted-count stopping bias in the integral.
+  auto gen_res = integrator.generate_trials(integrand, 200000, integrand);
+  std::cout << "generation [" << to_string(gen_res.status()) << "]: events = " << gen_res.n_events()
+            << " | trials = " << gen_res.n_trials() << " | eff = " << gen_res.efficiency()
+            << " | overweight = " << gen_res.n_overweight() << " (max " << gen_res.max_overweight()
+            << ")"
+            << " | neg frac = " << gen_res.negative_fraction() << std::endl;
+  std::cout << "integral from events = " << gen_res.value() << " +/- " << gen_res.error()
+            << std::endl;
+  integrand.print_histogram(gen_res.volume(), gen_res.n_trials());
 
   return 0;
 }

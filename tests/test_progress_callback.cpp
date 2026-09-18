@@ -7,9 +7,9 @@ using namespace kakuhen::integrator;
 
 TEST_CASE("Progress EventSignal bit operations", "[integrator][progress]") {
   EventSignal s = EventSignal::NONE;
-  s |= EventSignal::CANCEL;
+  s |= EventSignal::STOP;
   s |= EventSignal::EXCEPTION;
-  REQUIRE(has_signal(s, EventSignal::CANCEL));
+  REQUIRE(has_signal(s, EventSignal::STOP));
   REQUIRE(has_signal(s, EventSignal::EXCEPTION));
   REQUIRE(!has_signal(s, EventSignal::NONE));
 }
@@ -74,7 +74,7 @@ TEST_CASE("Progress callback receives milestones and lifecycle events", "[integr
   REQUIRE(end_count == 1);
 }
 
-TEST_CASE("Progress callback can cancel integration", "[integrator][progress]") {
+TEST_CASE("Progress callback can stop integration", "[integrator][progress]") {
   Plain<> plain(2);
   using opts_t = Plain<>::options_type;
   using event_t = Plain<>::progress_event_type;
@@ -88,7 +88,7 @@ TEST_CASE("Progress callback can cancel integration", "[integrator][progress]") 
 
   auto callback = [](const event_t& ev) {
     if (ev.kind == ProgressEventKind::EVAL_MILESTONE && ev.current_eval >= 15) {
-      return EventSignal::CANCEL;
+      return EventSignal::STOP;
     }
     return EventSignal::NONE;
   };
@@ -98,7 +98,7 @@ TEST_CASE("Progress callback can cancel integration", "[integrator][progress]") 
   REQUIRE(res.count() < 100);
 }
 
-TEST_CASE("Progress callback exceptions are converted to EXCEPTION|CANCEL",
+TEST_CASE("Progress callback exceptions are converted to EXCEPTION|STOP",
           "[integrator][progress]") {
   Plain<> plain(2);
   using opts_t = Plain<>::options_type;

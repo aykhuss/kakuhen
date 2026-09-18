@@ -3,6 +3,8 @@ set(EXAMPLES
   example_functor
   example_histogram
   example_generator
+  example_generator_benchmark
+  example_generate_n_events
   example_benchmark
   example_live_progress
   # example_mapping

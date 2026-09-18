@@ -74,16 +74,16 @@ class VegasGenerator : public GeneratorBase<VegasGenerator<NT, RNG, DIST>, Vegas
   ///        recorded by `map_point`.
   [[nodiscard]] inline T env_value(const cell_ctx_type& cell) const {
     assert(cell.size() == static_cast<std::size_t>(ndim_));
-    T b = T(1);
+    T envelope = T(1);
     for (S idim = 0; idim < ndim_; ++idim)
-      b *= envelope_(idim, cell[idim]);
-    return b;
+      envelope *= envelope_(idim, cell[idim]);
+    return envelope;
   }
 
-  /// @brief Multiply the cells recorded in `cell` (one per dimension) by `factor`.
-  inline void env_raise(const cell_ctx_type& cell, T factor) {
+  /// @brief Multiply the cells recorded in `cell` (one per dimension) by `gamma`.
+  inline void env_raise(const cell_ctx_type& cell, T gamma) {
     for (S idim = 0; idim < ndim_; ++idim)
-      envelope_(idim, cell[idim]) *= factor;
+      envelope_(idim, cell[idim]) *= gamma;
   }
 
   /*!
@@ -120,12 +120,12 @@ class VegasGenerator : public GeneratorBase<VegasGenerator<NT, RNG, DIST>, Vegas
     }
     T volume = T(1);
     for (S idim = 0; idim < ndim_; ++idim) {
-      T cum = T(0);
+      T sum = T(0);
       for (S ig = 0; ig < ndiv_; ++ig) {
-        cum = detail::cdf_step(cum, envelope_(idim, ig));
-        envelope_cdf_(idim, ig) = cum;
+        sum = detail::cdf_step(sum, envelope_(idim, ig));
+        envelope_cdf_(idim, ig) = sum;
       }
-      volume *= cum / T(ndiv_);
+      volume *= sum / T(ndiv_);
     }
     return volume;
   }
@@ -136,19 +136,20 @@ class VegasGenerator : public GeneratorBase<VegasGenerator<NT, RNG, DIST>, Vegas
   template <bool RecordCells>
   inline T propose_impl(point_type& point, [[maybe_unused]] cell_ctx_type* cell) {
     assert(point.x.size() == static_cast<std::size_t>(ndim_));
-    T b = T(1);
+    T envelope = T(1);
     T weight = T(1);
     for (S idim = 0; idim < ndim_; ++idim) {
       const auto draw = detail::sample_cdf<T, S>({&envelope_cdf_(idim, 0), ndiv_}, IntBase::ran());
-      const T x_low = draw.cell > 0 ? grid_(idim, draw.cell - 1) : T(0);
-      const T x_upp = grid_(idim, draw.cell);
+      const S ig = draw.cell;
+      const T x_low = ig > 0 ? grid_(idim, ig - 1) : T(0);
+      const T x_upp = grid_(idim, ig);
       point.x[idim] = x_low + draw.fraction * (x_upp - x_low);
       weight *= T(ndiv_) * (x_upp - x_low);
-      b *= draw.width;
-      if constexpr (RecordCells) (*cell)[idim] = draw.cell;
+      envelope *= draw.width;
+      if constexpr (RecordCells) (*cell)[idim] = ig;
     }  // for idim
     point.weight = weight;
-    return b;
+    return envelope;
   }
 
   /// inclusive prefix sums of `envelope_` for each dimension; rebuilt in

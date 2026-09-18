@@ -349,7 +349,7 @@ CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
  *  - `make_cell_ctx()`: cell-context buffer for `map_point`;
  *  - `env_shape()`: shape of the table for the current grid;
  *  - `env_value(cell)`: the product R for the cells recorded by `map_point`;
- *  - `env_raise(cell, factor)`: multiply the cells recorded by `map_point` by `factor`;
+ *  - `env_raise(cell, gamma)`: multiply the cells recorded by `map_point` by `gamma`;
  *  - `env_propose(point)`: draw a point with density `R/V` in u-space using the
  *    integrator RNG, set `point.x` and `point.weight` as `map_point` would, and
  *    return `R(u)`;
@@ -477,7 +477,7 @@ class GeneratorBase : public Integrator {
 
     // raise each factor that was hit such that R grows by at most ~10%
     // @todo: make this more flexible with an option (enum)
-    const T raise_factor = T(1) + T(1) / (T(10) * T(ndim));
+    const T gamma = T(1) + T(1) / (T(10) * T(ndim));
 
     envelope_ready_ = false;  // if the pass throws, we must not be left with stale CDFs
     U n_violations = 0;
@@ -492,7 +492,7 @@ class GeneratorBase : public Integrator {
       if (!finite) ++n_nonfinite;
       accumulate_finite(abs_acc_, abs_fval);
       if (finite && abs_fval > derived().env_value(cell)) {
-        derived().env_raise(cell, raise_factor);
+        derived().env_raise(cell, gamma);
         ++n_violations;
       }
     }

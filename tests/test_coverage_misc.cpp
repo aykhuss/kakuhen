@@ -9,8 +9,10 @@
 #include "kakuhen/integrator/vegas.h"
 #include "kakuhen/integrator/basin.h"
 #include "kakuhen/util/printer.h"
+#include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <sstream>
 
 using namespace kakuhen;
@@ -261,4 +263,35 @@ TEST_CASE("Coverage: HistogramBuffer reset", "[coverage]") {
     buffer.fill(0, 1.0);
     buffer.flush(data);
     REQUIRE(data.bins()[0].weight() == Approx(17.0));
+}
+
+TEST_CASE("Integration throws on non-finite integrand values in strict mode", "[integrator]") {
+    auto nan_integrand = [](const integrator::Point<>& p) {
+        return p.x[0] < 0.5 ? 1.0 : std::numeric_limits<double>::quiet_NaN();
+    };
+    // adaptation stays off: a NaN-poisoned grid is not what is under test here
+    const integrator::Plain<>::options_type strict_opts{
+        .neval = 64, .niter = 1, .adapt = false, .verbosity = 0, .progress_bar = false,
+        .strict_finite_integrand = true};
+    const integrator::Plain<>::options_type lenient_opts{
+        .neval = 64, .niter = 1, .adapt = false, .verbosity = 0, .progress_bar = false};
+
+    SECTION("Plain") {
+        integrator::Plain<> plain(1);
+        REQUIRE_THROWS_AS(plain.integrate(nan_integrand, strict_opts), std::runtime_error);
+        // default: non-finite values propagate into the result
+        REQUIRE(std::isnan(plain.integrate(nan_integrand, lenient_opts).value()));
+    }
+
+    SECTION("Vegas") {
+        integrator::Vegas<> vegas(1);
+        REQUIRE_THROWS_AS(vegas.integrate(nan_integrand, strict_opts), std::runtime_error);
+        REQUIRE(std::isnan(vegas.integrate(nan_integrand, lenient_opts).value()));
+    }
+
+    SECTION("Basin") {
+        integrator::Basin<> basin(1);
+        REQUIRE_THROWS_AS(basin.integrate(nan_integrand, strict_opts), std::runtime_error);
+        REQUIRE(std::isnan(basin.integrate(nan_integrand, lenient_opts).value()));
+    }
 }

@@ -13,7 +13,9 @@ set(TEST_SOURCES
   test_accumulator.cpp
   test_axis.cpp
   test_basin.cpp
+  test_basin_generator.cpp
   test_algorithm.cpp
+  test_generator.cpp
   test_hash.cpp
   test_histogram.cpp
   test_histogram_registry.cpp
@@ -30,6 +32,7 @@ set(TEST_SOURCES
   test_small_vector.cpp
   test_user_data.cpp
   test_vegas.cpp
+  test_vegas_generator.cpp
   test_coverage_misc.cpp
 )
 
