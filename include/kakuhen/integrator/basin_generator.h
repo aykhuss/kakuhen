@@ -320,10 +320,6 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
     child_integrals_ = ndarray::NDArray<T, S>({ndim_, ndiv1_});
     conditional_rows_.clear();
     conditional_rows_.resize(static_cast<std::size_t>(ndim_) * ndiv1_);
-    for (auto& row : conditional_rows_) {
-      row.cdf.reserve(static_cast<std::size_t>(ndiv1_) + ndiv2_ - 1);
-      row.segments.reserve(static_cast<std::size_t>(ndiv1_) + ndiv2_ - 1);
-    }
     has_children_.assign(ndim_, 0);
     walk_ig1_.assign(ndim_, S(0));
   }
