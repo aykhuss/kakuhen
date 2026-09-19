@@ -376,6 +376,15 @@ TEMPLATE_TEST_CASE("Trial generation handles rejection and stopping", "[generato
   REQUIRE(intact.status() == GenerationStatus::COMPLETED);
   REQUIRE(intact.n_trials() == result.n_trials());
   REQUIRE(intact.volume() == result.volume());
+  // two valid runs with huge overweights must not merge into non-finite statistics
+  auto huge = decltype(result){};
+  huge.envelope_volume_ = 1.0;
+  huge.acc_.reset(1e154, 1e308, 1);
+  REQUIRE(std::isfinite(huge.error()));
+  auto huge_merged = huge;
+  REQUIRE_THROWS_AS(huge_merged.accumulate(huge), std::overflow_error);
+  REQUIRE(huge_merged.n_trials() == 1);
+  REQUIRE(huge_merged.acc_.f2_.result() == 1e308);
 }
 
 TEST_CASE("Stopping after the first event biases the estimate", "[generator]") {

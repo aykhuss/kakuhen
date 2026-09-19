@@ -176,7 +176,9 @@ struct GenerationResult {
    *
    * @param other The result to merge in.
    * @throws std::invalid_argument if both results are non-empty but have
-   *         different envelope volumes. The result is left unchanged.
+   *         different envelope volumes.
+   * @throws std::overflow_error if the merged sums overflow.
+   * On a throw, the result is left unchanged.
    */
   void accumulate(const GenerationResult<T, U>& other) {
     // validate before touching any state (everything below is non-throwing)
@@ -185,12 +187,17 @@ struct GenerationResult {
       throw std::invalid_argument(
           "GenerationResult: cannot merge runs generated against different envelopes");
     }
+    int_acc_type merged_acc = acc_;
+    merged_acc.accumulate(other.acc_);
+    if (!merged_acc.is_finite()) {
+      throw std::overflow_error("GenerationResult: merged contributions overflow");
+    }
     // an empty result still carries a status (status ordered by severity)
     status_ = static_cast<GenerationStatus>(
         util::math::max(static_cast<uint8_t>(status_), static_cast<uint8_t>(other.status_)));
     if (other.n_trials() == U(0)) return;
     if (n_trials() == U(0)) envelope_volume_ = other.envelope_volume_;
-    acc_.accumulate(other.acc_);
+    acc_ = merged_acc;
     n_events_ += other.n_events_;
     n_overweight_ += other.n_overweight_;
     n_negative_ += other.n_negative_;
@@ -924,7 +931,7 @@ class GeneratorBase : public Integrator {
   /// @brief Throw if the accumulated sums overflowed. If the sums are finite,
   ///        so are the value and the variance.
   static void require_finite_statistics(const int_acc_type& acc) {
-    if (!std::isfinite(acc.f_.result()) || !std::isfinite(acc.f2_.result())) {
+    if (!acc.is_finite()) {
       throw std::overflow_error("generation: accumulated contributions overflow");
     }
   }

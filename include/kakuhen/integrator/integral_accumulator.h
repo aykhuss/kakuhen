@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kakuhen/util/accumulator.h"
+#include <cmath>
 
 namespace kakuhen::integrator {
 
@@ -122,6 +123,15 @@ struct IntegralAccumulator {
    */
   [[nodiscard]] inline U count() const noexcept {
     return n_;
+  }
+
+  /*!
+   * @brief Whether both accumulated sums are finite (i.e. did not overflow).
+   *
+   * If so, the value and the variance are finite as well.
+   */
+  [[nodiscard]] inline bool is_finite() const noexcept {
+    return std::isfinite(f_.result()) && std::isfinite(f2_.result());
   }
 
   /*!
