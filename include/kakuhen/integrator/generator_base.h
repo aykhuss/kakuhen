@@ -176,19 +176,20 @@ struct GenerationResult {
    *
    * @param other The result to merge in.
    * @throws std::invalid_argument if both results are non-empty but have
-   *         different envelope volumes.
+   *         different envelope volumes. The result is left unchanged.
    */
   void accumulate(const GenerationResult<T, U>& other) {
-    // merge the status first: an empty result still carries a status (status ordered by severity)
-    status_ = static_cast<GenerationStatus>(
-        util::math::max(static_cast<uint8_t>(status_), static_cast<uint8_t>(other.status_)));
-    if (other.n_trials() == U(0)) return;
-    if (n_trials() == U(0)) {
-      envelope_volume_ = other.envelope_volume_;
-    } else if (envelope_volume_ != other.envelope_volume_) {
+    // validate before touching any state (everything below is non-throwing)
+    if (n_trials() > U(0) && other.n_trials() > U(0) &&
+        envelope_volume_ != other.envelope_volume_) {
       throw std::invalid_argument(
           "GenerationResult: cannot merge runs generated against different envelopes");
     }
+    // an empty result still carries a status (status ordered by severity)
+    status_ = static_cast<GenerationStatus>(
+        util::math::max(static_cast<uint8_t>(status_), static_cast<uint8_t>(other.status_)));
+    if (other.n_trials() == U(0)) return;
+    if (n_trials() == U(0)) envelope_volume_ = other.envelope_volume_;
     acc_.accumulate(other.acc_);
     n_events_ += other.n_events_;
     n_overweight_ += other.n_overweight_;

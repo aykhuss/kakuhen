@@ -367,6 +367,15 @@ TEMPLATE_TEST_CASE("Trial generation handles rejection and stopping", "[generato
   tainted.accumulate(stopped_empty);
   REQUIRE(tainted.status() == GenerationStatus::STOPPED);
   REQUIRE(tainted.n_trials() == result.n_trials());
+  // a rejected merge leaves the destination untouched
+  auto incompatible = stopped;
+  incompatible.envelope_volume_ *= 2;
+  auto intact = decltype(result){};
+  intact.accumulate(result);
+  REQUIRE_THROWS_AS(intact.accumulate(incompatible), std::invalid_argument);
+  REQUIRE(intact.status() == GenerationStatus::COMPLETED);
+  REQUIRE(intact.n_trials() == result.n_trials());
+  REQUIRE(intact.volume() == result.volume());
 }
 
 TEST_CASE("Stopping after the first event biases the estimate", "[generator]") {
