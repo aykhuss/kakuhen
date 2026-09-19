@@ -286,29 +286,14 @@ struct CDFDraw {
   T width;     //!< The CDF mass of the cell `cdf[cell] - cdf[cell - 1]`.
 };
 
-/// @brief Index of the first entry of the sorted `cdf` that is greater than
-///        `target` (as `std::upper_bound`).
-/// The search is branchless: the targets are random, so the branches of
-/// `std::upper_bound` would be mispredicted about half of the time.
-template <typename T>
-std::size_t upper_bound_branchless(std::span<const T> cdf, T target) {
-  const T* base = cdf.data();
-  std::size_t n = cdf.size();
-  while (n > 1) {
-    const std::size_t half = n / 2;
-    base = base[half - 1] <= target ? base + half : base;
-    n -= half;
-  }
-  return static_cast<std::size_t>(base - cdf.data()) + (*base <= target ? 1 : 0);
-}
-
 /// @brief Invert an inclusive CDF at `u` in [0, 1].
 template <typename T, typename S>
 CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
   T target = u * cdf.back();
   if (target >= cdf.back()) [[unlikely]]
     target = std::nextafter(cdf.back(), T(0));
-  const auto cell = static_cast<S>(upper_bound_branchless(cdf, target));
+  const auto cell =
+      static_cast<S>(std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
   const T low = cell == 0 ? T(0) : cdf[cell - 1];
   const T width = cdf[cell] - low;
   return {cell, (target - low) / width, width};

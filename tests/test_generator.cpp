@@ -1,6 +1,5 @@
 #include "kakuhen/integrator/basin_generator.h"
 #include "kakuhen/integrator/vegas_generator.h"
-#include <algorithm>
 #include <array>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_template_test_macros.hpp>
@@ -404,20 +403,6 @@ TEST_CASE("Stopping after the first event biases the estimate", "[generator]") {
   }
   REQUIRE(fixed_sum / 20000 == Approx(0.5).margin(0.015));
   REQUIRE(stopped_sum / 20000 == Approx(std::log(2.0)).margin(0.015));
-}
-
-TEST_CASE("Branchless CDF search agrees with std::upper_bound", "[generator]") {
-  for (std::size_t size = 1; size <= 9; ++size) {
-    std::vector<double> cdf(size);
-    for (std::size_t i = 0; i < size; ++i)
-      cdf[i] = double(i + 1);
-    for (double target = -0.5; target <= double(size) + 0.5; target += 0.25) {
-      CAPTURE(size, target);
-      const auto expected = std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin();
-      REQUIRE(detail::upper_bound_branchless<double>(cdf, target) ==
-              static_cast<std::size_t>(expected));
-    }
-  }
 }
 
 TEST_CASE("Envelope CDF inversion stays inside cells at boundaries", "[generator]") {
