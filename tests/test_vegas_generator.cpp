@@ -102,6 +102,29 @@ TEST_CASE("VegasGenerator optimize_envelope drives raising passes to convergence
     gen.initialize_envelope(1.0);
     REQUIRE_THROWS_AS(gen.optimize_envelope(integrand, 64, 0), std::invalid_argument);
   }
+
+  SECTION("rejects a target rate outside [0, 1] before evaluating the integrand") {
+    gen.initialize_envelope(1e-6);
+    const double volume = gen.envelope_volume();
+    int ncalls = 0;
+    auto counting = [&ncalls](const Point<>&) {
+      ++ncalls;
+      return 1.0;
+    };
+    for (const double rate : {-1e-3, 1.0 + 1e-12, std::numeric_limits<double>::quiet_NaN(),
+                              std::numeric_limits<double>::infinity()}) {
+      REQUIRE_THROWS_AS(gen.optimize_envelope(counting, 64, 8, rate), std::invalid_argument);
+    }
+    REQUIRE(ncalls == 0);
+    REQUIRE(gen.envelope_volume() == volume);
+  }
+
+  SECTION("accepts the target rate bounds 0 and 1") {
+    gen.initialize_envelope(1e-6);
+    // rate 1 is always met: exactly one pass
+    REQUIRE(gen.optimize_envelope(integrand, 64, 8, 1.0).count() == 64);
+    REQUIRE(gen.optimize_envelope(integrand, 64, 2, 0.0).count() == 3 * 64);
+  }
 }
 
 TEST_CASE("VegasGenerator handles sign-changing integrands", "[vegas_generator]") {

@@ -513,11 +513,13 @@ class GeneratorBase : public Integrator {
    * @param integrand The integrand.
    * @param neval The number of samples per pass; must be > 0.
    * @param max_passes The maximum number of passes; must be > 0.
-   * @param target_rate Stop once the violation rate of a pass is at or below this.
+   * @param target_rate Stop once the violation rate of a pass is at or below
+   *        this; must be in [0, 1]. With 0, passes continue until one records
+   *        no violation; with 1, exactly one pass is run.
    * @return The `EnvelopeResult` of the last pass (running A estimate, the
    *         violation count of the last pass, and the sealed volume).
-   * @throws std::invalid_argument if the grid is not frozen, neval == 0, or
-   *         max_passes == 0.
+   * @throws std::invalid_argument if the grid is not frozen, neval == 0,
+   *         max_passes == 0, or target_rate is not in [0, 1] (incl. NaN).
    * @throws std::runtime_error if the envelope was not initialized or does
    *         not match the current grid.
    */
@@ -526,6 +528,10 @@ class GeneratorBase : public Integrator {
                                     T target_rate = T(1e-3)) {
     if (max_passes == U(0)) {
       throw std::invalid_argument("optimize_envelope requires max_passes > 0");
+    }
+    // negated so that NaN is rejected as well
+    if (!(target_rate >= T(0) && target_rate <= T(1))) {
+      throw std::invalid_argument("optimize_envelope requires a target_rate in [0, 1]");
     }
     env_result_type res{};
     for (U pass = 0; pass < max_passes; ++pass) {
