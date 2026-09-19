@@ -492,7 +492,10 @@ class GeneratorBase : public Integrator {
     require_finite_statistics(abs_acc_);
     seal_envelope();
 
-    return env_result_type{abs_acc_, n_violations, envelope_volume(), n_nonfinite};
+    return env_result_type{.abs_acc_ = abs_acc_,
+                           .n_violations_ = n_violations,
+                           .envelope_volume_ = envelope_volume(),
+                           .n_nonfinite_ = n_nonfinite};
   }
 
   /*!
