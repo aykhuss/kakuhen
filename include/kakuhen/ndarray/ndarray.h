@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -90,7 +91,7 @@ class NDArray {
   ~NDArray() {
     if constexpr (!std::is_trivially_destructible_v<T>) {
       if (data_) {
-        std::destroy_n(data_, static_cast<size_t>(total_size_));
+        std::destroy_n(data_, total_size_);
       }
     }
   }
@@ -134,7 +135,7 @@ class NDArray {
       // Destroy current elements if non-trivial
       if constexpr (!std::is_trivially_destructible_v<T>) {
         if (data_) {
-          std::destroy_n(data_, static_cast<size_t>(total_size_));
+          std::destroy_n(data_, total_size_);
         }
       }
 
@@ -426,9 +427,12 @@ class NDArray {
   /*!
    * @brief Deserializes the array's metadata and data from a stream.
    *
+   * The array is left unchanged if reading or allocation fails.
+   *
    * @param in The input stream to read from.
    * @param with_type If true, expects and verifies type information in the stream.
-   * @throws std::runtime_error if type information mismatches when `with_type` is true.
+   * @throws std::runtime_error if the stream is truncated, type information mismatches,
+   *         or the array size overflows.
    */
   void deserialize(std::istream& in, bool with_type = false) {
     if (with_type) {
@@ -445,26 +449,42 @@ class NDArray {
     }
     S ndim_in;
     kakuhen::util::serialize::deserialize_one<S>(in, ndim_in);
-
-    if (ndim_in > 0) {
-      // Read shape temporarily to re-init
-      std::vector<S> shape_in(static_cast<size_t>(ndim_in));
-      kakuhen::util::serialize::deserialize_array<S>(in, shape_in.data(),
-                                                     static_cast<size_t>(ndim_in));
-
-      // Re-initialize with new shape
-      init(ndim_in, shape_in.data());
-
-      S total_size_in;
-      kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
-      if (total_size_in != total_size_) {
-        throw std::runtime_error("NDArray: total size mismatch during deserialization");
-      }
-
-      kakuhen::util::serialize::deserialize_array<T>(in, data_, static_cast<size_t>(total_size_));
-    } else {
-      init(0, nullptr);
+    if (!std::in_range<size_t>(ndim_in)) {
+      throw std::runtime_error("NDArray: rank overflow during deserialization");
     }
+    std::vector<S> shape_in(static_cast<size_t>(ndim_in));
+    kakuhen::util::serialize::deserialize_array<S>(in, shape_in.data(), shape_in.size());
+    load(in, shape_in);
+  }
+
+  /*!
+   * @brief Deserializes an array whose shape must match `expected_shape`.
+   *
+   * Use this for untrusted streams: the stored shape is checked against
+   * `expected_shape` before allocation, and the complete allocation size is
+   * checked for overflow. `expected_shape` may refer to this array's own shape.
+   * The array is left unchanged if reading or allocation fails.
+   *
+   * @param in The input stream to read from.
+   * @param expected_shape The shape the stored array must have.
+   * @throws std::runtime_error if the stream is truncated, the stored shape
+   *         differs from `expected_shape`, or the allocation size overflows.
+   */
+  void deserialize_expected_shape(std::istream& in, std::span<const S> expected_shape) {
+    using kakuhen::util::serialize::deserialize_one;
+    S ndim_in;
+    deserialize_one<S>(in, ndim_in);
+    if (std::cmp_not_equal(ndim_in, expected_shape.size())) {
+      throw std::runtime_error("NDArray: shape mismatch during deserialization");
+    }
+    for (const S extent : expected_shape) {
+      S extent_in;
+      deserialize_one<S>(in, extent_in);
+      if (extent_in != extent) {
+        throw std::runtime_error("NDArray: shape mismatch during deserialization");
+      }
+    }
+    load(in, expected_shape);
   }
 
  private:
@@ -476,60 +496,76 @@ class NDArray {
   S* strides_ = nullptr;
   T* data_ = nullptr;
 
-  void init(S ndim, const S* shape) {
-    // 1. Cleanup existing if any
-    if constexpr (!std::is_trivially_destructible_v<T>) {
-      if (data_) std::destroy_n(data_, static_cast<size_t>(total_size_));
+  // Keep the old storage alive: `shape` may refer to it, and reading may throw.
+  void load(std::istream& in, std::span<const S> shape) {
+    NDArray loaded(shape);
+    if (loaded.ndim_ != 0) {
+      S total_size_in;
+      kakuhen::util::serialize::deserialize_one<S>(in, total_size_in);
+      if (total_size_in != loaded.total_size_) {
+        throw std::runtime_error("NDArray: total size mismatch during deserialization");
+      }
+      kakuhen::util::serialize::deserialize_array<T>(in, loaded.data_,
+                                                     static_cast<size_t>(loaded.total_size_));
     }
+    *this = std::move(loaded);
+  }
 
-    // Reset state
-    memory_block_.reset();
-    shape_ = nullptr;
-    strides_ = nullptr;
-    data_ = nullptr;
+  // Used only by constructors; all size arithmetic is checked before allocation.
+  // `S` counts elements, `size_t` counts bytes; this is where the two meet.
+  void init(S ndim, const S* shape) {
+    static_assert(alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__,
+                  "NDArray: over-aligned T is unsupported by the single-allocation strategy");
+    constexpr size_t MAX_BYTES = std::numeric_limits<size_t>::max();
+    // S may be wider than size_t, so clamp instead of converting.
+    constexpr size_t MAX_S = std::in_range<size_t>(std::numeric_limits<S>::max())
+                                 ? static_cast<size_t>(std::numeric_limits<S>::max())
+                                 : std::numeric_limits<size_t>::max();
+    if (!std::in_range<size_t>(ndim) || static_cast<size_t>(ndim) > MAX_BYTES / (2 * sizeof(S))) {
+      throw std::runtime_error("NDArray: size overflow");
+    }
     ndim_ = ndim;
     total_size_ = 0;
+    if (ndim == 0) return;
 
-    if (ndim == 0) {
-      return;
+    const size_t shape_bytes = static_cast<size_t>(ndim) * sizeof(S);
+    const size_t metadata_bytes = 2 * shape_bytes;
+    const size_t padding = (alignof(T) - metadata_bytes % alignof(T)) % alignof(T);
+    if (padding > MAX_BYTES - metadata_bytes) {
+      throw std::runtime_error("NDArray: size overflow");
     }
-
-    // 2. Calculate sizes and alignment
-    size_t shape_bytes = static_cast<size_t>(ndim) * sizeof(S);
-    size_t strides_bytes = static_cast<size_t>(ndim) * sizeof(S);
-    size_t metadata_bytes = shape_bytes + strides_bytes;
-
-    size_t data_align = alignof(T);
-    size_t padding = 0;
-    if (metadata_bytes % data_align != 0) {
-      padding = data_align - (metadata_bytes % data_align);
+    const size_t data_offset = metadata_bytes + padding;
+    size_t count = 1;
+    // Reverse order checks intermediate strides too, even for shapes containing zero.
+    for (S i = ndim; i-- > 0;) {
+      if (!std::in_range<size_t>(shape[i]) ||
+          (shape[i] != 0 && count > MAX_S / static_cast<size_t>(shape[i]))) {
+        throw std::runtime_error("NDArray: size overflow");
+      }
+      count *= static_cast<size_t>(shape[i]);
     }
-    size_t data_offset = metadata_bytes + padding;
+    if (count > (MAX_BYTES - data_offset) / sizeof(T)) {
+      throw std::runtime_error("NDArray: size overflow");
+    }
+    total_size_ = static_cast<S>(count);
+    const size_t total_bytes = data_offset + count * sizeof(T);
 
-    // 3. Calculate total size
-    S count = 1;
-    for (S i = 0; i < ndim; ++i)
-      count *= shape[i];
-    total_size_ = count;
-
-    size_t total_bytes = data_offset + (static_cast<size_t>(total_size_) * sizeof(T));
-
-    // 4. Allocate single block
+    // Allocate one block for metadata and elements.
     memory_block_.reset(new std::byte[total_bytes]);
 
-    // 5. Setup pointers
+    // Set up pointers.
     std::byte* base = memory_block_.get();
     shape_ = reinterpret_cast<S*>(base);
     strides_ = reinterpret_cast<S*>(base + shape_bytes);
     data_ = reinterpret_cast<T*>(base + data_offset);
 
-    // 6. Initialize metadata
-    std::copy_n(shape, static_cast<size_t>(ndim), shape_);
+    // Initialize metadata.
+    std::copy_n(shape, ndim, shape_);
     compute_strides();
 
-    // 7. Initialize data
+    // Initialize elements.
     if constexpr (!std::is_trivially_constructible_v<T>) {
-      std::uninitialized_default_construct_n(data_, static_cast<size_t>(total_size_));
+      std::uninitialized_default_construct_n(data_, total_size_);
     }
   }
 

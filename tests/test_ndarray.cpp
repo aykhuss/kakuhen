@@ -1,9 +1,13 @@
 #include "kakuhen/ndarray/ndarray.h"
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
 #include <catch2/matchers/catch_matchers_range_equals.hpp>
 #include <cstdint>
+#include <limits>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "catch2/catch_approx.hpp"
 
@@ -206,4 +210,127 @@ TEST_CASE("NDArray serialization", "[ndarray]") {
   kakuhen::ndarray::NDArray<float, int> arr_mismatch2;
   REQUIRE_THROWS_MATCHES(arr_mismatch2.deserialize(ss, true), std::runtime_error,
                          Message("type or size mismatch for typename S"));
+}
+
+TEST_CASE("NDArray deserialization against an expected shape", "[ndarray]") {
+  using S = uint32_t;
+  std::stringstream ss;
+  kakuhen::ndarray::NDArray<float> arr({2, 3});
+  arr.fill(23.42f);
+  arr.serialize(ss);
+  const std::string bytes = ss.str();
+
+  std::stringstream in(bytes);
+  kakuhen::ndarray::NDArray<float> arr_read;
+  arr_read.deserialize_expected_shape(in, std::array<S, 2>{2, 3});
+  REQUIRE_THAT(arr_read, RangeEquals(arr));
+
+  SECTION("C-style shape arrays") {
+    const S shape[] = {2, 3};
+    std::stringstream matching(bytes);
+    arr_read.deserialize_expected_shape(matching, shape);
+    REQUIRE_THAT(arr_read, RangeEquals(arr));
+
+    const S wrong_shape[] = {3, 2};
+    std::stringstream mismatching(bytes);
+    REQUIRE_THROWS_MATCHES(arr_read.deserialize_expected_shape(mismatching, wrong_shape),
+                           std::runtime_error,
+                           Message("NDArray: shape mismatch during deserialization"));
+  }
+
+  for (const auto& shape : {std::vector<S>{2, 4}, std::vector<S>{2}, std::vector<S>{2, 3, 1}}) {
+    std::stringstream mismatch(bytes);
+    REQUIRE_THROWS_MATCHES(arr_read.deserialize_expected_shape(mismatch, shape), std::runtime_error,
+                           Message("NDArray: shape mismatch during deserialization"));
+  }
+
+  // a header whose element count overflows is rejected before any allocation
+  const S huge = std::numeric_limits<S>::max();
+  std::stringstream overflow;
+  kakuhen::util::serialize::serialize_one<S>(overflow, 2);
+  kakuhen::util::serialize::serialize_one<S>(overflow, huge);
+  kakuhen::util::serialize::serialize_one<S>(overflow, huge);
+  REQUIRE_THROWS_MATCHES(arr_read.deserialize_expected_shape(overflow, std::array{huge, huge}),
+                         std::runtime_error, Message("NDArray: size overflow"));
+}
+
+TEST_CASE("NDArray can deserialize using its own shape", "[ndarray]") {
+  kakuhen::ndarray::NDArray<double> arr({2, 3});
+  arr.fill(42.0);
+  std::stringstream serialized;
+  arr.serialize(serialized);
+  arr.fill(7.0);
+  const std::string bytes = serialized.str();
+
+  SECTION("successful replacement") {
+    arr.deserialize_expected_shape(serialized, arr.shape());
+    REQUIRE_THAT(arr.shape(), RangeEquals({2u, 3u}));
+    for (double value : arr)
+      REQUIRE(value == 42.0);
+  }
+  SECTION("truncated payload preserves the original array") {
+    std::stringstream truncated(bytes.substr(0, bytes.size() - 1));
+    REQUIRE_THROWS_AS(arr.deserialize_expected_shape(truncated, arr.shape()), std::runtime_error);
+    REQUIRE_THAT(arr.shape(), RangeEquals({2u, 3u}));
+    for (double value : arr)
+      REQUIRE(value == 7.0);
+  }
+  SECTION("unconstrained loading also preserves the original array on failure") {
+    std::stringstream truncated(bytes.substr(0, bytes.size() - 1));
+    REQUIRE_THROWS_AS(arr.deserialize(truncated), std::runtime_error);
+    REQUIRE_THAT(arr.shape(), RangeEquals({2u, 3u}));
+    for (double value : arr)
+      REQUIRE(value == 7.0);
+  }
+}
+
+TEST_CASE("NDArray allocation checks include metadata", "[ndarray]") {
+  using S = uint64_t;
+  using Array = kakuhen::ndarray::NDArray<uint64_t, S>;
+  const S extent = std::numeric_limits<size_t>::max() / sizeof(uint64_t);
+  SECTION("construction") {
+    REQUIRE_THROWS_MATCHES(Array({extent}), std::runtime_error, Message("NDArray: size overflow"));
+  }
+  SECTION("deserialization") {
+    std::stringstream in;
+    kakuhen::util::serialize::serialize_one<S>(in, 1);
+    kakuhen::util::serialize::serialize_one<S>(in, extent);
+    kakuhen::util::serialize::serialize_one<S>(in, extent);
+    Array arr({2});
+    arr.fill(17);
+    SECTION("expected shape") {
+      REQUIRE_THROWS_MATCHES(arr.deserialize_expected_shape(in, std::array{extent}),
+                             std::runtime_error, Message("NDArray: size overflow"));
+    }
+    SECTION("shape read from stream") {
+      REQUIRE_THROWS_MATCHES(arr.deserialize(in), std::runtime_error,
+                             Message("NDArray: size overflow"));
+    }
+    REQUIRE(arr.size() == 2);
+    REQUIRE(arr[0] == 17);
+    REQUIRE(arr[1] == 17);
+  }
+}
+
+TEST_CASE("NDArray empty shapes allow large representable strides", "[ndarray]") {
+  using S = uint64_t;
+  using Array = kakuhen::ndarray::NDArray<double, S>;
+  const S huge = std::numeric_limits<S>::max();
+  const S shape[] = {0, huge};
+  Array arr(std::span<const S>{shape});
+  REQUIRE(arr.empty());
+  REQUIRE_THAT(arr.shape(), RangeEquals(shape));
+  REQUIRE_THAT(arr.strides(), RangeEquals(std::array<S, 2>{huge, 1}));
+
+  std::stringstream serialized;
+  arr.serialize(serialized);
+  Array restored;
+  restored.deserialize_expected_shape(serialized, shape);
+  REQUIRE(restored.empty());
+  REQUIRE_THAT(restored.shape(), RangeEquals(shape));
+  REQUIRE_THAT(restored.strides(), RangeEquals(arr.strides()));
+
+  // A zero extent must not conceal overflow in a trailing stride.
+  REQUIRE_THROWS_MATCHES(Array({0, 2, huge}), std::runtime_error,
+                         Message("NDArray: size overflow"));
 }
