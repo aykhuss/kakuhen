@@ -305,23 +305,22 @@ class IntegratorBase {
    * overrides for the persistent options of the integrator.
    * @param progress_cb The progress callback, or `nullptr` for no callback.
    * @return A `result_type` object containing the result of the integration.
-   * @throws std::invalid_argument if required options like `neval` or `niter` are missing,
-   *         or if `progress_step` is invalid.
+   * @throws std::invalid_argument if `neval` or `niter` is unset or zero, or if
+   *         `progress_step` is not in (0, 1] (incl. NaN). These options are
+   *         checked before any state is touched, so the integrator (incl. its
+   *         RNG) is then left unchanged. Exceptions thrown later, e.g. by the
+   *         integrand, leave the samples accumulated up to that point.
    */
   template <typename I, typename CB>
   result_type integrate(I&& integrand, const options_type& opts, CB&& progress_cb) {
-    // set up local options & check settings
+    constexpr bool has_callback = is_progress_callback_v<CB>;
+    // must precede `set_options`, which reseeds the RNG
+    validate_integrate_options(opts, has_callback);
+
+    // set up local options
     options_type orig_opts = opts_;
     auto restore_orig = kakuhen::util::defer([this, orig_opts] { opts_ = orig_opts; });
     set_options(opts);
-    if (!opts_.neval) {
-      throw std::invalid_argument("number of evaluations (neval) not set");
-    }
-    if (!opts_.niter) {
-      throw std::invalid_argument("number of iterations (niter) not set");
-    }
-
-    constexpr bool has_callback = is_progress_callback_v<CB>;
 
     result_type result;
 
@@ -330,10 +329,7 @@ class IntegratorBase {
     ProgressTracker tracker{};
 
     if constexpr (has_callback) {
-      double progress_step = opts_.progress_step.value_or(DEFAULT_PROGRESS_STEP);
-      if (progress_step <= 0.0 || progress_step > 1.0) {
-        throw std::invalid_argument("progress_step must be > 0 and <= 1");
-      }
+      const double progress_step = opts_.progress_step.value_or(DEFAULT_PROGRESS_STEP);
       tracker.signal = EventSignal::NONE;
       tracker.niter = *opts_.niter;
       tracker.current_iter = 0;
@@ -609,11 +605,15 @@ class IntegratorBase {
    *
    * This method deserializes accumulated sample data from a file and adds it
    * to the integrator's internal data accumulator, allowing for the combination
-   * of data from multiple independent runs.
+   * of data from multiple independent runs. The data is validated before it is
+   * merged, and a file with non-finite or negative grid accumulators (e.g. one
+   * written after sampling with `strict_finite_integrand` disabled) is rejected.
    *
    * @note Available only if the derived type models `detail::HasDataStream`.
    *
    * @param filepath The path to the file from which to append the data.
+   * @throws std::runtime_error if the file is corrupt or incompatible with the grid.
+   * @throws std::overflow_error if the merged sums or counts overflow.
    */
   template <typename D = Derived>
   void append_data(const std::filesystem::path& filepath)
@@ -821,6 +821,23 @@ class IntegratorBase {
   }
 
  private:
+  /// @throws std::invalid_argument unless `opts` on top of the persistent options is valid for
+  ///         `integrate`.
+  void validate_integrate_options(const options_type& opts, bool has_callback) const {
+    options_type call_opts = opts_;
+    call_opts.set(opts);
+    if (call_opts.neval.value_or(0) == 0) {
+      throw std::invalid_argument("integrate requires neval > 0");
+    }
+    if (call_opts.niter.value_or(0) == 0) {
+      throw std::invalid_argument("integrate requires niter > 0");
+    }
+    if (has_callback &&
+        !is_valid_progress_step(call_opts.progress_step.value_or(DEFAULT_PROGRESS_STEP))) {
+      throw std::invalid_argument("progress_step must be > 0 and <= 1");
+    }
+  }
+
   static std::string fmt_scientific(long double value, int precision = 6) {
     std::ostringstream out;
     out << std::scientific << std::setprecision(precision) << value;
