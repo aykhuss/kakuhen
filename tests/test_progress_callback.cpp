@@ -1,5 +1,6 @@
 #include "kakuhen/integrator/plain.h"
 #include <catch2/catch_test_macros.hpp>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -132,17 +133,42 @@ TEST_CASE("Invalid progress step is rejected", "[integrator][progress]") {
   using opts_t = Plain<>::options_type;
   using event_t = Plain<>::progress_event_type;
 
-  opts_t opts{
-      .neval = 10,
-      .niter = 1,
-      .verbosity = 0,
-      .progress_step = 0.0,
-  };
-
   auto callback = [](const event_t&) { return EventSignal::NONE; };
 
-  REQUIRE_THROWS_AS(plain.integrate([](const Point<>&) { return 1.0; }, opts, callback),
+  for (const double step : {0.0, -0.5, 1.0 + 1e-12, std::numeric_limits<double>::quiet_NaN()}) {
+    const opts_t opts{.neval = 10, .niter = 1, .verbosity = 0, .progress_step = step};
+    REQUIRE_THROWS_AS(plain.integrate([](const Point<>&) { return 1.0; }, opts, callback),
+                      std::invalid_argument);
+  }
+}
+
+TEST_CASE("Invalid integration options are rejected before touching any state",
+          "[integrator][progress]") {
+  using event_t = Plain<>::progress_event_type;
+  auto integrand = [](const Point<>& p) { return p.x[0]; };
+  auto callback = [](const event_t&) { return EventSignal::NONE; };
+
+  Plain<> plain(2);
+  plain.set_options({.verbosity = 0});
+  REQUIRE_THROWS_AS(plain.integrate(integrand, {.neval = 0, .niter = 1, .seed = 42}),
                     std::invalid_argument);
+  REQUIRE_THROWS_AS(plain.integrate(integrand, {.neval = 10, .niter = 0, .seed = 42}),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(plain.integrate(integrand,
+                                    {.neval = 10,
+                                     .niter = 1,
+                                     .seed = 42,
+                                     .progress_step = std::numeric_limits<double>::quiet_NaN()},
+                                    callback),
+                    std::invalid_argument);
+
+  // neither the options nor the RNG were touched: same stream as a fresh integrator
+  Plain<> fresh(2);
+  fresh.set_options({.verbosity = 0});
+  REQUIRE(plain.seed() == fresh.seed());
+  const auto res = plain.integrate(integrand, {.neval = 100, .niter = 1});
+  const auto res_fresh = fresh.integrate(integrand, {.neval = 100, .niter = 1});
+  REQUIRE(res.value() == res_fresh.value());
 }
 
 TEST_CASE("Progress event includes value, error, and elapsed time", "[integrator][progress]") {

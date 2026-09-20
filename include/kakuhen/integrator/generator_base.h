@@ -603,7 +603,7 @@ class GeneratorBase : public Integrator {
     const auto& opts = derived().opts_;
     if (opts.progress_bar.value_or(true) && opts.verbosity.value_or(0) > 0) {
       const double progress_step = opts.progress_step.value_or(DEFAULT_PROGRESS_STEP);
-      if (!(progress_step > 0.0) || progress_step > 1.0) {
+      if (!is_valid_progress_step(progress_step)) {
         throw std::invalid_argument("progress_step must be > 0 and <= 1");
       }
       milestone_step =

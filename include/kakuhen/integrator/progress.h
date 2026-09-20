@@ -47,6 +47,11 @@ constexpr EventSignal operator&(EventSignal a, EventSignal b) noexcept {
 /// @brief Default milestone spacing within one iteration: 5% of `neval`.
 inline constexpr double DEFAULT_PROGRESS_STEP = 0.05;
 
+/// @brief Whether `step` is a valid `progress_step`, i.e. in (0, 1] (NaN is rejected).
+[[nodiscard]] constexpr bool is_valid_progress_step(double step) noexcept {
+  return step > 0.0 && step <= 1.0;
+}
+
 /// @brief True when `Cb` is a real progress callback (not `std::nullptr_t`).
 template <typename Cb>
 inline constexpr bool is_progress_callback_v =
