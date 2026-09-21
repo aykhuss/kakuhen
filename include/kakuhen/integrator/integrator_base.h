@@ -371,8 +371,7 @@ class IntegratorBase {
       // already is; `integrate_impl` takes it by `I&` so a `std::forward` here would
       // not compile (forwarding in a loop would offer the same object up for moving
       // once per iteration)
-      int_acc_type res_it =
-          derived().integrate_impl(integrand, *opts_.neval, tracker, progress_cb);
+      int_acc_type res_it = derived().integrate_impl(integrand, *opts_.neval, tracker, progress_cb);
       result.accumulate(res_it);  // always accumulate, including partial stopped iterations
 
       // compute elapsed time and fire ITER_END event
@@ -680,12 +679,14 @@ class IntegratorBase {
    */
   struct ProgressTracker {
     EventSignal signal{EventSignal::NONE};
-    count_type niter{0};                 ///< Total number of iterations.
-    count_type current_iter{0};          ///< Current iteration (0-indexed).
-    count_type neval{0};                 ///< Number of evaluations requested per iteration.
-    count_type current_eval{0};          ///< Number of evaluations completed in the current iteration.
-    count_type step_milestone_eval{1};   ///< Distance between `EVAL_MILESTONE` events within one iteration.
-    count_type next_milestone_eval{0};   ///< Next completed-evaluation count that triggers a milestone.
+    count_type niter{0};         ///< Total number of iterations.
+    count_type current_iter{0};  ///< Current iteration (0-indexed).
+    count_type neval{0};         ///< Number of evaluations requested per iteration.
+    count_type current_eval{0};  ///< Number of evaluations completed in the current iteration.
+    /// Distance between `EVAL_MILESTONE` events within one iteration.
+    count_type step_milestone_eval{1};
+    /// Next completed-evaluation count that triggers a milestone.
+    count_type next_milestone_eval{0};
     const result_type* result{nullptr};  ///< Non-owning pointer to the cross-iteration result
                                          ///< (valid only during integrate()).
     std::chrono::steady_clock::time_point time_start{};
@@ -970,17 +971,48 @@ class IntegratorBase {
   }
 
   /// @brief Write the file header for `ftype` followed by the payload streamed by `write`.
+  ///        Each writer exclusively reserves a sibling staging directory and
+  ///        renames its complete payload over `filepath`. Concurrent writers
+  ///        publish whole files; the last successful rename wins.
   template <typename W>
   void write_file(const std::filesystem::path& filepath, detail::FileType ftype, W&& write) const {
-    std::ofstream ofs(filepath, std::ios::binary);
+    // The name only avoids collisions; create_directory atomically establishes
+    // ownership. Never open or clean up a directory reserved by another writer.
+    const auto reserve_directory = [&] {
+      const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+      for (unsigned attempt = 0; attempt < 128; ++attempt) {
+        auto directory = filepath.parent_path() / std::format(".kakuhen-tmp.{}.{}", nonce, attempt);
+        std::error_code ec;
+        if (std::filesystem::create_directory(directory, ec)) return directory;
+        if (ec && ec != std::errc::file_exists) {
+          throw std::filesystem::filesystem_error("Failed to reserve staging directory", directory,
+                                                  ec);
+        }
+      }
+      throw std::ios_base::failure("Failed to reserve staging directory for: " + filepath.string());
+    };
+    const auto staging = reserve_directory();
+    const auto cleanup = util::scope_exit([&] {
+      // remove_all can still throw on allocation failure with an error_code.
+      // Best-effort cleanup must not terminate unwinding or mask a write error.
+      try {
+        std::error_code ec;
+        std::filesystem::remove_all(staging, ec);
+      } catch (...) {
+      }
+    });
+    const auto tmppath = staging / "payload";
+    std::ofstream ofs(tmppath, std::ios::binary);
     if (!ofs.is_open()) {
-      throw std::ios_base::failure("Failed to open file: " + filepath.string());
+      throw std::ios_base::failure("Failed to open file: " + tmppath.string());
     }
     write_header(ofs, ftype);
     std::forward<W>(write)(ofs);
+    ofs.close();  // flush before the rename: a failed flush must not commit
     if (!ofs) {
       throw std::ios_base::failure("Error writing file: " + filepath.string());
     }
+    std::filesystem::rename(tmppath, filepath);
   }
 
   /// @brief Validate the file header against `ftype`, then hand the payload to `read`.
