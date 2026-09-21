@@ -1,11 +1,13 @@
 #pragma once
 
+#include "kakuhen/integrator/detail/grid_io.h"
 #include "kakuhen/integrator/grid_accumulator.h"
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/math.h"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -109,10 +111,13 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * of 0 means no damping, while a value greater than 0 will dampen the
    * adaptation. The default value is 0.75.
    *
-   * @param alpha The new value for the alpha parameter.
+   * @param alpha The new value for the alpha parameter; must be finite and >= 0.
+   * @throws std::invalid_argument if `alpha` is negative or not finite.
    */
-  inline void set_alpha(const T& alpha) noexcept {
-    assert(alpha >= T(0));
+  inline void set_alpha(const T& alpha) {
+    if (!std::isfinite(alpha) || alpha < T(0)) {
+      throw std::invalid_argument("Vegas: alpha must be finite and >= 0");
+    }
     alpha_ = alpha;
   }
   /*!
@@ -324,8 +329,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       dacc = T(0);
       S ig_new = 0;
 
-      // Safety check: if davg is effectively zero, adapting is meaningless/dangerous
-      if (davg <= std::numeric_limits<T>::min()) return;
+      // degenerate weights (incl. NaN): keep the grid of this dimension
+      if (!(davg > std::numeric_limits<T>::min())) continue;
 
       for (S ig = 0; ig < ndiv_; ++ig) {
         dacc += d(ig);
@@ -416,17 +421,28 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     grid_.serialize(out);
   }
 
+  /// @throws std::runtime_error if the stream is truncated or corrupt; the
+  ///         integrator is then left unchanged.
   void read_state_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    deserialize_one<S>(in, ndim_);
-    deserialize_one<S>(in, ndiv_);
-    grid_ = ndarray::NDArray<T, S>({ndim_, ndiv_});
-    grid_.deserialize(in);
-    if (!std::ranges::equal(accumulator_.shape(), grid_.shape())) {
-      accumulator_ = ndarray::NDArray<grid_acc_type, S>({ndim_, ndiv_});
+    // read & validate everything before touching any state (the commit below cannot throw)
+    S ndim, ndiv;
+    deserialize_one<S>(in, ndim);
+    deserialize_one<S>(in, ndiv);
+    if (ndim == 0 || ndiv < 2) {
+      throw std::runtime_error("Vegas: corrupt state (invalid grid dimensions)");
     }
-    // clear the result & accumulator
+    ndarray::NDArray<T, S> grid;
+    grid.deserialize_expected_shape(in, std::array{ndim, ndiv});
+    for (S idim = 0; idim < ndim; ++idim) {
+      detail::validate_grid_row<T>({&grid(idim, 0), ndiv}, "Vegas");
+    }
+    ndarray::NDArray<grid_acc_type, S> accumulator({ndim, ndiv});
+    // commit: moves are noexcept
+    ndim_ = ndim;
+    ndiv_ = ndiv;
+    grid_ = std::move(grid);
+    accumulator_ = std::move(accumulator);
     clear_data();
   }
 
@@ -441,69 +457,33 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     accumulator_.serialize(out);
   }
 
+  /// Reads accumulated data into an integrator without data.
+  /// @throws std::runtime_error if the integrator already holds data, or if the stream is
+  ///         truncated, corrupt, or incompatible with the current grid.
+  /// @throws std::overflow_error if the sums or counts overflow.
   void read_data_stream(std::istream& in) {
-    using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    // check that we won't overwrite existing data
-    if (accumulator_count_ != 0) {
-      throw std::runtime_error("result already has data");
+    // a zero adaptation count implies empty grid accumulators
+    if (accumulator_count_ != 0 || result_.count() != 0) {
+      throw std::runtime_error("Vegas: integrator already holds data");
     }
-    for (S idim = 0; idim < ndim_; ++idim) {
-      for (S ig = 0; ig < ndiv_; ++ig) {
-        if (accumulator_(idim, ig).count() != 0) {
-          throw std::runtime_error("accumulator already has data");
-        }
-      }
-    }
-    // result and accumulator are empty; can just accumulate
-    clear_data();  // for good measure
     accumulate_data_stream(in);
   }
 
+  /// @throws std::runtime_error if the stream is truncated, corrupt, or
+  ///         incompatible with the current grid; grid accumulators must be
+  ///         finite and non-negative.
+  /// @throws std::overflow_error if the merged sums or counts overflow.
+  /// On a throw, the accumulated data is left unchanged.
   void accumulate_data_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    // read & check for compatibility
-    S ndim_chk;
-    deserialize_one<S>(in, ndim_chk);
-    if (ndim_chk != ndim_) {
-      throw std::runtime_error("ndim mismatch");
+    S ndim, ndiv;
+    deserialize_one<S>(in, ndim);
+    deserialize_one<S>(in, ndiv);
+    if (ndim != ndim_ || ndiv != ndiv_) {
+      throw std::runtime_error("Vegas: incompatible data (grid dimensions mismatch)");
     }
-    S ndiv_chk;
-    deserialize_one<S>(in, ndiv_chk);
-    if (ndiv_chk != ndiv_) {
-      throw std::runtime_error("ndiv mismatch");
-    }
-    // optimized shape check avoiding vector allocation
-    auto g_shape = grid_.shape();
-    if (g_shape.size() != 2 || g_shape[0] != ndim_ || g_shape[1] != ndiv_) {
-      throw std::runtime_error("grid shape mismatch");
-    }
-    auto acc_shape = accumulator_.shape();
-    if (acc_shape.size() != 2 || acc_shape[0] != ndim_ || acc_shape[1] != ndiv_) {
-      throw std::runtime_error("accumulator shape mismatch");
-    }
-
-    kakuhen::util::HashValue_t hash_val;
-    deserialize_one<kakuhen::util::HashValue_t>(in, hash_val);
-    if (hash().value() != hash_val) {
-      throw std::runtime_error("hash value mismatch");
-    }
-    // accumulate result
-    int_acc_type result_in;
-    result_in.deserialize(in);
-    result_.accumulate(result_in);
-    // accumulate grid data
-    U accumulator_count_in;
-    deserialize_one<U>(in, accumulator_count_in);
-    accumulator_count_ += accumulator_count_in;
-    ndarray::NDArray<grid_acc_type, S> accumulator_in({ndim_, ndiv_});
-    accumulator_in.deserialize(in);
-    for (S idim = 0; idim < ndim_; ++idim) {
-      for (S ig = 0; ig < ndiv_; ++ig) {
-        accumulator_(idim, ig).accumulate(accumulator_in(idim, ig));
-      }
-    }
+    detail::merge_data_stream(in, "Vegas", hash().value(), result_, accumulator_count_,
+                              accumulator_, ndiv_);
   }
 
   /// @}

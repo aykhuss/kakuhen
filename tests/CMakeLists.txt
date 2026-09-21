@@ -22,6 +22,7 @@ set(TEST_SOURCES
   test_histogram_writer.cpp
   test_histogram_view.cpp
   test_histogram_serialize.cpp
+  test_integrator_validation.cpp
   test_math.cpp
   test_map_point.cpp
   test_ndarray.cpp

@@ -1,6 +1,8 @@
 #include "kakuhen/integrator/vegas.h"
 #include <catch2/catch_test_macros.hpp>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 using namespace kakuhen::integrator;
 
@@ -31,8 +33,8 @@ TEST_CASE("write/load state and data", "[vegas]") {
   REQUIRE(veg.hash().value() == veg_alt.hash().value());
 
   /// another warmup:  no adaption; save data
-  ss.str(""); // clear content
-  ss.clear(); // clear flags
+  ss.str("");  // clear content
+  ss.clear();  // clear flags
   veg.integrate(test_integrand, {.neval = 1000, .niter = 10, .adapt = false});
   veg.write_data_stream(ss);
   veg.adapt();
@@ -67,4 +69,15 @@ TEST_CASE("write/load RNG state", "[vegas]") {
   REQUIRE(veg.hash().value() == veg2.hash().value());
   REQUIRE(res1.value() == res2.value());
   REQUIRE(res1.error() == res2.error());
+}
+
+TEST_CASE("Vegas rejects an invalid alpha", "[vegas]") {
+  auto veg = Vegas(2);
+  for (const double alpha :
+       {-1e-3, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+    REQUIRE_THROWS_AS(veg.set_alpha(alpha), std::invalid_argument);
+  }
+  REQUIRE(veg.alpha() == 0.75);
+  veg.set_alpha(0.0);
+  REQUIRE(veg.alpha() == 0.0);
 }

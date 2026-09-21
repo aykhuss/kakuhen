@@ -1,5 +1,6 @@
 #pragma once
 
+#include "kakuhen/integrator/detail/grid_io.h"
 #include "kakuhen/integrator/grid_accumulator.h"
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
@@ -8,6 +9,7 @@
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/math.h"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -153,10 +155,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Set the alpha parameter for grid adaptation.
    *
-   * @param alpha The new value for the alpha parameter.
+   * @param alpha The new value for the alpha parameter; must be finite and >= 0.
+   * @throws std::invalid_argument if `alpha` is negative or not finite.
    */
-  inline void set_alpha(const T& alpha) noexcept {
-    assert(alpha >= T(0));
+  inline void set_alpha(const T& alpha) {
+    if (!std::isfinite(alpha) || alpha < T(0)) {
+      throw std::invalid_argument("Basin: alpha must be finite and >= 0");
+    }
     alpha_ = alpha;
   }
   /*!
@@ -171,10 +176,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Set the weight for smoothing the grid adaptation.
    *
-   * @param weight_smooth The new value for the weight smoothing parameter.
+   * @param weight_smooth The new value for the weight smoothing parameter;
+   *        must be finite and >= 1.
+   * @throws std::invalid_argument if `weight_smooth` is below 1 or not finite.
    */
-  inline void set_weight_smooth(const T& weight_smooth) noexcept {
-    assert(weight_smooth >= T(1));
+  inline void set_weight_smooth(const T& weight_smooth) {
+    if (!std::isfinite(weight_smooth) || weight_smooth < T(1)) {
+      throw std::invalid_argument("Basin: weight_smooth must be finite and >= 1");
+    }
     weight_smooth_ = weight_smooth;
   }
   /*!
@@ -189,10 +198,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Set the minimum score for dimension correlation.
    *
-   * @param min_score The new value for the minimum score.
+   * @param min_score The new value for the minimum score; must be in [0, 1).
+   * @throws std::invalid_argument if `min_score` is not in [0, 1) or not finite.
    */
-  inline void set_min_score(const T& min_score) noexcept {
-    assert((min_score >= T(0)) && (min_score < T(1)));
+  inline void set_min_score(const T& min_score) {
+    if (!std::isfinite(min_score) || min_score < T(0) || min_score >= T(1)) {
+      throw std::invalid_argument("Basin: min_score must be in [0, 1)");
+    }
     min_score_ = min_score;
   }
   /*!
@@ -418,7 +430,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       order_(idim, 0) = idim;
       order_(idim, 1) = idim;
     }
-    sort_order();
+    nblocks_ = sort_order(grid_, order_, ordered_grid_);
     /// also clear the accumulators
     clear_data();
   }
@@ -782,7 +794,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
     }  // for iord
 
-    sort_order();
+    nblocks_ = sort_order(grid_, order_, ordered_grid_);
 
 #ifndef NDEBUG
     /// verify that the order covers every dimension
@@ -1005,28 +1017,54 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Reads the internal state from a stream.
    * @param in The input stream.
+   * @throws std::runtime_error if the stream is truncated or corrupt; the
+   *         integrator is then left unchanged.
    */
   void read_state_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    deserialize_one<S>(in, ndim_);
-    deserialize_one<S>(in, ndiv1_);
-    deserialize_one<S>(in, ndiv2_);
-    ndiv0_ = ndiv1_ * ndiv2_;
-    grid_ = ndarray::NDArray<T, S>({ndim_, ndim_, ndiv1_, ndiv2_});
-    grid_.deserialize(in);
-    grid0_ = grid_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
-    if (!std::ranges::equal(accumulator_.shape(), grid_.shape()) ||
-        !std::ranges::equal(accumulator0_.shape(), grid0_.shape())) {
-      accumulator_ = ndarray::NDArray<grid_acc_type, S>({ndim_, ndim_, ndiv1_, ndiv2_});
-      accumulator0_ = accumulator_.reshape({ndim_, ndim_, ndiv0_}).diagonal(0, 1);
+    // read & validate everything before touching any state (the commit below cannot throw)
+    S ndim, ndiv1, ndiv2;
+    deserialize_one<S>(in, ndim);
+    deserialize_one<S>(in, ndiv1);
+    deserialize_one<S>(in, ndiv2);
+    if (ndim == 0 || ndiv1 < 2 || ndiv2 < 2) {
+      throw std::runtime_error("Basin: corrupt state (invalid grid dimensions)");
     }
-    order_ = ndarray::NDArray<S, S>({ndim_, 2});
-    order_.deserialize(in);
-    ordered_grid_ = ndarray::NDArray<T, S>({ndim_, ndiv1_, ndiv2_});
-    ordered_grid0_ = ordered_grid_.reshape({ndim_, ndiv0_});
-    sort_order();
-    /// reset the result & accumulator
+    ndarray::NDArray<T, S> grid;
+    grid.deserialize_expected_shape(in, std::array{ndim, ndim, ndiv1, ndiv2});
+    ndarray::NDArray<S, S> order;
+    order.deserialize_expected_shape(in, std::array{ndim, S(2)});
+    const S ndiv0 = ndiv1 * ndiv2;
+    for (S idim1 = 0; idim1 < ndim; ++idim1) {
+      for (S idim2 = 0; idim2 < ndim; ++idim2) {
+        if (idim1 == idim2) {
+          detail::validate_grid_row<T>({&grid(idim1, idim2, 0, 0), ndiv0}, "Basin");
+        } else {
+          for (S ig1 = 0; ig1 < ndiv1; ++ig1) {
+            detail::validate_grid_row<T>({&grid(idim1, idim2, ig1, 0), ndiv2}, "Basin");
+          }
+        }
+      }
+    }
+    ndarray::NDArray<grid_acc_type, S> accumulator({ndim, ndim, ndiv1, ndiv2});
+    ndarray::NDArray<T, S> ordered_grid({ndim, ndiv1, ndiv2});
+    auto grid0 = grid.reshape({ndim, ndim, ndiv0}).diagonal(0, 1);
+    auto accumulator0 = accumulator.reshape({ndim, ndim, ndiv0}).diagonal(0, 1);
+    auto ordered_grid0 = ordered_grid.reshape({ndim, ndiv0});
+    const S nblocks = sort_order(grid, order, ordered_grid);
+    // commit: moves are noexcept and keep the buffers, so the views stay valid
+    ndim_ = ndim;
+    ndiv1_ = ndiv1;
+    ndiv2_ = ndiv2;
+    ndiv0_ = ndiv0;
+    grid_ = std::move(grid);
+    grid0_ = std::move(grid0);
+    order_ = std::move(order);
+    ordered_grid_ = std::move(ordered_grid);
+    ordered_grid0_ = std::move(ordered_grid0);
+    accumulator_ = std::move(accumulator);
+    accumulator0_ = std::move(accumulator0);
+    nblocks_ = nblocks;
     clear_data();
   }
 
@@ -1047,104 +1085,41 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Reads accumulated data from a stream.
+   * @brief Reads accumulated data from a stream into an integrator without data.
    * @param in The input stream.
+   * @throws std::runtime_error if the integrator already holds data, or if the stream is
+   *         truncated, corrupt, or incompatible with the current grid.
+   * @throws std::overflow_error if the sums or counts overflow.
    */
   void read_data_stream(std::istream& in) {
-    using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    //> check that we won't overwrite existing data
-    if (accumulator_count_ != 0) {
-      throw std::runtime_error("result already has data");
+    // a zero adaptation count implies empty grid accumulators
+    if (accumulator_count_ != 0 || result_.count() != 0) {
+      throw std::runtime_error("Basin: integrator already holds data");
     }
-    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            if (accumulator_(idim1, idim2, ig1, ig2).count() != 0) {
-              throw std::runtime_error("accumulator already has data");
-            }
-          }
-        }
-      }
-    }
-    //> result and accumulator are empty; can just accumulate
-    clear_data();  // for good measure
     accumulate_data_stream(in);
   }
 
   /*!
    * @brief Accumulates data from a stream into the current integrator.
    * @param in The input stream.
+   * @throws std::runtime_error if the stream is truncated, corrupt, or
+   *         incompatible with the current grid; grid accumulators must be
+   *         finite and non-negative.
+   * @throws std::overflow_error if the merged sums or counts overflow.
+   * On a throw, the accumulated data is left unchanged.
    */
   void accumulate_data_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
-    using namespace kakuhen::util::type;
-    //> read & check for compatibility
-    S ndim_chk;
-    deserialize_one<S>(in, ndim_chk);
-    if (ndim_chk != ndim_) {
-      throw std::runtime_error("ndim mismatch");
+    S ndim, ndiv1, ndiv2;
+    deserialize_one<S>(in, ndim);
+    deserialize_one<S>(in, ndiv1);
+    deserialize_one<S>(in, ndiv2);
+    if (ndim != ndim_ || ndiv1 != ndiv1_ || ndiv2 != ndiv2_) {
+      throw std::runtime_error("Basin: incompatible data (grid dimensions mismatch)");
     }
-    S ndiv1_chk;
-    deserialize_one<S>(in, ndiv1_chk);
-    if (ndiv1_chk != ndiv1_) {
-      throw std::runtime_error("ndiv1 mismatch");
-    }
-    S ndiv2_chk;
-    deserialize_one<S>(in, ndiv2_chk);
-    if (ndiv2_chk != ndiv2_) {
-      throw std::runtime_error("ndiv2 mismatch");
-    }
-
-    // Optimized shape checks
-    auto grid_sh = grid_.shape();
-    if (grid_sh.size() != 4 || grid_sh[0] != ndim_ || grid_sh[1] != ndim_ || grid_sh[2] != ndiv1_ ||
-        grid_sh[3] != ndiv2_) {
-      throw std::runtime_error("grid shape mismatch");
-    }
-    auto grid0_sh = grid0_.shape();
-    if (grid0_sh.size() != 2 || grid0_sh[0] != ndim_ || grid0_sh[1] != ndiv0_) {
-      throw std::runtime_error("grid0 shape mismatch");
-    }
-    auto acc_sh = accumulator_.shape();
-    if (acc_sh.size() != 4 || acc_sh[0] != ndim_ || acc_sh[1] != ndim_ || acc_sh[2] != ndiv1_ ||
-        acc_sh[3] != ndiv2_) {
-      throw std::runtime_error("accumulator shape mismatch");
-    }
-    auto acc0_sh = accumulator0_.shape();
-    if (acc0_sh.size() != 2 || acc0_sh[0] != ndim_ || acc0_sh[1] != ndiv0_) {
-      throw std::runtime_error("accumulator0 shape mismatch");
-    }
-    auto order_sh = order_.shape();
-    if (order_sh.size() != 2 || order_sh[0] != ndim_ || order_sh[1] != 2) {
-      throw std::runtime_error("order shape mismatch");
-    }
-
-    kakuhen::util::HashValue_t hash_val;
-    deserialize_one<kakuhen::util::HashValue_t>(in, hash_val);
-    if (hash().value() != hash_val) {
-      throw std::runtime_error("hash value mismatch");
-    }
-    //> accumulate result
-    int_acc_type result_in;
-    result_in.deserialize(in);
-    result_.accumulate(result_in);
-    //> accumulate grid data
-    U accumulator_count_in;
-    deserialize_one<U>(in, accumulator_count_in);
-    accumulator_count_ += accumulator_count_in;
-    ndarray::NDArray<grid_acc_type, S> accumulator_in({ndim_, ndim_, ndiv1_, ndiv2_});
-    accumulator_in.deserialize(in);
-    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            accumulator_(idim1, idim2, ig1, ig2).accumulate(accumulator_in(idim1, idim2, ig1, ig2));
-          }
-        }
-      }
-    }
+    // every (idim1, idim2) block of ndiv1 * ndiv2 cells holds one entry per adaptation sample
+    detail::merge_data_stream(in, "Basin", hash().value(), result_, accumulator_count_,
+                              accumulator_, ndiv0_);
   }
 
   /// @}
@@ -1177,64 +1152,57 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDView<grid_acc_type, S> accumulator0_;
 
   /*!
-   * @brief Reorders sampling order so diagonal steps come first.
+   * @brief Validates and sorts a sampling order, and builds the matching ordered grid.
    *
-   * This also builds the ordered grids used by map_point().
+   * The order is a forest: every dimension has exactly one parent, and the roots
+   * (`from == to`) are the diagonal samplings. They come first, sorted by
+   * dimension, followed by the conditional samplings in breadth-first order with
+   * children sorted by dimension. All validation completes before the output
+   * arrays are modified.
+   *
+   * @param grid The grid, with shape `{ndim, ndim, ndiv1, ndiv2}`.
+   * @param order The sampling order, with shape `{ndim, 2}`; sorted on return.
+   * @param ordered_grid The grid rows in sampling order, with shape `{ndim, ndiv1, ndiv2}`.
+   * @return The number of diagonal samplings (uncorrelated blocks).
+   * @throws std::runtime_error if the order is not a forest over all dimensions.
    */
-  void sort_order() {
-    /// first we want to shuffle the order_ entries, such that all
-    /// "diagonal" samplings come first, then the conditional samplings
-    /// number of diagonal samplings equals the number of uncorrelated blocks (nblocks_)
-    ndarray::NDArray<S, S> order_sorted(order_.shape());
-    order_sorted.fill(S(0));
-    nblocks_ = 0;
-    for (S idim = 0; idim < ndim_; ++idim) {
-      for (S iord = 0; iord < ndim_; ++iord) {
-        if (order_(iord, 0) != order_(iord, 1)) continue;
-        if (order_(iord, 0) != idim) continue;
-        order_sorted(nblocks_, 0) = order_(iord, 0);
-        order_sorted(nblocks_, 1) = order_(iord, 1);
-        ++nblocks_;
-        break;
+  static S sort_order(const ndarray::NDArray<T, S>& grid, ndarray::NDArray<S, S>& order,
+                      ndarray::NDArray<T, S>& ordered_grid) {
+    const S ndim = grid.shape()[0];
+    const S ndiv0 = grid.shape()[2] * grid.shape()[3];
+    std::vector<S> parent(ndim, ndim);  // `ndim` marks a missing parent
+    for (S i = 0; i < ndim; ++i) {
+      const S from = order(i, 0), to = order(i, 1);
+      if (from >= ndim || to >= ndim || parent[to] != ndim) {
+        throw std::runtime_error("Basin: invalid sampling order");
+      }
+      parent[to] = from;
+    }
+    ndarray::NDArray<S, S> sorted(order.shape());
+    S size = 0;
+    const auto push = [&](S from, S to) {
+      sorted(size, 0) = from;
+      sorted(size, 1) = to;
+      ++size;
+    };
+    for (S dim = 0; dim < ndim; ++dim) {
+      if (parent[dim] == dim) push(dim, dim);
+    }
+    const S nblocks = size;
+    for (S i = 0; i < size; ++i) {  // `size` grows while the forest is traversed
+      const S from = sorted(i, 1);
+      for (S to = 0; to < ndim; ++to) {
+        if (to != from && parent[to] == from) push(from, to);
       }
     }
-    S offset = nblocks_;
-    for (S isord = 0; isord < ndim_; ++isord) {
-      assert(isord < offset);
-      const S idim1 = order_sorted(isord, 1);
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        for (S iord = 0; iord < ndim_; ++iord) {
-          if (order_(iord, 0) == order_(iord, 1)) continue;
-          if (order_(iord, 0) != idim1 || order_(iord, 1) != idim2) continue;
-          order_sorted(offset, 0) = order_(iord, 0);
-          order_sorted(offset, 1) = order_(iord, 1);
-          ++offset;
-          break;
-        }
-      }
+    if (size != ndim) {
+      throw std::runtime_error("Basin: invalid sampling order (cycle)");
     }
-    assert(offset == ndim_);
-    order_ = std::move(order_sorted);
-    /// copy over the grid information in the sampling order
-    ordered_grid_.fill(T(0));
-    for (S iord = 0; iord < nblocks_; ++iord) {
-      assert(order_(iord, 0) == order_(iord, 1));
-      const S idim0 = order_(iord, 0);
-      for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
-        ordered_grid0_(iord, ig0) = grid0_(idim0, ig0);
-      }
-    }  // for iord
-    for (S iord = nblocks_; iord < ndim_; ++iord) {
-      assert(order_(iord, 0) != order_(iord, 1));
-      const S idim1 = order_(iord, 0);
-      const S idim2 = order_(iord, 1);
-      for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-        for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-          ordered_grid_(iord, ig1, ig2) = grid_(idim1, idim2, ig1, ig2);
-        }
-      }
-    }  // for iord
-    ///
+    for (S i = 0; i < ndim; ++i) {
+      std::copy_n(&grid(sorted(i, 0), sorted(i, 1), 0, 0), ndiv0, &ordered_grid(i, 0, 0));
+    }
+    order = std::move(sorted);
+    return nblocks;
   }
 
   /*!
