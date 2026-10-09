@@ -11,11 +11,14 @@ FetchContent_MakeAvailable(catch2)
 
 set(TEST_SOURCES
   test_accumulator.cpp
+  test_atomic_saves.cpp
   test_axis.cpp
   test_basin.cpp
   test_basin_generator.cpp
   test_algorithm.cpp
   test_generator.cpp
+  test_envelope_files.cpp
+  test_envelope_data.cpp
   test_hash.cpp
   test_histogram.cpp
   test_histogram_registry.cpp
@@ -43,5 +46,10 @@ target_link_libraries(unit_tests PRIVATE kakuhen kakuhen_warnings Catch2::Catch2
 include(CTest)
 include(Catch)
 catch_discover_tests(unit_tests)
+
+# Keep replacement allocation operators confined to the failure-injection tests.
+add_executable(envelope_allocation_tests test_envelope_allocation_failures.cpp)
+target_link_libraries(envelope_allocation_tests PRIVATE kakuhen kakuhen_warnings Catch2::Catch2WithMain)
+catch_discover_tests(envelope_allocation_tests)
 
 # inside `kakuhen/build/tests` run `make && ctest`

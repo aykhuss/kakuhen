@@ -1,5 +1,6 @@
 #pragma once
 
+#include "kakuhen/integrator/detail/envelope_data.h"
 #include "kakuhen/integrator/integral_accumulator.h"
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/integrator/point.h"
@@ -10,19 +11,21 @@
 #include "kakuhen/util/numeric_traits.h"
 #include "kakuhen/util/progress_bar.h"
 #include "kakuhen/util/serialize.h"
+#include "kakuhen/util/user_data.h"
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <istream>
+#include <limits>
 #include <optional>
 #include <ostream>
 #include <span>
 #include <stdexcept>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -30,17 +33,13 @@
 
 namespace kakuhen::integrator {
 
-/// @brief How a generation run ended. Ordered by severity so that merging keeps the worst.
+/// @brief how a generation run ended; a merged result is STOPPED if any run stopped early
 enum class GenerationStatus : uint8_t {
-  COMPLETED = 0,  //!< All trials were used up.
-  STOPPED = 1,    //!< The event callback returned `EventSignal::STOP`.
+  COMPLETED = 0,  //!< all trials used up
+  STOPPED = 1,    //!< the event callback returned `EventSignal::STOP`
 };
 
-/*!
- * @brief Converts a GenerationStatus to its string representation.
- * @param status The GenerationStatus to convert.
- * @return A string view of the status name.
- */
+/// @brief status name, e.g. "completed"
 constexpr std::string_view to_string(GenerationStatus status) noexcept {
   switch (status) {
     case GenerationStatus::COMPLETED:
@@ -52,20 +51,19 @@ constexpr std::string_view to_string(GenerationStatus status) noexcept {
 }
 
 /*!
- * @brief Statistics of a generation run.
+ * @brief statistics of a generation run
  *
- * Events are not normalized: they carry weight `+-1`, or `+-|f|/R` for the
- * rare overweight events. The normalization is `volume() / n_trials()` and
- * both factors are stored here. The accumulator collects the signed weight of
- * every trial (`0` for rejected trials), so that `value() = volume() * <w>`
- * is an estimate of the signed integral. The estimate is unbiased for a
- * completed run.
+ * Events are not normalized: they carry weight +-1, or +-|f|/R for
+ * overweight events. The normalization is `volume() / n_trials()` and both
+ * factors are stored here. The accumulator collects the signed weight of
+ * every trial (0 for rejected ones), so `value() = volume() * <w>` estimates
+ * the signed integral. Unbiased for a completed run.
  *
  * Results of independent runs with the same envelope can be merged with
  * `accumulate()`.
  *
- * @tparam T The value type for the integral results (e.g., double).
- * @tparam U The count type for the number of trials/events (e.g., uint64_t).
+ * @tparam T value type of the integral estimates (e.g. double)
+ * @tparam U count type for trials and events (e.g. uint64_t)
  */
 template <typename T, typename U>
 struct GenerationResult {
@@ -73,126 +71,126 @@ struct GenerationResult {
   using count_type = U;
   using int_acc_type = IntegralAccumulator<T, U>;
 
-  int_acc_type acc_{};        //!< Signed weight of each trial (0 for rejected trials).
-  U n_events_ = 0;            //!< Number of accepted events (incl. overweights).
-  U n_overweight_ = 0;        //!< Number of accepted events above the envelope.
-  U n_negative_ = 0;          //!< Number of accepted events with negative weight.
-  U n_nonfinite_ = 0;         //!< Number of trials with a non-finite integrand (set to zero).
-  T max_overweight_ = T(0);   //!< Largest overweight factor |f|/R (0 if none).
-  T envelope_volume_ = T(0);  //!< Volume V of the envelope used for the generation.
-  GenerationStatus status_ = GenerationStatus::COMPLETED;  //!< How the run ended.
+  int_acc_type acc_{};        //!< signed weight of each trial (0 if rejected)
+  U n_events_ = 0;            //!< accepted events, overweights included
+  U n_overweight_ = 0;        //!< accepted events above the envelope
+  U n_negative_ = 0;          //!< accepted events with negative weight
+  U n_nonfinite_ = 0;         //!< trials with a non-finite integrand (set to zero)
+  T max_overweight_ = T(0);   //!< largest overweight factor |f|/R (0 if none)
+  T envelope_volume_ = T(0);  //!< envelope volume V used for the run
+  GenerationStatus status_ = GenerationStatus::COMPLETED;  //!< how the run ended
 
   /// @name Queries
   /// @{
 
-  /// @brief Total number of trials, accepted or not.
+  /// @brief total number of trials, accepted or not
   [[nodiscard]] inline U n_trials() const noexcept {
     return acc_.count();
   }
-  /// @brief Number of accepted events (including overweights).
+  /// @brief number of accepted events (overweights included)
   [[nodiscard]] inline U n_events() const noexcept {
     return n_events_;
   }
-  /// @brief Number of rejected trials.
+  /// @brief number of rejected trials
   [[nodiscard]] inline U n_rejected() const noexcept {
     return n_trials() - n_events_;
   }
-  /// @brief Number of accepted events above the envelope (weight > 1).
+  /// @brief number of accepted events above the envelope (|weight| > 1)
   [[nodiscard]] inline U n_overweight() const noexcept {
     return n_overweight_;
   }
-  /// @brief Number of accepted events with a negative weight.
+  /// @brief number of accepted events with negative weight
   [[nodiscard]] inline U n_negative() const noexcept {
     return n_negative_;
   }
-  /// @brief Number of trials with a non-finite integrand (set to zero).
+  /// @brief number of trials with a non-finite integrand (set to zero)
   [[nodiscard]] inline U n_nonfinite() const noexcept {
     return n_nonfinite_;
   }
-  /// @brief Largest overweight factor |f|/R (0 if none).
+  /// @brief largest overweight factor |f|/R (0 if none)
   [[nodiscard]] inline T max_overweight() const noexcept {
     return max_overweight_;
   }
-  /// @brief The envelope volume V. Events are normalized with `volume() / n_trials()`.
+  /// @brief envelope volume V; events are normalized with `volume() / n_trials()`
   [[nodiscard]] inline T volume() const noexcept {
     return envelope_volume_;
   }
-  /// @brief How the run ended. A merged result is only `COMPLETED` if all runs completed.
+  /// @brief how the run ended; a merged result is only COMPLETED if all runs were
   [[nodiscard]] inline GenerationStatus status() const noexcept {
     return status_;
   }
 
-  /// @brief Unweighting efficiency: accepted events per trial.
+  /// @brief unweighting efficiency (accepted events per trial)
   [[nodiscard]] inline T efficiency() const noexcept {
     return n_trials() > U(0) ? T(n_events_) / T(n_trials()) : T(0);
   }
-  /// @brief Fraction of accepted events with negative weight.
+  /// @brief fraction of accepted events with negative weight
   [[nodiscard]] inline T negative_fraction() const noexcept {
     return n_events_ > U(0) ? T(n_negative_) / T(n_events_) : T(0);
   }
 
   /*!
-   * @brief Estimate of the signed integral from this generation run.
+   * @brief estimate of the signed integral
    *
-   * Computed as `V * <w>` over all trials. The estimate is unbiased for
-   * completed runs (overweights included).
+   * Computed as `V * <w>` over all trials. Unbiased for a completed run,
+   * overweights included.
    *
-   * @return The estimate of the signed integral.
-   * @throws std::runtime_error if no trials have been accumulated.
+   * @throws std::runtime_error if no trials were accumulated
    */
   [[nodiscard]] T value() const {
-    if (n_trials() == U(0)) throw std::runtime_error("GenerationResult: no trials accumulated");
+    if (n_trials() == U(0)) throw std::runtime_error("no trials accumulated");
     return envelope_volume_ * acc_.value();
   }
   /*!
-   * @brief Error (standard deviation) of `value()`.
-   * @throws std::runtime_error if no trials have been accumulated.
+   * @brief error (standard deviation) of `value()`
+   * @throws std::runtime_error if no trials were accumulated
    */
   [[nodiscard]] T error() const {
-    if (n_trials() == U(0)) throw std::runtime_error("GenerationResult: no trials accumulated");
+    if (n_trials() == U(0)) throw std::runtime_error("no trials accumulated");
     return envelope_volume_ * acc_.error();
   }
 
   /*!
-   * @brief The normalization per event `volume() / n_trials()`.
+   * @brief normalization per event `volume() / n_trials()`
    *
-   * Multiply the event weights by this factor to get a properly normalized
-   * sample (e.g. to fill histograms). If the events of several runs are
-   * combined, use the normalization of the merged result. Stopped runs can
-   * have a biased normalization, so better use completed runs if the absolute
-   * normalization matters.
+   * Multiply the event weights by this to get a normalized sample (e.g. to
+   * fill histograms). When combining events of several runs, use the
+   * normalization of the merged result. Stopping based on accepted events
+   * can bias it; use a fixed trial budget if the absolute normalization
+   * matters.
    *
-   * @throws std::runtime_error if no trials have been accumulated.
+   * @throws std::runtime_error if no trials were accumulated
    */
   [[nodiscard]] T normalization() const {
-    if (n_trials() == U(0)) throw std::runtime_error("GenerationResult: no trials accumulated");
+    if (n_trials() == U(0)) throw std::runtime_error("no trials accumulated");
     return envelope_volume_ / T(n_trials());
   }
 
   /// @}
 
   /*!
-   * @brief Merge the statistics of another run that used the same envelope.
+   * @brief merge the statistics of another run that used the same envelope
    *
-   * @param other The result to merge in.
+   * Leaves the result unchanged on failure.
+   *
+   * @param other the result to merge in
    * @throws std::invalid_argument if both results are non-empty but have
-   *         different envelope volumes.
-   * @throws std::overflow_error if the merged sums overflow.
-   * On a throw, the result is left unchanged.
+   *         different envelope volumes
+   * @throws std::overflow_error if the merged sums overflow
    */
   void accumulate(const GenerationResult<T, U>& other) {
-    // validate before touching any state (everything below is non-throwing)
+    // validate volume and sums before touching anything
     if (n_trials() > U(0) && other.n_trials() > U(0) &&
         envelope_volume_ != other.envelope_volume_) {
       throw std::invalid_argument(
-          "GenerationResult: cannot merge runs generated against different envelopes");
+          "cannot merge runs generated against different envelopes");
     }
     int_acc_type merged_acc = acc_;
     merged_acc.accumulate(other.acc_);
     if (!merged_acc.is_finite()) {
-      throw std::overflow_error("GenerationResult: merged contributions overflow");
+      throw std::overflow_error("merged contributions overflow");
     }
-    // an empty result still carries a status (status ordered by severity)
+    // an empty run may still have stopped early
     status_ = static_cast<GenerationStatus>(
         util::math::max(static_cast<uint8_t>(status_), static_cast<uint8_t>(other.status_)));
     if (other.n_trials() == U(0)) return;
@@ -207,17 +205,39 @@ struct GenerationResult {
 
 };  // struct GenerationResult
 
+/// @brief why envelope training or collection returned
+enum class EnvelopeStatus : uint8_t {
+  BUDGET_EXHAUSTED,     //!< all samples used
+  TARGET_REACHED,       //!< `optimize_envelope` reached its target violation rate
+  RECORD_LIMIT_REACHED  //!< `collect_envelope` hit its record limit
+};
+
+/// @brief status name, e.g. "budget_exhausted"
+constexpr std::string_view to_string(EnvelopeStatus status) noexcept {
+  switch (status) {
+    case EnvelopeStatus::BUDGET_EXHAUSTED:
+      return "budget_exhausted";
+    case EnvelopeStatus::TARGET_REACHED:
+      return "target_reached";
+    case EnvelopeStatus::RECORD_LIMIT_REACHED:
+      return "record_limit_reached";
+  }
+  return "unknown";
+}
+
 /*!
- * @brief Result of a single `raise_envelope` pass.
+ * @brief statistics of envelope training, collection, adaptation or merging
  *
- * Holds the running estimate of the absolute integral `A = int |f| du` over
- * all passes so far, the number of envelope violations in this pass, and the
- * volume `V` of the sealed envelope. The violation count should go down over
- * repeated passes. The predicted unweighting efficiency is
- * `efficiency() = A / V`.
+ * The estimate of the absolute integral A = int |f| du includes all
+ * accumulated samples. The counts refer to this call, or to the batch
+ * processed by `adapt_envelope` or `merge_envelope`. A violation is an
+ * evaluation whose |f| exceeded the envelope as it stood when checked, so
+ * `n_violations() / n_evaluations()` is the violation rate of every call.
+ * `n_raised()` counts the envelope updates: equal to `n_violations()` for
+ * raising passes, zero for collection and possibly smaller on replay.
  *
- * @tparam T The value type for the integral results (e.g., double).
- * @tparam U The count type for the number of evaluations (e.g., uint64_t).
+ * @tparam T value type of the integral estimates (e.g. double)
+ * @tparam U count type for evaluations (e.g. uint64_t)
  */
 template <typename T, typename U>
 struct EnvelopeResult {
@@ -225,39 +245,55 @@ struct EnvelopeResult {
   using count_type = U;
   using int_acc_type = IntegralAccumulator<T, U>;
 
-  int_acc_type abs_acc_{};    //!< Running estimate of the absolute integral A.
-  U n_violations_ = 0;        //!< Envelope violations in this pass.
-  T envelope_volume_ = T(0);  //!< Envelope volume V after sealing.
-  U n_nonfinite_ = 0;         //!< Samples with a non-finite integrand in this pass (set to zero).
+  int_acc_type abs_acc_{};    //!< running estimate of the absolute integral A
+  U n_violations_ = 0;        //!< evaluations above the envelope when checked
+  U n_raised_ = 0;            //!< envelope raises in this call
+  T envelope_volume_ = T(0);  //!< envelope volume V after sealing
+  U n_nonfinite_ = 0;         //!< evaluations with a non-finite integrand (set to zero)
+  U n_evaluations_ = 0;       //!< evaluations in this call or the processed batch
+  EnvelopeStatus status_ = EnvelopeStatus::BUDGET_EXHAUSTED;  //!< why the call returned
 
   /// @name Queries
   /// @{
 
-  /// @brief Estimate of the absolute integral A = int |f| du.
+  /// @brief estimate of the absolute integral A = int |f| du
   [[nodiscard]] inline T abs_integral() const noexcept {
     return abs_acc_.value();
   }
-  /// @brief Error (standard deviation) of `abs_integral()`.
+  /// @brief error (standard deviation) of `abs_integral()`
   [[nodiscard]] inline T abs_error() const noexcept {
     return abs_acc_.error();
   }
-  /// @brief Number of samples in the A estimate.
+  /// @brief number of samples in the A estimate
   [[nodiscard]] inline U count() const noexcept {
     return abs_acc_.count();
   }
-  /// @brief Envelope violations in this pass.
+  /// @brief evaluations whose |f| exceeded the envelope as it stood when checked
   [[nodiscard]] inline U n_violations() const noexcept {
     return n_violations_;
   }
-  /// @brief Samples with a non-finite integrand in this pass (set to zero).
+  /// @brief envelope raises, at most one per violation
+  [[nodiscard]] inline U n_raised() const noexcept {
+    return n_raised_;
+  }
+  /// @brief evaluations with a non-finite integrand (set to zero);
+  ///        always zero for `adapt_envelope` and `merge_envelope` as they don't sample
   [[nodiscard]] inline U n_nonfinite() const noexcept {
     return n_nonfinite_;
   }
-  /// @brief The volume V of the sealed envelope.
+  /// @brief evaluations in this call, or in the batch being adapted or merged
+  [[nodiscard]] inline U n_evaluations() const noexcept {
+    return n_evaluations_;
+  }
+  /// @brief why the call returned
+  [[nodiscard]] inline EnvelopeStatus status() const noexcept {
+    return status_;
+  }
+  /// @brief volume V of the sealed envelope
   [[nodiscard]] inline T volume() const noexcept {
     return envelope_volume_;
   }
-  /// @brief Predicted unweighting efficiency A / V.
+  /// @brief predicted unweighting efficiency A / V
   [[nodiscard]] inline T efficiency() const noexcept {
     return abs_integral() / envelope_volume_;
   }
@@ -268,32 +304,34 @@ struct EnvelopeResult {
 
 namespace detail {
 
-/// @brief Add `weight` to an inclusive CDF sum.
-/// @throws std::runtime_error unless the result is finite and strictly increasing.
+/// @brief add `weight` to an inclusive CDF sum
+/// @throws std::runtime_error unless the result is finite and strictly increasing
 template <typename T>
 T cdf_step(T sum, T weight) {
   const T next = sum + weight;
   if (!(next > sum) || !std::isfinite(next)) [[unlikely]]
-    throw std::runtime_error("envelope: weights must form a finite strictly increasing CDF");
+    throw std::runtime_error("envelope weights must form a finite strictly increasing CDF");
   return next;
 }
 
-/// @brief A cell drawn from an inclusive CDF.
+/// @brief a cell drawn from an inclusive CDF
 template <typename T, typename S>
 struct CDFDraw {
-  S cell;      //!< The selected cell.
-  T fraction;  //!< Position within the CDF segment of the cell, in [0, 1).
-  T width;     //!< The CDF mass of the cell `cdf[cell] - cdf[cell - 1]`.
+  S cell;      //!< the selected cell
+  T fraction;  //!< position within the CDF segment of the cell, in [0, 1]
+  T width;     //!< CDF mass of the cell `cdf[cell] - cdf[cell - 1]`
 };
 
-/// @brief Invert an inclusive CDF at `u` in [0, 1].
+/// @brief invert an inclusive CDF at `u` in [0, 1]
+/// @pre `cdf` non-empty, positive and strictly increasing (as built by `cdf_step`)
 template <typename T, typename S>
 CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
+  assert(!cdf.empty());
   T target = u * cdf.back();
+  // stay strictly below the total, else upper_bound returns end() (cell out of range)
   if (target >= cdf.back()) [[unlikely]]
     target = std::nextafter(cdf.back(), T(0));
-  const auto cell =
-      static_cast<S>(std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
+  const auto cell = static_cast<S>(std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
   const T low = cell == 0 ? T(0) : cdf[cell - 1];
   const T width = cdf[cell] - low;
   return {cell, (target - low) / width, width};
@@ -302,57 +340,47 @@ CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
 }  // namespace detail
 
 /*!
- * @brief CRTP base for event generation on a frozen grid.
+ * @brief CRTP base for event generation on a frozen grid
  *
- * Takes care of the envelope and the bookkeeping during generation. The usual
- * steps are:
+ * The usual sequence is:
  *
  * 1. `initialize_envelope(...)`: seed a flat envelope, either with a given
- *    value (e.g. `|I|` from a production run) or from a new run that
- *    estimates the absolute integral;
- * 2. `optimize_envelope(...)`: raising passes until the violation rate
- *    is small enough (a single pass is `raise_envelope(...)`);
- * 3. `generate_trials(...)`: hit-or-miss generation with a fixed number of
- *    trials. Events have weight `+-1` (overweights `+-|f|/R`) and are not
- *    normalized. The normalization `V / n_trials` is part of the returned
- *    `GenerationResult`. Use `predicted_efficiency()` to choose the number
- *    of trials for a target number of events.
+ *    value or by estimating the absolute integral
+ * 2. `optimize_envelope(...)`: raise the envelope until the target violation
+ *    rate is reached (or `raise_envelope(...)` for a single pass)
+ * 3. `generate_trials(...)`: generate events with a fixed trial budget; the
+ *    returned `GenerationResult` supplies the normalization V / n_trials
  *
- * Throughout, `f` denotes the integrand multiplied by the weight of the grid
- * mapping.
+ * For distributed training, `collect_envelope` records violations without
+ * changing the envelope. Apply them locally with `adapt_envelope`, or save
+ * them with `save_envelope` and combine the files with `merge_envelope`.
  *
- * The inheritance is `Derived -> GeneratorBase -> Integrator`, so the
- * generator is also the integrator and the type aliases of the
- * integrator are inherited without ambiguity.
+ * Throughout, f is the integrand times the weight of the grid mapping.
+ * A non-finite f counts as zero, or throws with
+ * `Options::strict_finite_integrand`.
  *
- * The raw envelope table `envelope_` lives in this class: it is allocated
- * with the shape from `env_shape()`, and seeding, scaling, serialization and
- * the checks all happen here, as does storing the volume after sealing. Each
- * entry of the table is one factor of the product `R(u)`, with `ndim` factors
- * per point. How the table is laid out is up to the derived generator, which
- * follows the sampling structure of its integrator (one table per dimension
- * for VEGAS; diagonal and conditional tables in the frozen sampling order for
- * BASIN). `env_propose` has to draw `u` with density `R(u) / V`, map it to
- * the point as `map_point` would, and return `R(u)` (up to rounding), and
- * `env_value(cell)` has to evaluate the same product for the raising passes.
- * The proposal knows the drawn cells, so it maps directly instead of handing
- * `u` to `map_point`, which would have to find the same cells again.
+ * This class owns the envelope factors, statistics and pending observations.
+ * The derived generator defines the table layout and proposal sampling.
+ * At each point, R(u) is the product of `ndim` factors picked from the table
+ * by `env_indices`.
  *
- * Hooks that `Derived` has to provide:
- *  - `make_cell_ctx()`: cell-context buffer for `map_point`;
- *  - `env_shape()`: shape of the table for the current grid;
- *  - `env_value(cell)`: the product R for the cells recorded by `map_point`;
- *  - `env_raise(cell, gamma)`: multiply the cells recorded by `map_point` by `gamma`;
- *  - `env_propose(point)`: draw a point with density `R/V` in u-space using the
- *    integrator RNG, set `point.x` and `point.weight` as `map_point` would, and
- *    return `R(u)`;
- *  - `env_prepare()`: (re)build the caches for the proposal (CDFs) and return `V = int R(u) du`.
+ * Required hooks in `Derived`:
+ *  - `make_cell_ctx()`: cell-context buffer for `map_point`
+ *  - `env_shape()`: shape of the table for the current grid
+ *  - `env_indices(cell, indices)`: flat table index of each of the `ndim`
+ *    factors of R for the cells recorded by `map_point`
+ *  - `env_propose(point)`: draw a point with density R/V in u-space using the
+ *    integrator RNG, set `point.x` and `point.weight` as `map_point` would,
+ *    and return R(u)
+ *  - `env_prepare(table) const`: build the proposal caches (CDFs) for `table`
+ *    and return the pair `{V = int R(u) du, caches}`
+ *  - `env_commit_cache(caches) noexcept`: install caches built by `env_prepare`
  *
- * The table can be replaced in between seals (seeding, loading), so any views
- * or caches of it have to be refreshed in `env_prepare()`.
+ * `env_grid_hash()` identifies the sampling map the envelope was trained on.
+ * Defaults to the grid hash; BASIN also folds in its sampling order.
  *
- * @tparam Derived The derived generator class (e.g., VegasGenerator).
- * @tparam Integrator The integrator the generator extends (e.g., Vegas<>).
+ * @tparam Derived the derived generator class (e.g. VegasGenerator)
+ * @tparam Integrator the integrator the generator extends (e.g. Vegas<>)
  */
 template <typename Derived, typename Integrator>
 class GeneratorBase : public Integrator {
@@ -378,145 +406,192 @@ class GeneratorBase : public Integrator {
   /// @{
 
   /*!
-   * @brief Seed a flat envelope with a given value.
+   * @brief seed a flat envelope with a given value
    *
-   * A natural choice is `|I|` from a frozen production run. Since `|I| <= A`,
-   * the envelope starts out low and `optimize_envelope` only raises it where
-   * it is violated. If the integrand has large cancellations, `|I|` can be far
-   * below `A` and `initialize_envelope(integrand, ncall)` is the better choice.
+   * |I| from a frozen production run works as a seed. For integrands with
+   * large cancellations, better use `initialize_envelope(integrand, ncall)`
+   * to estimate the absolute integral directly.
    *
-   * @param abs_integral The seed, usually the absolute integral A or a lower
-   *        bound on it. Must be finite and positive.
-   * @throws std::invalid_argument if the grid is not frozen or the seed is not
-   *         finite and positive.
+   * @param abs_integral the seed, usually A or a lower bound on it; must be
+   *        finite and positive
+   * @throws std::invalid_argument if the grid is not frozen or the seed is
+   *         not finite and positive
+   * @throws std::runtime_error if envelope data are pending
    */
   void initialize_envelope(T abs_integral) {
-    require_frozen("initialize_envelope");
+    require_frozen();
+    require_no_envelope_data();
     reset_envelope_state();
     seed_envelope(abs_integral);
   }
 
   /*!
-   * @brief Seed a flat envelope from a new estimate of the absolute integral.
+   * @brief seed a flat envelope from a fresh estimate of the absolute integral
    *
-   * Evaluates the integrand at `ncall` points sampled from the frozen grid and
-   * seeds the flat envelope with the estimate of A. The estimate is also kept
-   * as the A diagnostic (see `abs_integral_estimate()`).
+   * Evaluates the integrand at `ncall` points sampled from the frozen grid
+   * and uses the A estimate as the seed and initial `abs_integral_estimate()`.
    *
-   * @param integrand The integrand.
-   * @param ncall The number of samples; must be > 0.
-   * @throws std::invalid_argument if the grid is not frozen or ncall == 0.
-   * @throws std::runtime_error if the estimated absolute integral is zero (the
-   *         integrand vanished or was non-finite at all samples).
+   * @param integrand the integrand
+   * @param ncall number of samples, must be > 0
+   * @throws std::invalid_argument if the grid is not frozen or ncall == 0
+   * @throws std::runtime_error if envelope data are pending, the estimated
+   *         absolute integral is zero, or f is non-finite in strict mode
+   * @throws std::overflow_error if the accumulated sums overflow
    */
   template <typename I>
   void initialize_envelope(I&& integrand, U ncall) {
-    require_frozen("initialize_envelope");
+    require_frozen();
+    require_no_envelope_data();
     if (ncall == U(0)) {
       throw std::invalid_argument("initialize_envelope requires ncall > 0");
     }
     reset_envelope_state();
-
-    point_type point{derived().ndim(), derived().user_data()};
-    std::vector<T> u_buf(derived().ndim());
-    auto cell = derived().make_cell_ctx();
-
-    for (U i = 0; i < ncall; ++i) {
-      for (S idim = 0; idim < derived().ndim(); ++idim)
-        u_buf[idim] = derived().ran();
-      point.sample_index = i;
-      derived().map_point(u_buf, point, cell);
-      T abs_fval = T(0);
-      (void)eval_abs(integrand, point, abs_fval, "initialize_envelope");
-      accumulate_finite(abs_acc_, abs_fval);
-    }
-    require_finite_statistics(abs_acc_);
+    for_each_abs_sample(integrand, ncall, [&](T abs_fval, bool, auto) {
+      accumulate_checked(abs_acc_, abs_fval);
+      return true;
+    });
+    require_finite_sums(abs_acc_);
     if (!(abs_acc_.value() > T(0))) {
       throw std::runtime_error(
-          "initialize_envelope: sampled abs-integral is zero; cannot seed an envelope");
+          "sampled abs-integral is zero; cannot seed an envelope");
     }
     seed_envelope(abs_acc_.value());
   }
 
   /*!
-   * @brief A single pass to raise an initialized envelope.
+   * @brief single pass to raise an initialized envelope
    *
-   * Evaluates the integrand at `neval` points sampled from the grid.
-   * Whenever `|f|` lies above the envelope, hit cells are raised.
-   * Repeated passes until convergence are done by `optimize_envelope`.
-   * All samples are also added to the running estimate of A
-   * (`abs_integral_estimate()`).
+   * Evaluates the integrand at `neval` points sampled from the grid and
+   * raises the hit cells whenever |f| lies above the envelope.
+   * `optimize_envelope` repeats this until convergence. All samples also go
+   * into the running A estimate (`abs_integral_estimate()`).
    *
-   * @param integrand The integrand.
-   * @param neval The number of samples for this pass; must be > 0.
-   * @return An `EnvelopeResult` with the running A estimate, the number of
-   *         violations in this pass, and the volume of the sealed envelope.
-   * @throws std::invalid_argument if the grid is not frozen or neval == 0.
-   * @throws std::runtime_error if the envelope was not initialized or does
-   *         not match the current grid.
+   * The pass trains a copy of the envelope, so on failure the envelope, its
+   * proposal caches and the A estimate are unchanged (the RNG has advanced
+   * though).
+   *
+   * @param integrand the integrand
+   * @param neval number of samples for this pass, must be > 0
+   * @return running A estimate, violations in this pass and volume of the
+   *         sealed envelope
+   * @throws std::invalid_argument if the grid is not frozen or neval == 0
+   * @throws std::runtime_error if the envelope is not initialized or does not
+   *         match the current grid, or f is non-finite in strict mode
+   * @throws std::overflow_error if the evaluation count or sums overflow
    */
   template <typename I>
   env_result_type raise_envelope(I&& integrand, U neval) {
-    require_frozen("raise_envelope");
+    require_frozen();
     if (neval == U(0)) {
       throw std::invalid_argument("raise_envelope requires neval > 0");
     }
-    require_ready("raise_envelope");
+    require_envelope_ready();
+    require_count_capacity(neval);
 
-    const S ndim = derived().ndim();
-    point_type point{ndim, derived().user_data()};
-    std::vector<T> u_buf(ndim);
-    auto cell = derived().make_cell_ctx();
-
-    // raise each factor that was hit such that R grows by at most ~10%
-    // @todo: make this more flexible with an option (enum)
-    const T gamma = T(1) + T(1) / (T(10) * T(ndim));
-
-    envelope_ready_ = false;  // if the pass throws, we must not be left with stale CDFs
-    U n_violations = 0;
-    U n_nonfinite = 0;
-    for (U i = 0; i < neval; ++i) {
-      for (S idim = 0; idim < ndim; ++idim)
-        u_buf[idim] = derived().ran();
-      point.sample_index = i;
-      derived().map_point(u_buf, point, cell);
-      T abs_fval = T(0);
-      const bool finite = eval_abs(integrand, point, abs_fval, "raise_envelope");
-      if (!finite) ++n_nonfinite;
-      accumulate_finite(abs_acc_, abs_fval);
-      if (finite && abs_fval > derived().env_value(cell)) {
-        derived().env_raise(cell, gamma);
-        ++n_violations;
-      }
-    }
-    require_finite_statistics(abs_acc_);
-    seal_envelope();
-
-    return env_result_type{.abs_acc_ = abs_acc_,
-                           .n_violations_ = n_violations,
-                           .envelope_volume_ = envelope_volume(),
-                           .n_nonfinite_ = n_nonfinite};
+    // each violation raises R by (1 + 1 / (10 * ndim))^ndim, about 10%
+    const T gamma = envelope_raising_factor();
+    env_result_type result;
+    // we create local copies to enable clean roll-backs in case of errors
+    ndarray::NDArray<T, S> candidate(envelope_.shape());
+    std::ranges::copy(envelope_, candidate.begin());
+    auto next_abs = abs_acc_;
+    for_each_abs_sample(integrand, neval, [&](T abs_fval, bool finite, auto indices) {
+      accumulate_checked(next_abs, abs_fval);
+      count_evaluation(result, finite);
+      // a non-finite sample has `abs_fval = 0` and never raises
+      if (detail::raise_envelope_record(candidate, indices, abs_fval, gamma))
+        ++result.n_violations_;
+      return true;
+    });
+    result.n_raised_ = result.n_violations_;  // every violation raises once
+    require_finite_sums(next_abs);
+    seal_envelope(candidate, derived().env_grid_hash());
+    abs_acc_ = next_abs;
+    result.abs_acc_ = abs_acc_;
+    result.envelope_volume_ = envelope_volume();
+    return result;
   }
 
   /*!
-   * @brief Raise the envelope until the violation rate is small enough.
+   * @brief record violations without changing the envelope
+   *
+   * Evaluates the integrand at up to `neval` points sampled from the grid and
+   * appends every |f| above the fixed envelope, with its factor indices, to
+   * the pending batch. All samples go into the batch statistics and
+   * `abs_integral_estimate()`. Apply the batch locally with `adapt_envelope()`,
+   * or save it with `save_envelope()` to be merged elsewhere. If an
+   * evaluation throws or its statistics overflow, the batch keeps the samples
+   * before it.
+   *
+   * @param integrand the integrand
+   * @param neval maximum number of samples, must be > 0
+   * @param max_records stop once the pending batch holds this many records
+   *        (counting those of earlier calls)
+   * @return counts for this call; status RECORD_LIMIT_REACHED if collection
+   *         stopped at `max_records`
+   * @throws std::invalid_argument if the grid is not frozen or neval == 0
+   * @throws std::runtime_error if the envelope is not initialized or does not
+   *         match the current grid, or f is non-finite in strict mode
+   * @throws std::overflow_error if the evaluation count or sums overflow
+   */
+  template <typename I>
+  env_result_type collect_envelope(I&& integrand, U neval,
+                                   U max_records = std::numeric_limits<U>::max()) {
+    require_frozen();
+    if (neval == U(0)) {
+      throw std::invalid_argument("collect_envelope requires neval > 0");
+    }
+    require_envelope_ready();
+    require_count_capacity(neval);
+
+    const auto below_limit = [&] { return n_envelope_records() < max_records; };
+    env_result_type result;
+    if (below_limit()) {
+      for_each_abs_sample(integrand, neval, [&](T abs_fval, bool finite, auto indices) {
+        // check before appending so a failed sample leaves the batch intact
+        const T square = checked_square(abs_fval);
+        auto next_abs = abs_acc_;
+        auto next_batch = envelope_data_.acc;
+        next_abs.accumulate(abs_fval, square);
+        next_batch.accumulate(abs_fval, square);
+        require_finite_sums(next_abs);
+        require_finite_sums(next_batch);
+        if (abs_fval > detail::envelope_bound(envelope_, indices)) {
+          envelope_data_.append(abs_fval, indices);
+          ++result.n_violations_;
+        }
+        abs_acc_ = next_abs;  // nothing from here on throws
+        envelope_data_.acc = next_batch;
+        count_evaluation(result, finite);
+        return below_limit();
+      });
+    }
+    if (!below_limit()) result.status_ = EnvelopeStatus::RECORD_LIMIT_REACHED;
+    result.abs_acc_ = abs_acc_;
+    result.envelope_volume_ = envelope_volume();
+    return result;
+  }
+
+  /*!
+   * @brief raise the envelope until the violation rate is small enough
    *
    * Runs up to `max_passes` passes of `raise_envelope` with `neval` samples
-   * each. Stops early once the violation rate `n_violations / neval` of a pass
-   * is at or below `target_rate`.
+   * each. Stops early once the violation rate `n_violations / neval` of a
+   * pass is at or below `target_rate`.
    *
-   * @param integrand The integrand.
-   * @param neval The number of samples per pass; must be > 0.
-   * @param max_passes The maximum number of passes; must be > 0.
-   * @param target_rate Stop once the violation rate of a pass is at or below
-   *        this; must be in [0, 1]. With 0, passes continue until one records
-   *        no violation; with 1, exactly one pass is run.
-   * @return The `EnvelopeResult` of the last pass (running A estimate, the
-   *         violation count of the last pass, and the sealed volume).
+   * @param integrand the integrand
+   * @param neval number of samples per pass, must be > 0
+   * @param max_passes maximum number of passes, must be > 0
+   * @param target_rate stop once a pass is at or below this rate; must be in
+   *        [0, 1]. With 0, passes continue until one has no violation; with
+   *        1, exactly one pass is run.
+   * @return running A estimate, final volume, counts summed over all passes
+   *         and whether the target was reached
    * @throws std::invalid_argument if the grid is not frozen, neval == 0,
-   *         max_passes == 0, or target_rate is not in [0, 1] (incl. NaN).
-   * @throws std::runtime_error if the envelope was not initialized or does
-   *         not match the current grid.
+   *         max_passes == 0, or target_rate is not in [0, 1] (or NaN)
+   * @throws std::runtime_error if the envelope is not initialized or does not
+   *         match the current grid, or f is non-finite in strict mode
+   * @throws std::overflow_error if the evaluation count or sums overflow
    */
   template <typename I>
   env_result_type optimize_envelope(I&& integrand, U neval, U max_passes = U(8),
@@ -528,12 +603,66 @@ class GeneratorBase : public Integrator {
     if (!(target_rate >= T(0) && target_rate <= T(1))) {
       throw std::invalid_argument("optimize_envelope requires a target_rate in [0, 1]");
     }
-    env_result_type res{};
+    env_result_type res;
     for (U pass = 0; pass < max_passes; ++pass) {
-      res = raise_envelope(integrand, neval);
-      if (T(res.n_violations()) <= target_rate * T(neval)) break;
+      const auto step = raise_envelope(integrand, neval);
+      res.abs_acc_ = step.abs_acc_;
+      res.envelope_volume_ = step.envelope_volume_;
+      res.n_evaluations_ += step.n_evaluations_;
+      res.n_violations_ += step.n_violations_;
+      res.n_raised_ += step.n_raised_;
+      res.n_nonfinite_ += step.n_nonfinite_;
+      if (T(step.n_violations_) <= target_rate * T(neval)) {
+        res.status_ = EnvelopeStatus::TARGET_REACHED;
+        break;
+      }
     }
     return res;
+  }
+
+  /// @brief whether a collected batch is pending (even one without violations)
+  [[nodiscard]] bool has_envelope_data() const noexcept {
+    return envelope_data_.present();
+  }
+
+  /// @brief number of pending violations across all collection calls
+  [[nodiscard]] U n_envelope_records() const noexcept {
+    return static_cast<U>(envelope_data_.values.size());
+  }
+
+  /// @brief drop pending observations and batch statistics; keeps envelope and A estimate
+  void clear_envelope_data() noexcept {
+    envelope_data_.clear();
+  }
+
+  /*!
+   * @brief raise the envelope with the pending observations, then clear the batch
+   *
+   * Processes observations in collection order, at most one raise each.
+   * Doesn't evaluate the integrand and leaves the A estimate alone. On
+   * failure, the envelope and pending batch are unchanged.
+   *
+   * @return the batch's evaluations and records (`n_violations`), number of
+   *         raises, current A estimate and envelope volume
+   * @throws std::invalid_argument if the grid is not frozen
+   * @throws std::runtime_error if the envelope is not initialized or does not
+   *         match the current grid
+   */
+  env_result_type adapt_envelope() {
+    require_frozen();
+    require_envelope_ready();
+    env_result_type result{.abs_acc_ = abs_acc_,
+                           .n_violations_ = n_envelope_records(),
+                           .envelope_volume_ = envelope_volume(),
+                           .n_evaluations_ = envelope_data_.acc.count()};
+    if (!has_envelope_data()) return result;
+    ndarray::NDArray<T, S> candidate(envelope_.shape());
+    std::ranges::copy(envelope_, candidate.begin());
+    result.n_raised_ = apply_envelope_records(candidate, envelope_data_);
+    seal_envelope(candidate, derived().env_grid_hash());
+    clear_envelope_data();
+    result.envelope_volume_ = envelope_volume();
+    return result;
   }
 
   /// @}
@@ -542,63 +671,59 @@ class GeneratorBase : public Integrator {
   /// @{
 
   /*!
-   * @brief Generate unnormalized events by hit-or-miss using `ntrials` trials.
+   * @brief generate unnormalized events by hit-or-miss using `ntrials` trials
    *
    * Points are proposed according to the envelope and accepted events are
-   * passed to `event_callback(point, weight)` with weight `+-1`, or `+-|f|/R`
-   * for the rare cases where the envelope is violated. The events are not
-   * normalized: the signed integral is estimated by
-   * `volume() * sum(weights) / n_trials()` and both factors are reported in
-   * the returned `GenerationResult`. For a completed run this estimate is
-   * unbiased, overweights included.
+   * passed to `event_callback(point, weight)` with weight +-1, or +-|f|/R
+   * where the envelope is violated. The signed integral is estimated by
+   * `volume() * sum(weights) / n_trials()`, with both factors reported in the
+   * returned `GenerationResult`. Unbiased for a completed run, overweights
+   * included.
    *
-   * The callback can return an `EventSignal`. Returning `EventSignal::STOP`
-   * ends the generation after the current event with a partial result
-   * (`status() == STOPPED`), e.g. to stop once enough events were collected.
-   * Stopping based on the events can bias the estimates by `O(1/N)`. To aim
-   * for `N` events, use `N / predicted_efficiency()` trials instead.
+   * The callback can return an `EventSignal`. `EventSignal::STOP` ends the
+   * run after the current event with a partial result (STOPPED), e.g. once
+   * enough events were collected. Stopping based on the events can bias the
+   * estimates though; to aim for N events, rather use
+   * `N / predicted_efficiency()` trials.
    *
-   * By default, trials with a non-finite integrand value are rejected and
-   * contribute zero. With `Options::strict_finite_integrand = true` an
-   * exception is thrown instead.
+   * Trials with a non-finite integrand are rejected and contribute zero;
+   * with `Options::strict_finite_integrand` they throw instead.
    *
-   * `point.sample_index` holds the running trial index, which is unique for
-   * each integrand call as in the integration, so the callback can use it to
-   * track the progress. If `progress_bar` is unset or `true` and verbosity is
-   * enabled, a progress bar over the trials is printed to `stderr`.
+   * `point.sample_index` is the zero-based trial index within this call.
+   * With verbosity on and `progress_bar` unset or true, a progress bar over
+   * the trials goes to stderr.
    *
-   * @param integrand The integrand.
-   * @param ntrials The number of trials; must be > 0.
-   * @param event_callback Called as `event_callback(const point&, weight)` for
-   *        each accepted event; may return an `EventSignal` to stop.
-   * @return A `GenerationResult` with the statistics of the run.
+   * @param integrand the integrand
+   * @param ntrials number of trials, must be > 0
+   * @param event_callback called as `event_callback(const point&, weight)`
+   *        for each accepted event; may return an `EventSignal` to stop
+   * @return statistics of the run
    * @throws std::invalid_argument if the grid is not frozen, ntrials == 0, or
-   *         `progress_step` is invalid while the progress bar is shown.
+   *         `progress_step` is invalid while the progress bar is shown
    * @throws std::runtime_error if the envelope is not ready or does not match
-   *         the current grid.
-   * @throws std::overflow_error if the weights or their sums overflow.
+   *         the current grid, or f is non-finite in strict mode
+   * @throws std::overflow_error if the weights or their sums overflow
    */
   template <typename I, typename ECB>
   gen_result_type generate_trials(I&& integrand, U ntrials, ECB&& event_callback) {
     if (ntrials == U(0)) throw std::invalid_argument("generate_trials requires ntrials > 0");
-    require_frozen("generate_trials");
-    require_ready("generate_trials");
+    require_frozen();
+    require_envelope_ready();
 
     point_type point{derived().ndim(), derived().user_data()};
 
     gen_result_type res;
     res.envelope_volume_ = envelope_volume();
-    U n_trials = 0;
-    // overweights go into `res.acc_` right away; the events of weight +-1 are
-    // only counted and added in one go after the loop
+    U ntrials_done = 0;
+    // overweights are accumulated one by one, unit weights in bulk after the loop
     U n_negative_overweight = 0;
 
     std::optional<util::ProgressBar> bar;
     U milestone_step = 0;
     U next_milestone = ntrials;  // never reached inside the loop without a bar
     const auto update_bar = [&] {
-      bar->update(static_cast<double>(n_trials) / static_cast<double>(ntrials),
-                  std::format("trials {}/{}", n_trials, ntrials));
+      bar->update(static_cast<double>(ntrials_done) / static_cast<double>(ntrials),
+                  std::format("trials {}/{}", ntrials_done, ntrials));
     };
     const auto& opts = derived().opts_;
     if (opts.progress_bar.value_or(true) && opts.verbosity.value_or(0) > 0) {
@@ -612,45 +737,44 @@ class GeneratorBase : public Integrator {
       bar.emplace();
     }
 
-    while (n_trials < ntrials) {
-      // check at the top of the loop so rejected and skipped trials are counted too
-      if (n_trials >= next_milestone) [[unlikely]] {
+    while (ntrials_done < ntrials) {
+      // update progress up here so rejected and non-finite trials count too
+      if (ntrials_done >= next_milestone) [[unlikely]] {
         next_milestone += milestone_step;
         update_bar();
       }
-      const T abs_fval_envelope = derived().env_propose(point);
-      // check the envelope before calling the integrand; otherwise a
-      // non-finite integrand value would `continue` past this check
-      if (!(abs_fval_envelope > T(0)) || !std::isfinite(abs_fval_envelope)) {
-        throw std::runtime_error("generation: envelope value is not finite and positive");
+      const T envelope_value = derived().env_propose(point);
+      // check R before a non-finite integrand can skip the trial
+      if (!(envelope_value > T(0)) || !std::isfinite(envelope_value)) {
+        throw std::runtime_error("envelope value is not finite and positive");
       }
-      point.sample_index = n_trials;
-      ++n_trials;
+      point.sample_index = ntrials_done;
+      ++ntrials_done;
       const T fval = point.weight * integrand(point);
       if (!std::isfinite(fval)) {
         ++res.n_nonfinite_;
         if (strict_finite_integrand()) {
-          throw std::runtime_error("generation: non-finite integrand contribution");
+          throw std::runtime_error("non-finite integrand contribution");
         }
         continue;
       }
       const T abs_fval = util::math::abs(fval);
       T event_weight;
-      if (abs_fval > abs_fval_envelope) {
+      if (abs_fval > envelope_value) {
         // overweight event: always accept and keep the factor |f|/R in the weight
-        const T w_over = abs_fval / abs_fval_envelope;
+        const T w_over = abs_fval / envelope_value;
         res.n_overweight_++;
         res.max_overweight_ = util::math::max(res.max_overweight_, w_over);
         event_weight = T(util::math::sgn(fval)) * w_over;
-        accumulate_finite(res.acc_, event_weight);
+        accumulate_checked(res.acc_, event_weight);
         if (event_weight < T(0)) n_negative_overweight++;
       } else {
         // rejection sampling: accept with probability |f|/R
         const T r = derived().ran();
-        if (r * abs_fval_envelope < abs_fval) {
+        if (r * envelope_value < abs_fval) {
           event_weight = T(util::math::sgn(fval));
         } else {
-          continue;  // rejected: contributes 0, added to the count after the loop
+          continue;  // rejected: contributes 0, counted after the loop
         }
       }
       if (event_weight < T(0)) res.n_negative_++;
@@ -669,16 +793,15 @@ class GeneratorBase : public Integrator {
     }  // while
     if (bar) update_bar();
 
-    // add the events of weight +-1: their weights sum to (#positive - #negative)
-    // and their squares to their number (exact in T while the counts are below 2^53)
+    // unit weights sum to (#positive - #negative), their squares to n_unit
     const U n_unit = res.n_events_ - res.n_overweight_;
     const U n_unit_negative = res.n_negative_ - n_negative_overweight;
     int_acc_type unit_acc;
     unit_acc.reset(T(n_unit - n_unit_negative) - T(n_unit_negative), T(n_unit), n_unit);
     res.acc_.accumulate(unit_acc);
-    // rejected trials contribute 0 to the sums; account for them in the count
-    res.acc_.accumulate_zeros(n_trials - res.n_events_);
-    require_finite_statistics(res.acc_);
+    // rejected trials add 0 to the sums, only the count changes
+    res.acc_.accumulate_zeros(ntrials_done - res.n_events_);
+    require_finite_sums(res.acc_);
     return res;
   }
 
@@ -687,56 +810,60 @@ class GeneratorBase : public Integrator {
   /// @name Envelope Queries & Manipulation
   /// @{
 
-  /// @brief Whether the integration grid is frozen (required for generation).
+  /// @brief whether the integration grid is frozen (required for generation)
   [[nodiscard]] inline bool is_frozen() const {
     return derived().opts_.frozen.value_or(false);
   }
 
-  /// @brief Whether there is a sealed envelope that matches the current grid,
-  ///        i.e. whether `generate_trials` can use it. After the grid was
-  ///        adapted this is `false` and the envelope has to be initialized again.
-  [[nodiscard]] inline bool envelope_ready() const {
-    return envelope_ready_ && envelope_grid_hash_ == derived().hash().value();
+  /// @brief identity of the sampling map the envelope factors belong to;
+  ///        overridden by generators whose map isn't fixed by the grid alone
+  [[nodiscard]] inline util::HashValue_t env_grid_hash() const {
+    return derived().hash().value();
   }
 
-  /// @brief The seed the flat envelope was initialized with.
+  /// @brief whether envelope and proposal caches match the current sampling map;
+  ///        a changed map needs re-initialization or a compatible import
+  [[nodiscard]] inline bool envelope_ready() const {
+    return envelope_ready_ && envelope_grid_hash_ == derived().env_grid_hash();
+  }
+
+  /// @brief the local initialization seed, or zero if there is none
+  ///        (e.g. envelope adopted from a `.khe` file)
   [[nodiscard]] inline T envelope_seed() const noexcept {
     return envelope_seed_;
   }
 
   /*!
-   * @brief Running estimate of the absolute integral A (diagnostic).
+   * @brief running estimate of the absolute integral A
    *
-   * Empty (count 0) unless the integrand was sampled with
-   * `initialize_envelope(integrand, ncall)` or raising passes.
+   * Includes initialization samples, raising passes, collected samples and
+   * imported batch statistics. Stays empty when initialized from a constant
+   * seed.
    */
   [[nodiscard]] inline const int_acc_type& abs_integral_estimate() const noexcept {
     return abs_acc_;
   }
 
-  /// @brief The envelope volume `V = int R(u) du`. Events of a generation run
-  ///        are normalized with `V / n_trials`.
+  /// @brief envelope volume V = int R(u) du; events of a generation run are
+  ///        normalized with V / n_trials
   [[nodiscard]] inline T envelope_volume() const noexcept {
     return envelope_volume_;
   }
 
   /*!
-   * @brief Predicted unweighting efficiency `eps = A / V` (accepted events per trial).
+   * @brief predicted unweighting efficiency A / V (accepted events per trial)
    *
-   * Uses the estimate of A if the integrand was sampled
-   * (`initialize_envelope(integrand, ncall)` or raising passes) and the
-   * envelope seed otherwise (a flat envelope that was not scaled then gives
-   * exactly 1). The actual efficiency is `int min(|f|, R) du / V <= A / V`,
-   * so up to the statistical error on A the prediction is an upper bound and
-   * `N / eps` trials will usually give slightly fewer than `N` events. The
-   * ratio is not clamped: a value above 1 means that the envelope lies below
-   * the integrand on average.
+   * Uses `abs_integral_estimate()` if it has samples, otherwise the
+   * initialization seed. The actual efficiency is int min(|f|, R) du / V,
+   * which is at most A / V up to the statistical error on A. Not clamped
+   * to one.
    *
    * @throws std::runtime_error if the envelope is not ready or does not match
-   *         the current grid, or if the estimate of A is not finite and positive.
+   *         the current grid, or if the A estimate is not finite and positive
+   *         (importing factors alone gives neither A nor a seed)
    */
   [[nodiscard]] T predicted_efficiency() const {
-    require_ready("predicted_efficiency");
+    require_envelope_ready();
     const T a_est = abs_acc_.count() > U(0) ? abs_acc_.value() : envelope_seed_;
     if (!(a_est > T(0)) || !std::isfinite(a_est)) {
       throw std::runtime_error(
@@ -746,27 +873,164 @@ class GeneratorBase : public Integrator {
   }
 
   /*!
-   * @brief Multiply the whole envelope by `factor` (e.g. a safety factor).
+   * @brief multiply the whole envelope by `factor` (e.g. a safety factor)
    *
-   * @param factor The scaling factor; must be finite and positive.
-   * @throws std::invalid_argument if the factor is invalid or the grid is not frozen.
-   * @throws std::runtime_error if the envelope was not initialized or does
-   *         not match the current grid.
+   * Leaves the envelope unchanged on failure.
+   *
+   * @param factor scaling factor, must be finite and positive
+   * @throws std::invalid_argument if the grid is not frozen or the factor is invalid
+   * @throws std::runtime_error if the envelope is not initialized or does not
+   *         match the current grid, if factor < 1 with pending data, or if
+   *         the scaled proposal can't be built
    */
-  inline void envelope_scale(T factor) {
-    require_frozen("envelope_scale");
+  inline void scale_envelope(T factor) {
+    require_frozen();
     if (!(factor > T(0)) || !std::isfinite(factor)) {
-      throw std::invalid_argument("envelope_scale requires a finite positive factor");
+      throw std::invalid_argument("scale_envelope requires a finite positive factor");
     }
-    // sealing binds the envelope to the current grid hash, so we must not do
-    // that for an envelope that was raised on an older grid
-    require_ready("envelope_scale");
-    envelope_ready_ = false;
-    // spread evenly across the ndim factors of R
-    const T per = std::pow(factor, T(1) / T(derived().ndim()));
-    for (auto& v : envelope_)
-      v *= per;
-    seal_envelope();
+    // don't bind factors from an old sampling map to the current one
+    require_envelope_ready();
+    if (factor < T(1)) require_no_envelope_data();
+    // spread the scale evenly over the ndim factors of R
+    const T factor_scale = std::pow(factor, T(1) / T(derived().ndim()));
+    ndarray::NDArray<T, S> candidate(envelope_.shape());
+    std::ranges::transform(envelope_, candidate.begin(),
+                           [factor_scale](T value) { return value * factor_scale; });
+    seal_envelope(candidate, derived().env_grid_hash());
+  }
+
+  /// @}
+
+  /// @name Envelope Files
+  /// @{
+
+  /*!
+   * @brief save the envelope and pending observations to a `.khe` file
+   *
+   * The version-1 `.khe` payload holds the sampling-map hash, the factors and
+   * the pending batch, if any. The batch stays pending. Use `save()` for a
+   * full `.khs` checkpoint.
+   *
+   * @param filepath path of the `.khe` file
+   * @throws std::invalid_argument if the grid is not frozen
+   * @throws std::runtime_error if the envelope is not initialized or stale
+   */
+  void save_envelope(const std::filesystem::path& filepath) const {
+    require_frozen();
+    require_envelope_ready();
+    this->write_file(filepath, detail::FileType::ENVELOPE, [this](std::ostream& out) {
+      using namespace kakuhen::util::serialize;
+      serialize_one<uint8_t>(out, envelope_file_version);
+      serialize_one<util::HashValue_t>(out, envelope_grid_hash_);
+      envelope_.serialize(out);
+      envelope_data_.serialize(out, derived().ndim());
+    });
+  }
+
+  /// @brief default `.khe` path (same naming as `.khd`)
+  template <typename D = Derived>
+  [[nodiscard]] std::filesystem::path file_envelope() const
+    requires detail::HasPrefix<D>
+  {
+    auto filepath = this->file_data();
+    filepath.replace_extension(detail::suffix_envelope);
+    return filepath;
+  }
+
+  /// @brief save to the default `.khe` path (`file_envelope()`)
+  /// @return the saved path
+  template <typename D = Derived>
+  std::filesystem::path save_envelope() const
+    requires detail::HasPrefix<D>
+  {
+    auto filepath = file_envelope();
+    save_envelope(filepath);
+    return filepath;
+  }
+
+  /*!
+   * @brief merge envelope factors and process observations from a `.khe` file
+   *
+   * If the local envelope is ready, takes the maximum of corresponding
+   * factors. Otherwise replaces it and sets the seed to zero, which requires
+   * that no local data are pending. The sampling map must match, including
+   * BASIN's sampling order. It's up to the caller to make sure both runs used
+   * the same integrand and parameters; RNG seeds, training budgets and
+   * initial envelopes may differ.
+   *
+   * Incoming observations are processed in file order, at most one raise
+   * each, and their batch statistics are added to the A estimate. Local
+   * pending data are left alone. Import order matters when observations are
+   * present, and importing a batch twice counts it twice. Merging factors
+   * alone is idempotent.
+   *
+   * On failure the generator is unchanged, proposal caches included.
+   *
+   * @param filepath path of the `.khe` file
+   * @return merged A estimate and volume, plus the counts of the incoming
+   *         batch: evaluations, records (`n_violations`) and records that
+   *         raised the envelope (all zero without a batch)
+   * @throws std::invalid_argument if the grid is not frozen
+   * @throws std::runtime_error if the file or envelope is invalid or
+   *         incompatible, a pending batch belongs to an envelope that is not
+   *         ready, or the merged proposal has no finite volume
+   * @throws std::overflow_error if the merged statistics overflow
+   */
+  env_result_type merge_envelope(const std::filesystem::path& filepath) {
+    require_frozen();
+    const bool merge_existing = envelope_ready();
+    if (!merge_existing) require_no_envelope_data();
+
+    ndarray::NDArray<T, S> merged;
+    envelope_data_type incoming;
+    this->read_file(filepath, detail::FileType::ENVELOPE, [&](std::istream& in) {
+      using namespace kakuhen::util::serialize;
+      uint8_t version;
+      deserialize_one<uint8_t>(in, version);
+      if (version != envelope_file_version) {
+        throw std::runtime_error("unsupported envelope file version");
+      }
+      util::HashValue_t grid_hash;
+      deserialize_one<util::HashValue_t>(in, grid_hash);
+      if (grid_hash != derived().env_grid_hash()) {
+        throw std::runtime_error("envelope file does not match the sampling map");
+      }
+      merged.deserialize_expected_shape(in, derived().env_shape());
+      if (!std::ranges::all_of(merged,
+                               [](T factor) { return factor > T(0) && std::isfinite(factor); })) {
+        throw std::runtime_error("envelope file factors must be finite and positive");
+      }
+      incoming = envelope_data_type::deserialize(in, derived().ndim(), merged.size());
+    });
+    if (merge_existing) {
+      std::ranges::transform(merged, envelope_, merged.begin(),
+                             [](T a, T b) { return std::max(a, b); });
+    }
+
+    auto merged_acc = abs_acc_;
+    U n_raised = 0;
+    if (incoming.present()) {
+      require_count_capacity(incoming.acc.count());
+      merged_acc.accumulate(incoming.acc);
+      require_finite_sums(merged_acc);
+      n_raised = apply_envelope_records(merged, incoming);
+    }
+    seal_envelope(merged, derived().env_grid_hash());
+    abs_acc_ = merged_acc;
+    if (!merge_existing) envelope_seed_ = T(0);
+    return {.abs_acc_ = abs_acc_,
+            .n_violations_ = static_cast<U>(incoming.values.size()),
+            .n_raised_ = n_raised,
+            .envelope_volume_ = envelope_volume(),
+            .n_evaluations_ = incoming.acc.count()};
+  }
+
+  /// @brief merge from the default `.khe` path (`file_envelope()`)
+  template <typename D = Derived>
+  env_result_type merge_envelope()
+    requires detail::HasPrefix<D>
+  {
+    return merge_envelope(file_envelope());
   }
 
   /// @}
@@ -775,23 +1039,20 @@ class GeneratorBase : public Integrator {
   /// @{
 
   /*!
-   * @brief Save the generator state (integrator state + envelope) to a file.
+   * @brief save integrator state, envelope and pending batch to a `.khs` file
    *
-   * Writes the same `.khs` format as `save` of the integrator and appends the
-   * envelope as an extra block at the end. The plain integrator can therefore
-   * still read the grid from a generator file.
+   * The envelope block is appended to the integrator state, so the plain
+   * integrator can still read the grid from this file.
    *
-   * @param filepath The path to the file where the state should be saved.
+   * @param filepath path of the state file
    */
   void save(const std::filesystem::path& filepath) const {
     this->write_file(filepath, detail::FileType::STATE,
                      [this](std::ostream& out) { write_state_stream(out); });
   }
 
-  /*!
-   * @brief Save the generator state to the default state file.
-   * @return The path to the saved state file.
-   */
+  /// @brief save the generator state to the default state file
+  /// @return the saved path
   std::filesystem::path save() const {
     std::filesystem::path fstate = this->file_state();
     save(fstate);
@@ -799,13 +1060,13 @@ class GeneratorBase : public Integrator {
   }
 
   /*!
-   * @brief Load the generator state (integrator state + envelope) from a file.
+   * @brief load integrator state and envelope from a `.khs` file
    *
-   * A file without an envelope block at the end (e.g. written by the plain
-   * integrator) only loads the integrator state and leaves the envelope
-   * uninitialized.
+   * A file without an envelope block leaves the envelope uninitialized.
+   * Pending data are only kept if the envelope was ready when saved and
+   * matches the loaded map.
    *
-   * @param filepath The path to the file from which the state should be loaded.
+   * @param filepath path of the state file
    */
   void load(const std::filesystem::path& filepath) {
     if (!this->state_file_exists(filepath)) return;
@@ -813,26 +1074,26 @@ class GeneratorBase : public Integrator {
                     [this](std::istream& in) { read_state_stream(in); });
   }
 
-  /*!
-   * @brief Load the generator state from the default state file.
-   * @return The path to the loaded state file.
-   */
+  /// @brief load the generator state from the default state file
+  /// @return the loaded path
   std::filesystem::path load() {
     std::filesystem::path fstate = this->file_state();
     load(fstate);
     return fstate;
   }
 
+  /// @}
+
   /// @name State Streams (integrator state + envelope block)
   /// @{
 
-  /// @brief Writes the integrator state followed by the envelope block.
+  /// @brief write the integrator state followed by the envelope block
   void write_state_stream(std::ostream& out) const {
     IntBase::write_state_stream(out);
     write_envelope_stream(out);
   }
 
-  /// @brief Reads the integrator state and, if present, the envelope block.
+  /// @brief read the integrator state and, if present, the envelope block
   void read_state_stream(std::istream& in) {
     // reset first so a failed read does not leave a ready envelope behind
     reset_envelope_state();
@@ -843,54 +1104,122 @@ class GeneratorBase : public Integrator {
   /// @}
 
  protected:
-  /*!
-   * @brief Provides access to the derived class instance.
-   *
-   * This is part of the CRTP pattern.
-   *
-   * @return A reference to the derived class.
-   */
-  inline Derived& derived() {
+  /// @brief access the derived generator
+  inline Derived& derived() noexcept {
     return static_cast<Derived&>(*this);
   }
 
-  /*!
-   * @brief Provides const access to the derived class instance.
-   *
-   * This is part of the CRTP pattern.
-   *
-   * @return A const reference to the derived class.
-   */
-  inline const Derived& derived() const {
+  /// @brief access the derived generator
+  inline const Derived& derived() const noexcept {
     return static_cast<const Derived&>(*this);
   }
 
  private:
-  void require_frozen(std::string_view what) const {
+  using envelope_data_type = detail::EnvelopeData<T, U, S>;
+
+  /// @brief throw if envelope data are pending
+  void require_no_envelope_data() const {
+    if (!has_envelope_data()) return;
+    // a stale envelope can't be adapted, so its batch can only be cleared
+    throw std::runtime_error(envelope_ready()
+                                 ? "adapt or clear pending envelope data first"
+                                 : "the envelope is not ready for the current sampling map; "
+                                   "clear its pending data first");
+  }
+
+  /// @brief per-factor raise on a violation: 1 + 1 / (10 * ndim)
+  [[nodiscard]] T envelope_raising_factor() const noexcept {
+    return T(1) + T(1) / (T(10) * T(derived().ndim()));
+  }
+
+  /// @brief apply observations in order, at most one raise each;
+  ///        observations and proposal caches are left untouched
+  /// @return number of raises
+  U apply_envelope_records(ndarray::NDArray<T, S>& table, const envelope_data_type& data) const {
+    U n_raised = 0;
+    const auto ndim = derived().ndim();
+    const T gamma = envelope_raising_factor();
+    for (std::size_t i = 0; i < data.values.size(); ++i) {
+      if (detail::raise_envelope_record(table, data.cells(i, ndim), data.values[i], gamma)) {
+        ++n_raised;
+      }
+    }
+    return n_raised;
+  }
+
+  /// @brief throw if the integration grid is not frozen
+  void require_frozen() const {
     if (!is_frozen()) {
-      throw std::invalid_argument(std::format("{} requires a frozen integration grid", what));
+      throw std::invalid_argument("a frozen integration grid is required");
     }
   }
 
-  /// @brief Require a sealed envelope that matches the current grid.
-  void require_ready(std::string_view what) const {
+  /// @brief throw unless proposal caches are valid and match the sampling map
+  void require_envelope_ready() const {
     if (!envelope_ready_) {
-      throw std::runtime_error(
-          std::format("{} requires an envelope seeded by initialize_envelope", what));
+      throw std::runtime_error("an initialized or imported envelope is required");
     }
-    if (envelope_grid_hash_ != derived().hash().value()) {
+    if (envelope_grid_hash_ != derived().env_grid_hash()) {
       throw std::runtime_error(
-          std::format("{}: envelope does not match the current grid; re-initialize", what));
+          has_envelope_data()
+              ? "envelope does not match the current grid; call clear_envelope_data() before "
+                "re-initializing"
+              : "envelope does not match the current grid; re-initialize");
     }
   }
 
-  /// @brief Evaluate |f| at `point` and check that it is finite.
+  /*!
+   * @brief evaluate |f| at `neval` points sampled from the grid
+   *
+   * Calls `visit(abs_fval, finite, indices)` for each sample, with the
+   * envelope factor indices at the point; a non-finite sample has
+   * `abs_fval = 0`. Stops when `visit` returns false.
+   *
+   * The caller must make sure the sample count fits before changing state
+   * (initialization starts from an empty accumulator, so it's fine there).
+   */
+  template <typename I, typename V>
+  void for_each_abs_sample(I& integrand, U neval, V&& visit) {
+    const S ndim = derived().ndim();
+    point_type point{ndim, derived().user_data()};
+    std::vector<T> u_buf(ndim);
+    std::vector<S> indices(ndim);
+    auto cell = derived().make_cell_ctx();
+    for (U i = 0; i < neval; ++i) {
+      for (T& u : u_buf)
+        u = derived().ran();
+      point.sample_index = i;
+      derived().map_point(u_buf, point, cell);
+      T abs_fval;
+      const bool finite = eval_abs(integrand, point, abs_fval);
+      derived().env_indices(cell, indices);
+      if (!visit(abs_fval, finite, std::span<const S>(indices))) break;
+    }
+  }
+
+  /// @brief throw if `neval` more evaluations would overflow the A count;
+  ///        the pending batch is a subset of `abs_acc_`, so this covers its count too
+  void require_count_capacity(U neval) const {
+    if (neval > std::numeric_limits<U>::max() - abs_acc_.count()) {
+      throw std::overflow_error("evaluation count overflows");
+    }
+  }
+
+  /// @brief count one evaluation in `result`
+  static void count_evaluation(env_result_type& result, bool finite) noexcept {
+    ++result.n_evaluations_;
+    if (!finite) ++result.n_nonfinite_;
+  }
+
+  /// @brief evaluate |f| at `point` into `abs_fval`
+  /// @return whether f is finite; if not, throws in strict mode or sets
+  ///         `abs_fval` to zero
   template <typename I>
-  bool eval_abs(I& integrand, point_type& point, T& abs_fval, std::string_view what) const {
+  bool eval_abs(I& integrand, point_type& point, T& abs_fval) const {
     const T fval = point.weight * integrand(point);
     if (!std::isfinite(fval)) {
       if (strict_finite_integrand()) {
-        throw std::runtime_error(std::format("{}: non-finite integrand contribution", what));
+        throw std::runtime_error("non-finite integrand contribution");
       }
       abs_fval = T(0);
       return false;
@@ -899,80 +1228,87 @@ class GeneratorBase : public Integrator {
     return true;
   }
 
+  /// @brief whether a non-finite integrand throws instead of counting as zero
   [[nodiscard]] bool strict_finite_integrand() const noexcept {
     return derived().opts_.strict_finite_integrand.value_or(false);
   }
 
-  /// @brief Accumulate `value` after checking that it and its square are finite.
-  ///        An overflow of the running sums is checked only once at the end of
-  ///        the run in `require_finite_statistics`.
-  static void accumulate_finite(int_acc_type& acc, T value) {
+  /// @brief square `value`, throw if the result is not finite
+  static T checked_square(T value) {
     const T square = value * value;
     if (!std::isfinite(square)) {  // also catches a non-finite value
       throw std::overflow_error(
-          "generation: contribution or square overflows; rebuild the envelope "
+          "contribution or square overflows; rebuild the envelope "
           "from an absolute-integral estimate or rescale the integrand");
     }
-    acc.accumulate(value, square);
+    return square;
   }
 
-  /// @brief Throw if the accumulated sums overflowed. If the sums are finite,
-  ///        so are the value and the variance.
-  static void require_finite_statistics(const int_acc_type& acc) {
+  /// @brief accumulate a value with finite square; caller must check the sums
+  static void accumulate_checked(int_acc_type& acc, T value) {
+    acc.accumulate(value, checked_square(value));
+  }
+
+  /// @brief throw if either accumulated sum is not finite
+  static void require_finite_sums(const int_acc_type& acc) {
     if (!acc.is_finite()) {
-      throw std::overflow_error("generation: accumulated contributions overflow");
+      throw std::overflow_error("accumulated contributions overflow");
     }
   }
 
-  /// @brief Clear all envelope state before (re-)seeding.
+  /// @brief reset readiness, statistics and pending data before initializing or loading
   void reset_envelope_state() {
     envelope_ready_ = false;
     envelope_grid_hash_ = {};
     envelope_seed_ = T(0);
     envelope_volume_ = T(0);
     abs_acc_.reset();
+    clear_envelope_data();
   }
 
-  /// @brief Seed a flat envelope `R(u) = seed` and seal it.
+  /// @brief seed a flat envelope R(u) = seed and seal it
   void seed_envelope(T seed) {
     if (!(seed > T(0)) || !std::isfinite(seed)) {
       throw std::invalid_argument("initialize_envelope requires a finite seed > 0");
     }
-    // spread evenly across the ndim factors of R
-    // (the root of a finite positive seed stays finite and positive)
-    const T per = std::pow(seed, T(1) / T(derived().ndim()));
+    // equal factors whose product is the seed
+    const T factor = std::pow(seed, T(1) / T(derived().ndim()));
     envelope_ = ndarray::NDArray<T, S>(derived().env_shape());
-    envelope_.fill(per);
+    envelope_.fill(factor);
     envelope_seed_ = seed;
     seal_envelope();
   }
 
-  /// @brief Prepare the envelope for generation (CDFs, normalization), check
-  ///        its volume, and bind it to `grid_hash`.
-  inline void seal_envelope(kakuhen::util::HashValue_t grid_hash) {
-    envelope_ready_ = false;
-    envelope_volume_ = T(0);
-    const T vol = derived().env_prepare();
-    if (!(vol > T(0)) || !std::isfinite(vol)) {
+  /*!
+   * @brief build proposal caches, install the table and mark the envelope ready
+   *
+   * Binds the envelope to `grid_hash` and moves `table` into `envelope_`
+   * unless they're the same object. Caches and volume are built and checked
+   * before any state changes.
+   */
+  void seal_envelope(ndarray::NDArray<T, S>& table, kakuhen::util::HashValue_t grid_hash) {
+    auto [volume, cache] = derived().env_prepare(table);
+    if (!(volume > T(0)) || !std::isfinite(volume)) {
       throw std::runtime_error("generation envelope has invalid volume");
     }
-    envelope_volume_ = vol;
+    static_assert(noexcept(derived().env_commit_cache(std::move(cache))));
+    if (&table != &envelope_) envelope_ = std::move(table);
+    derived().env_commit_cache(std::move(cache));
+    envelope_volume_ = volume;
     envelope_grid_hash_ = grid_hash;
     envelope_ready_ = true;
   }
 
-  /// @brief Seal the envelope and bind it to the current grid.
-  inline void seal_envelope() {
-    seal_envelope(derived().hash().value());
+  /// @brief seal the envelope and bind it to the current sampling map
+  void seal_envelope() {
+    seal_envelope(envelope_, derived().env_grid_hash());
   }
 
   /*!
-   * @brief Append the envelope block to a state stream.
+   * @brief append the envelope block to a state stream
    *
-   * The block starts with a tag and a version, followed by the ready flag, the
-   * seed, the grid hash, the A accumulator, and the raw envelope table.
-   * Anything derived from the table (CDFs, subtree integrals, volume) is not
-   * written and gets rebuilt when the envelope is sealed after loading.
+   * Writes tag, version, ready flag, seed, map hash, A accumulator, factor
+   * table and pending batch. Caches and volume are rebuilt on loading.
    */
   void write_envelope_stream(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
@@ -983,25 +1319,27 @@ class GeneratorBase : public Integrator {
     serialize_one<kakuhen::util::HashValue_t>(out, envelope_grid_hash_);
     abs_acc_.serialize(out);
     write_envelope_table(out);
+    envelope_data_.serialize(out, derived().ndim());
   }
 
   /*!
-   * @brief Read the envelope block from a state stream if there is one.
+   * @brief read an optional envelope block after the integrator state
    *
-   * Assumes that `read_state_stream` already reset the envelope state. If the
-   * stream ends right after the integrator state (plain integrator file), the
-   * envelope stays uninitialized. Otherwise the tag and version are checked,
-   * the raw table is read, and a ready envelope is sealed again with the
-   * stored grid hash. That way, an envelope that was stale when it was saved
-   * is still stale after loading.
+   * `read_state_stream` must reset the envelope first. EOF or a trailing
+   * user-data record means no envelope was saved (the record is left unread).
+   * The stored map hash is kept, so loading can't make a stale envelope
+   * ready. Pending data are only kept with an envelope ready for the loaded
+   * map.
    *
    * @throws std::runtime_error if the envelope block is corrupt or has an
-   *         unsupported version.
+   *         unsupported version
    */
   void read_envelope_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
-    if (in.peek() == std::istream::traits_type::eof()) {
-      // plain integrator file: no envelope block
+    // dispatch on the first byte, works on streams that can't seek too
+    const auto next = in.peek();
+    if (next == std::istream::traits_type::eof() || next == util::USER_DATA_HEADER.front()) {
+      if (next != std::istream::traits_type::eof()) require_user_data_header(in);
       envelope_ = {};
       derived().print_info_message("state",
                                    "no envelope block in state stream; "
@@ -1028,12 +1366,34 @@ class GeneratorBase : public Integrator {
     deserialize_one<kakuhen::util::HashValue_t>(in, grid_hash);
     abs_acc_.deserialize(in);
     read_envelope_table(in);
-    if (ready != 0) seal_envelope(grid_hash);
+    auto data = envelope_data_type::deserialize(in, derived().ndim(), envelope_.size());
+    if (data.acc.count() > abs_acc_.count()) {
+      throw std::runtime_error("envelope batch exceeds cumulative evaluation count");
+    }
+    if (ready != 0) seal_envelope(envelope_, grid_hash);
+    if (envelope_ready()) {
+      envelope_data_ = std::move(data);
+    } else if (data.present()) {
+      derived().print_info_message("state", "envelope not ready; pending batch dropped");
+    }
+  }
+
+  /// @brief check the user-data tag without advancing a seekable stream;
+  ///        on non-seekable streams the user-data reader does the check
+  static void require_user_data_header(std::istream& in) {
+    const auto start = in.tellg();
+    if (start == std::streampos(-1)) return;
+    std::array<char, util::USER_DATA_HEADER.size()> marker{};
+    in.read(marker.data(), static_cast<std::streamsize>(marker.size()));
+    const bool found =
+        in && std::string_view(marker.data(), marker.size()) == util::USER_DATA_HEADER;
+    in.clear();
+    in.seekg(start);
+    if (!found || !in) throw std::runtime_error("invalid envelope block tag in state stream");
   }
 
  protected:
-  /// @brief Write the expected table shape followed by the raw envelope table.
-  ///        If the table was never seeded for this grid, zeros are written instead.
+  /// @brief write the expected shape and factor table, or zeros if the shapes differ
   void write_envelope_table(std::ostream& out) const {
     using namespace kakuhen::util::serialize;
     const auto shape = derived().env_shape();
@@ -1048,8 +1408,7 @@ class GeneratorBase : public Integrator {
     }
   }
 
-  /// @brief Read the raw envelope table. Its shape has to match the integrator
-  ///        state that was already loaded. The proposal caches are rebuilt when sealing.
+  /// @brief read the factor table and check its shape against the loaded integrator
   void read_envelope_table(std::istream& in) {
     using namespace kakuhen::util::serialize;
     const auto shape = derived().env_shape();
@@ -1061,28 +1420,36 @@ class GeneratorBase : public Integrator {
       }
     }
     envelope_.deserialize(in);
-    // deserialize takes the shape from the stream, so a corrupt block could
-    // pass the dimension check above and still have a different shape
+    // NDArray stores its own shape; check it against the dimensions read above
     if (!std::ranges::equal(envelope_.shape(), shape)) {
       throw std::runtime_error("corrupt envelope block: unexpected table shape");
     }
   }
 
-  /// the raw envelope table; the `ndim` factors for a point multiply to `R(u)`
+  /// raw envelope table; the `ndim` factors at a point multiply to R(u)
   ndarray::NDArray<T, S> envelope_;
 
  private:
-  /// tag and version of the envelope block at the end of `.khs` state streams
+  /// tag of the envelope block at the end of `.khs` state streams
   static constexpr std::string_view envelope_block_tag = "KHENVB";  // 6 bytes
+  static_assert(envelope_block_tag.front() != util::USER_DATA_HEADER.front(),
+                "the envelope block and user-data records are told apart by their first byte");
+  /// version of the envelope block
   static constexpr uint8_t envelope_block_version = 1;
+  /// version of the standalone `.khe` payload
+  static constexpr uint8_t envelope_file_version = 1;
 
-  /// running estimate of the absolute integral A (diagnostic)
+  /// running estimate of the absolute integral A
   int_acc_type abs_acc_;
-  /// the seed the flat envelope was initialized with
+  /// observations and batch statistics since the last adapt or clear
+  envelope_data_type envelope_data_;
+  /// seed of the flat initial envelope (zero if none)
   T envelope_seed_{};
-  /// volume of the sealed envelope `V = int R(u) du`
+  /// volume of the sealed envelope V = int R(u) du
   T envelope_volume_{};
+  /// whether the proposal caches are built for `envelope_`
   bool envelope_ready_ = false;
+  /// hash of the sampling map the envelope belongs to
   kakuhen::util::HashValue_t envelope_grid_hash_{};
 };
 

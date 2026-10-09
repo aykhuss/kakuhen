@@ -29,6 +29,16 @@ The docs are generated via CMake targets:
     cmake -S . -B build -DKAKUHEN_BUILD_DOCS=ON
     cmake --build build --target build_sphinx_html
 
+Alternatively, run Sphinx directly from ``docs/sphinx``; the ``Makefile``
+(``make.bat`` on Windows) configures a docs-only CMake tree in
+``_build/cmake`` and runs Doxygen before invoking Sphinx, so any Sphinx
+builder works:
+
+.. code-block:: bash
+
+    cd docs/sphinx
+    make html
+
 Output is written to ``docs/sphinx/_build/html``.
 
 If the target succeeds, open ``docs/sphinx/_build/html/index.html`` in a

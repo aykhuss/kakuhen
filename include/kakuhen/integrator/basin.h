@@ -160,7 +160,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   inline void set_alpha(const T& alpha) {
     if (!std::isfinite(alpha) || alpha < T(0)) {
-      throw std::invalid_argument("Basin: alpha must be finite and >= 0");
+      throw std::invalid_argument("alpha must be finite and >= 0");
     }
     alpha_ = alpha;
   }
@@ -182,7 +182,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   inline void set_weight_smooth(const T& weight_smooth) {
     if (!std::isfinite(weight_smooth) || weight_smooth < T(1)) {
-      throw std::invalid_argument("Basin: weight_smooth must be finite and >= 1");
+      throw std::invalid_argument("weight_smooth must be finite and >= 1");
     }
     weight_smooth_ = weight_smooth;
   }
@@ -203,7 +203,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   inline void set_min_score(const T& min_score) {
     if (!std::isfinite(min_score) || min_score < T(0) || min_score >= T(1)) {
-      throw std::invalid_argument("Basin: min_score must be in [0, 1)");
+      throw std::invalid_argument("min_score must be in [0, 1)");
     }
     min_score_ = min_score;
   }
@@ -274,7 +274,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
-      if (!skip_accum) {
+      // a non-finite sample shows up in the result but must not corrupt the grid
+      if (!skip_accum && std::isfinite(fval2)) {
         /// accumulators for the grid
         const T acc = fval2;
         accumulator_count_++;
@@ -1028,7 +1029,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     deserialize_one<S>(in, ndiv1);
     deserialize_one<S>(in, ndiv2);
     if (ndim == 0 || ndiv1 < 2 || ndiv2 < 2) {
-      throw std::runtime_error("Basin: corrupt state (invalid grid dimensions)");
+      throw std::runtime_error("corrupt state (invalid grid dimensions)");
     }
     ndarray::NDArray<T, S> grid;
     grid.deserialize_expected_shape(in, std::array{ndim, ndim, ndiv1, ndiv2});
@@ -1038,10 +1039,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S idim1 = 0; idim1 < ndim; ++idim1) {
       for (S idim2 = 0; idim2 < ndim; ++idim2) {
         if (idim1 == idim2) {
-          detail::validate_grid_row<T>({&grid(idim1, idim2, 0, 0), ndiv0}, "Basin");
+          detail::validate_grid_row<T>({&grid(idim1, idim2, 0, 0), ndiv0});
         } else {
           for (S ig1 = 0; ig1 < ndiv1; ++ig1) {
-            detail::validate_grid_row<T>({&grid(idim1, idim2, ig1, 0), ndiv2}, "Basin");
+            detail::validate_grid_row<T>({&grid(idim1, idim2, ig1, 0), ndiv2});
           }
         }
       }
@@ -1094,7 +1095,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   void read_data_stream(std::istream& in) {
     // a zero adaptation count implies empty grid accumulators
     if (accumulator_count_ != 0 || result_.count() != 0) {
-      throw std::runtime_error("Basin: integrator already holds data");
+      throw std::runtime_error("integrator already holds data");
     }
     accumulate_data_stream(in);
   }
@@ -1115,11 +1116,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     deserialize_one<S>(in, ndiv1);
     deserialize_one<S>(in, ndiv2);
     if (ndim != ndim_ || ndiv1 != ndiv1_ || ndiv2 != ndiv2_) {
-      throw std::runtime_error("Basin: incompatible data (grid dimensions mismatch)");
+      throw std::runtime_error("incompatible data (grid dimensions mismatch)");
     }
     // every (idim1, idim2) block of ndiv1 * ndiv2 cells holds one entry per adaptation sample
-    detail::merge_data_stream(in, "Basin", hash().value(), result_, accumulator_count_,
-                              accumulator_, ndiv0_);
+    detail::merge_data_stream(in, hash().value(), result_, accumulator_count_, accumulator_,
+                              ndiv0_);
   }
 
   /// @}
@@ -1174,7 +1175,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S i = 0; i < ndim; ++i) {
       const S from = order(i, 0), to = order(i, 1);
       if (from >= ndim || to >= ndim || parent[to] != ndim) {
-        throw std::runtime_error("Basin: invalid sampling order");
+        throw std::runtime_error("invalid sampling order");
       }
       parent[to] = from;
     }
@@ -1196,7 +1197,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }
     if (size != ndim) {
-      throw std::runtime_error("Basin: invalid sampling order (cycle)");
+      throw std::runtime_error("invalid sampling order (cycle)");
     }
     for (S i = 0; i < ndim; ++i) {
       std::copy_n(&grid(sorted(i, 0), sorted(i, 1), 0, 0), ndiv0, &ordered_grid(i, 0, 0));

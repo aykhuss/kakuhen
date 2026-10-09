@@ -58,11 +58,12 @@ constexpr std::string_view to_string(IntegratorId id) noexcept {
 
 namespace detail {
 // File format constants
-constexpr std::string_view file_signature = "KAKUHEN\0";  // 8 bytes
+constexpr std::string_view file_signature = "KAKUHEN";
 constexpr std::size_t file_signature_size = file_signature.size();
-enum class FileType : uint8_t { STATE = 0, DATA = 1 };
+enum class FileType : uint8_t { STATE = 0, DATA = 1, ENVELOPE = 2 };
 constexpr std::string_view suffix_state = ".khs";
 constexpr std::string_view suffix_data = ".khd";
+constexpr std::string_view suffix_envelope = ".khe";
 }  // namespace detail
 
 /// @brief Default type definitions for integrator template parameters.
@@ -605,8 +606,8 @@ class IntegratorBase {
    * This method deserializes accumulated sample data from a file and adds it
    * to the integrator's internal data accumulator, allowing for the combination
    * of data from multiple independent runs. The data is validated before it is
-   * merged, and a file with non-finite or negative grid accumulators (e.g. one
-   * written after sampling with `strict_finite_integrand` disabled) is rejected.
+   * merged, and a file with non-finite or negative grid accumulators is rejected
+   * as corrupt.
    *
    * @note Available only if the derived type models `detail::HasDataStream`.
    *

@@ -253,15 +253,21 @@ TEMPLATE_TEST_CASE("Generators reject generation from a stale envelope", "[gener
   REQUIRE_THROWS_AS(gen.generate_trials(integrand, 1, callback), std::runtime_error);
   REQUIRE_THROWS_AS(gen.predicted_efficiency(), std::runtime_error);
   // scaling must not re-bind a stale envelope to the new grid
-  REQUIRE_THROWS_AS(gen.envelope_scale(1.0), std::runtime_error);
+  REQUIRE_THROWS_AS(gen.scale_envelope(1.0), std::runtime_error);
   REQUIRE_THROWS_AS(gen.generate_trials(integrand, 1, callback), std::runtime_error);
 }
 
-TEMPLATE_TEST_CASE("Failed envelope updates require reinitialization", "[generator]",
+TEMPLATE_TEST_CASE("Failed envelope updates leave the envelope unchanged", "[generator]",
                    VegasGenerator<>, BasinGenerator<>) {
   TestType gen(1);
   gen.set_options({.frozen = true, .verbosity = 0});
   gen.initialize_envelope(1.0);
+  const auto state = [&] {
+    std::stringstream out;
+    gen.write_state_stream(out);
+    return out.str();
+  };
+  const std::string before = state();
   unsigned calls = 0;
   SECTION("integrand throws after raising a cell") {
     auto fail = [&](const Point<>&) {
@@ -278,13 +284,12 @@ TEMPLATE_TEST_CASE("Failed envelope updates require reinitialization", "[generat
     REQUIRE_THROWS_AS(gen.raise_envelope(fail, 10), std::runtime_error);
   }
   SECTION("scaling overflows during sealing") {
-    REQUIRE_THROWS(gen.envelope_scale(std::numeric_limits<double>::max()));
+    REQUIRE_THROWS(gen.scale_envelope(std::numeric_limits<double>::max()));
   }
-  REQUIRE_FALSE(gen.envelope_ready());
+  REQUIRE(gen.envelope_ready());
+  REQUIRE(state() == before);
   auto one = [](const Point<>&) { return 1.0; };
   auto sink = [](const Point<>&, double) {};
-  REQUIRE_THROWS(gen.generate_trials(one, 10, sink));
-  gen.initialize_envelope(1.0);
   REQUIRE(gen.generate_trials(one, 10, sink).value() == Approx(1.0));
 }
 
@@ -428,12 +433,12 @@ TEMPLATE_TEST_CASE("Generator loads reject invalid positive-volume envelopes", "
   gen.initialize_envelope(1.0);
   std::stringstream state;
   gen.write_state_stream(state);
-  // The final two raw doubles belong to a CDF row. Their sum stays positive.
+  // the final two raw doubles precede the empty-batch flag and belong to a CDF row
   std::string bytes = state.str();
   std::ostringstream replacement;
   kakuhen::util::serialize::serialize_one(replacement, -1.0);
   kakuhen::util::serialize::serialize_one(replacement, 3.0);
-  bytes.replace(bytes.size() - replacement.str().size(), replacement.str().size(),
+  bytes.replace(bytes.size() - sizeof(uint8_t) - replacement.str().size(), replacement.str().size(),
                 replacement.str());
   std::istringstream corrupt(bytes);
   REQUIRE_THROWS_AS(gen.read_state_stream(corrupt), std::runtime_error);
@@ -514,12 +519,12 @@ TEMPLATE_TEST_CASE("predicted_efficiency prefers the sampled abs-integral", "[ge
   // without a sampled estimate the seed stands in for A: a flat envelope predicts 1
   gen.initialize_envelope(0.5);
   REQUIRE(gen.predicted_efficiency() == Approx(1.0));
-  gen.envelope_scale(4.0);
+  gen.scale_envelope(4.0);
   REQUIRE(gen.predicted_efficiency() == Approx(0.25));
   // a sampled estimate takes precedence over the seed
   auto half = [](const Point<>&) { return 0.5; };
   gen.initialize_envelope(half, 1000ULL);
-  gen.envelope_scale(2.0);
+  gen.scale_envelope(2.0);
   REQUIRE(gen.predicted_efficiency() == Approx(0.5));
   auto result = gen.generate_trials(half, 20000, [](const Point<>&, double) {});
   REQUIRE(result.efficiency() == Approx(0.5).margin(0.02));

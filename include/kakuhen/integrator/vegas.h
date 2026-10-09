@@ -116,7 +116,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   inline void set_alpha(const T& alpha) {
     if (!std::isfinite(alpha) || alpha < T(0)) {
-      throw std::invalid_argument("Vegas: alpha must be finite and >= 0");
+      throw std::invalid_argument("alpha must be finite and >= 0");
     }
     alpha_ = alpha;
   }
@@ -187,7 +187,8 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
       const T fval2 = fval * fval;
       result_.accumulate(fval, fval2);
-      if (!skip_accum) {
+      // a non-finite sample shows up in the result but must not corrupt the grid
+      if (!skip_accum && std::isfinite(fval2)) {
         /// accumulator for the grid
         const T acc = fval2;
         accumulator_count_++;
@@ -430,12 +431,12 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     deserialize_one<S>(in, ndim);
     deserialize_one<S>(in, ndiv);
     if (ndim == 0 || ndiv < 2) {
-      throw std::runtime_error("Vegas: corrupt state (invalid grid dimensions)");
+      throw std::runtime_error("corrupt state (invalid grid dimensions)");
     }
     ndarray::NDArray<T, S> grid;
     grid.deserialize_expected_shape(in, std::array{ndim, ndiv});
     for (S idim = 0; idim < ndim; ++idim) {
-      detail::validate_grid_row<T>({&grid(idim, 0), ndiv}, "Vegas");
+      detail::validate_grid_row<T>({&grid(idim, 0), ndiv});
     }
     ndarray::NDArray<grid_acc_type, S> accumulator({ndim, ndiv});
     // commit: moves are noexcept
@@ -464,7 +465,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   void read_data_stream(std::istream& in) {
     // a zero adaptation count implies empty grid accumulators
     if (accumulator_count_ != 0 || result_.count() != 0) {
-      throw std::runtime_error("Vegas: integrator already holds data");
+      throw std::runtime_error("integrator already holds data");
     }
     accumulate_data_stream(in);
   }
@@ -480,10 +481,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     deserialize_one<S>(in, ndim);
     deserialize_one<S>(in, ndiv);
     if (ndim != ndim_ || ndiv != ndiv_) {
-      throw std::runtime_error("Vegas: incompatible data (grid dimensions mismatch)");
+      throw std::runtime_error("incompatible data (grid dimensions mismatch)");
     }
-    detail::merge_data_stream(in, "Vegas", hash().value(), result_, accumulator_count_,
-                              accumulator_, ndiv_);
+    detail::merge_data_stream(in, hash().value(), result_, accumulator_count_, accumulator_, ndiv_);
   }
 
   /// @}

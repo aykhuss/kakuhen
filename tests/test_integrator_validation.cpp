@@ -1,7 +1,9 @@
 #include "kakuhen/integrator/basin.h"
 #include "kakuhen/integrator/vegas.h"
+#include <algorithm>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -317,4 +319,24 @@ TEST_CASE("Basin loads an unordered forest and rebuilds sampling views", "[basin
   const auto result = target.integrate([](const Point<>&) { return 1.0; },
                                        {.neval = 10, .niter = 1, .adapt = false});
   REQUIRE(result.value() == 1.0);
+}
+
+TEMPLATE_TEST_CASE("Non-finite samples reach the result but not the adaptive grid", "[validation]",
+                   Vegas<>, Basin<>) {
+  const auto with_nan = [](const Point<>& p) {
+    return p.sample_index % 7 == 3 ? std::numeric_limits<double>::quiet_NaN() : 1.0 + p.x[0];
+  };
+  ValidationFixture<TestType> adapting(2);
+  adapting.set_options({.verbosity = 0});
+  const auto result = adapting.integrate(with_nan, {.neval = 200, .niter = 2, .adapt = true});
+  REQUIRE(std::isnan(result.value()));
+  REQUIRE(std::ranges::all_of(adapting.grid_, [](double x) { return std::isfinite(x); }));
+
+  // the data file carries the NaN integral as well, so merging it fails loudly
+  TestType source(2), target(2);
+  source.set_options({.verbosity = 0});
+  source.integrate(with_nan, {.neval = 200, .niter = 1, .adapt = false});
+  std::stringstream data;
+  source.write_data_stream(data);
+  REQUIRE_THROWS_AS(target.accumulate_data_stream(data), std::runtime_error);
 }

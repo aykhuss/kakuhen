@@ -96,6 +96,7 @@ TEST_CASE("VegasGenerator optimize_envelope drives raising passes to convergence
     auto env = gen.optimize_envelope(integrand, 64, 3);
     REQUIRE(env.count() == 3 * 64);
     REQUIRE(env.n_violations() > 0);
+    REQUIRE(env.n_raised() == env.n_violations());  // summed over passes
   }
 
   SECTION("rejects an empty pass budget") {
@@ -367,7 +368,7 @@ TEST_CASE("GenerationResult merges across runs", "[vegas_generator]") {
   REQUIRE(merged.value() == Approx(1.5).margin(5.0 * merged.error()));
 
   // merging results from different envelopes is rejected
-  gen.envelope_scale(2.0);
+  gen.scale_envelope(2.0);
   auto res3 = gen.generate_trials(integrand, 100, callback);
   REQUIRE_THROWS_AS(merged.accumulate(res3), std::invalid_argument);
 }

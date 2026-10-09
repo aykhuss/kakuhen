@@ -55,3 +55,6 @@ compile_commands.json
 
 # LaTeX build cache
 _minted*/
+
+# editor: machine-specific clangd config
+.clangd

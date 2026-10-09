@@ -49,7 +49,8 @@ struct Options {
   std::optional<bool> strict_finite_integrand;  //!< Throw on non-finite integrand values during
                                                 //!< integration, envelope sampling, and event
                                                 //!< generation. When unset/false, integration
-                                                //!< propagates non-finite values into the result,
+                                                //!< propagates non-finite values into the result
+                                                //!< (the adaptive grid skips them),
                                                 //!< while envelope sampling and generation count
                                                 //!< them and contribute zero.
 

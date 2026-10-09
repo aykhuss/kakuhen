@@ -96,8 +96,14 @@ namespace {
 struct InvertibleBasin : BasinGenerator<> {
   using BasinGenerator<>::BasinGenerator;
   using BasinGenerator<>::env_propose;
-  using BasinGenerator<>::env_value;
   using BasinGenerator<>::make_cell_ctx;
+
+  // the raw product R for the cells recorded by `map_point`
+  double env_value(const cell_ctx_type& cell) const {
+    std::vector<S> indices(ndim_);
+    env_indices(cell, indices);
+    return detail::envelope_bound(envelope_, std::span<const S>(indices));
+  }
 
   void u_of(const Point<>& p, const cell_ctx_type& cell, std::span<double> u) const {
     for (S iord = 0; iord < ndim_; ++iord) {
@@ -162,7 +168,7 @@ struct PrescribedBasin : InvertibleBasin {
       kakuhen::util::serialize::serialize_one(tables, dimension);
     raw.serialize(tables);
     read_envelope_table(tables);
-    envelope_scale(1.0);
+    scale_envelope(1.0);
     set_seed(73);
   }
 
@@ -227,7 +233,7 @@ TEST_CASE("BASIN prescribed maps preserve weighted physical moments", "[basin_ge
     CAPTURE(chain);
     PrescribedBasin gen(chain);
     // Deliberately undersize the envelope to exercise overweight correction.
-    gen.envelope_scale(0.05);
+    gen.scale_envelope(0.05);
     std::array<IntegralAccumulator<double, unsigned long long>, 4> moments;
     const auto result =
         gen.generate_trials([](const Point<>& p) { return 8 * p.x[0] * p.x[1] * p.x[2]; }, 40000,
@@ -275,7 +281,7 @@ struct ForestBasin : InvertibleBasin {
       kakuhen::util::serialize::serialize_one(tables, size);
     raw.serialize(tables);
     read_envelope_table(tables);
-    envelope_scale(1.0);
+    scale_envelope(1.0);
     set_seed(149);
   }
   using BasinGenerator<>::uniform_distribution_;
@@ -322,7 +328,7 @@ TEST_CASE("BASIN exact sampler integrates a deep forest", "[basin_generator]") {
     ForestBasin scaled;
     gen.set_seed(211);
     scaled.set_seed(211);
-    scaled.envelope_scale(64.0);  // exactly doubles every height
+    scaled.scale_envelope(64.0);  // exactly doubles every height
     REQUIRE(scaled.envelope_volume() == Approx(64 * gen.envelope_volume()));
     Point<> other(6);
     for (unsigned sample = 0; sample < 100; ++sample) {
