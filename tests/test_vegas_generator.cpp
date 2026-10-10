@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <numbers>
 #include <sstream>
 #include <stdexcept>
 
@@ -131,7 +132,7 @@ TEST_CASE("VegasGenerator optimize_envelope drives raising passes to convergence
 TEST_CASE("VegasGenerator handles sign-changing integrands", "[vegas_generator]") {
   VegasGenerator<> gen(1, 16);
   // f = sin(2*pi*x): integral 0, abs-integral 2/pi
-  auto integrand = [](const Point<>& point) { return std::sin(2.0 * M_PI * point.x[0]); };
+  auto integrand = [](const Point<>& point) { return std::sin(2.0 * std::numbers::pi * point.x[0]); };
 
   gen.set_options({.frozen = true, .verbosity = 0});
   gen.initialize_envelope(integrand, 5000ULL);
@@ -146,7 +147,7 @@ TEST_CASE("VegasGenerator handles sign-changing integrands", "[vegas_generator]"
   REQUIRE(result.value() == Approx(0.0).margin(5.0 * result.error()));
   // A diagnostic: 2/pi
   REQUIRE(gen.abs_integral_estimate().value() ==
-          Approx(2.0 / M_PI).margin(5.0 * gen.abs_integral_estimate().error()));
+          Approx(2.0 / std::numbers::pi).margin(5.0 * gen.abs_integral_estimate().error()));
 }
 
 TEST_CASE("VegasGenerator stays unbiased with a deliberately tiny envelope", "[vegas_generator]") {
@@ -357,7 +358,7 @@ TEST_CASE("GenerationResult merges across runs", "[vegas_generator]") {
   gen.set_seed(42);
   auto res2 = gen.generate_trials(integrand, 5000, callback);
 
-  GenerationResult<double, unsigned long long> merged;
+  decltype(res1) merged;
   merged.accumulate(res1);
   merged.accumulate(res2);
 

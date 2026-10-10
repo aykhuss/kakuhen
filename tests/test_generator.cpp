@@ -467,7 +467,7 @@ TEMPLATE_TEST_CASE("The generation progress bar does not change the run", "[gene
   auto half = [](const Point<>& point) { return point.x[0]; };
   struct Run {
     std::vector<double> weights;
-    GenerationResult<double, unsigned long long> result;
+    typename TestType::gen_result_type result;
   };
   auto run = [&](bool show_bar, bool stop) {
     TestType gen(1);
