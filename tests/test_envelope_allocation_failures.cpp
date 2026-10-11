@@ -13,6 +13,15 @@
 #include <string>
 #include <vector>
 
+// msvc debug iterators allocate a proxy inside noexcept vector constructors,
+// so an injected failure there terminates instead of throwing
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL != 0
+#define SKIP_ON_MSVC_DEBUG_ITERATORS() \
+  SKIP("MSVC debug iterators allocate in noexcept vector constructors")
+#else
+#define SKIP_ON_MSVC_DEBUG_ITERATORS()
+#endif
+
 namespace {
 thread_local long allocation_budget = -1;
 thread_local bool allocation_failed = false;
@@ -115,6 +124,7 @@ std::vector<double> proposals(auto& gen) {
 
 TEMPLATE_TEST_CASE("Every failed envelope allocation preserves state and permits retry",
                    "[generator][envelope_files][allocation]", VegasGenerator<>, BasinGenerator<>) {
+  SKIP_ON_MSVC_DEBUG_ITERATORS();
   TempDir files("kakuhen-allocation");
   const auto path = files.dir / "worker.khe";
   for (const bool conditional : {false, true}) {
@@ -189,6 +199,7 @@ TEMPLATE_TEST_CASE("Every failed envelope allocation preserves state and permits
 
 TEMPLATE_TEST_CASE("Failed local replay allocations preserve pending observations and proposals",
                    "[generator][envelope_data][allocation]", VegasGenerator<>, BasinGenerator<>) {
+  SKIP_ON_MSVC_DEBUG_ITERATORS();
   for (const bool conditional : {false, true}) {
     if constexpr (std::same_as<TestType, VegasGenerator<>>) {
       if (conditional) continue;
