@@ -5,7 +5,7 @@
 #include "kakuhen/integrator/integrator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include "kakuhen/ndarray/ndview.h"
-// #include "kakuhen/util/algorithm.h"
+#include "kakuhen/util/algorithm.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/math.h"
 #include <algorithm>
@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <span>
@@ -267,7 +268,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       for (S idim = 0; idim < ndim_; ++idim)
         u_buf[idim] = Base::ran();
       point.sample_index = i;
-      map_point_impl(u_buf, point, cell);
+      map_point_impl(u_buf, point, cell, !skip_accum);
       const T fval = point.weight * integrand(point);
       if (strict_finite && !std::isfinite(fval)) {
         throw std::runtime_error("integrate: non-finite integrand contribution");
@@ -287,15 +288,22 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             if (idim2 == idim) continue;
             const T* row = &grid_(idim, idim2, ig1, 0);
             const T x = point.x[idim2];
-            const T* it = std::lower_bound(row, row + ndiv2_, x);
-            /// custom binary search
-            // const auto comp = [](const T& a, const T& b) { return a < b; };
-            // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
-            /// custom binary search with hint
-            // const S ig2_hint = grid_vec[idim] / ndiv1_;
-            // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
-            // row + ig2_hint, x, comp);
-            const S ig2 = static_cast<S>(it - row);
+            //> old implementations
+            // const T* it = std::lower_bound(row, row + ndiv2_, x);
+            // /// custom binary search
+            // // const auto comp = [](const T& a, const T& b) { return a < b; };
+            // // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
+            // /// custom binary search with hint
+            // // const S ig2_hint = grid_vec[idim] / ndiv1_;
+            // // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
+            // // row + ig2_hint, x, comp);
+            // const S ig2 = static_cast<S>(it - row);
+            //> new implementation for performance
+            // both give lower_bound on the sorted row; scan short rows, else branchless bisection
+            const auto ig2 = static_cast<S>(
+                ndiv2_ <= MAX_SCAN
+                    ? std::count_if(row, row + ndiv2_, [x](T edge) { return edge < x; })
+                    : util::algorithm::lower_bound(row, row + ndiv2_, x, std::less<>{}) - row);
             assert(ig2 >= 0 && ig2 < ndiv2_);
             assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
             assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
@@ -329,9 +337,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @param u Uniform randoms in [0, 1), one per physical dimension.
    * @param point Output point whose coordinates and weight are overwritten.
    * @param cell Output cell context; must have shape `{ndim(), 3}`.
+   * @param all_cells if false, `ig0` of conditional dimensions without children is left at the
+   *        sentinel `ndiv0` (saves their lookup in the diagonal grid)
    */
-  inline void map_point_impl(std::span<const T> u, Point<num_traits>& point,
-                             cell_ctx_type& cell) const {
+  inline void map_point_impl(std::span<const T> u, Point<num_traits>& point, cell_ctx_type& cell,
+                             bool all_cells = true) const {
     assert(cell.size() == static_cast<std::size_t>(ndim_) * 3);
     point.weight = T(1);
 
@@ -364,9 +374,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       const S idim2 = order_(iord, 1);
       /// check that the 1st dimension is set properly
       assert(point.x[idim1] >= T(0) && point.x[idim1] <= T(1));
-      assert(cell(idim1, 0) >= 0 && cell(idim1, 0) < ndiv0_);
-      /// this is correct because `cell` always stores `ig0`
-      const S ig1 = cell(idim1, 0) / ndiv2_;
+      // the first child looks up the diagonal cell of its parent
+      S& ig0_1 = cell(idim1, 0);
+      if (ig0_1 == ndiv0_) ig0_1 = diag_cell(idim1, point.x[idim1]);
+      const S ig1 = ig0_1 / ndiv2_;
       assert(ig1 >= 0 && ig1 < ndiv1_);
       T rand = u[idim2];
       //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
@@ -382,19 +393,16 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       point.x[idim2] = x;
       // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
       point.weight *= ndiv2_ * (x_upp - x_low);
-      /// need to get index ig0 for idim2
-      const T* row0 = &grid0_(idim2, 0);
-      const T* it0 = std::lower_bound(row0, row0 + ndiv0_, x);
-      /// custom binary search
-      // const auto comp = [](const T& a, const T& b) { return a < b; };
-      // const T* it0 = kakuhen::util::algorithm::lower_bound(row0, row0 + ndiv0_, x, comp);
-      const S ig0 = static_cast<S>(it0 - row0);
-      assert(ig0 >= 0 && ig0 < ndiv0_);
-      assert(x >= (ig0 > 0 ? grid0_(idim2, ig0 - 1) : 0) && x <= grid0_(idim2, ig0));
-      cell(idim2, 0) = ig0;
+      cell(idim2, 0) = ndiv0_;  // looked up on demand
       cell(idim2, 1) = idim1;
       cell(idim2, 2) = ig2;
     }  // for iord
+
+    if (!all_cells) return;
+    for (S iord = nblocks_; iord < ndim_; ++iord) {
+      const S idim2 = order_(iord, 1);
+      if (cell(idim2, 0) == ndiv0_) cell(idim2, 0) = diag_cell(idim2, point.x[idim2]);
+    }
   }
 
   /*!
@@ -1148,9 +1156,20 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   T min_score_{0.05};
   T penalty_fac_score_{2};
 
+  /// longest row searched by a (vectorized) linear scan; crossover vs bisection ~32-48 on M1
+  static constexpr S MAX_SCAN = 32;
+
   U accumulator_count_{0};
   ndarray::NDArray<grid_acc_type, S> accumulator_;
   ndarray::NDView<grid_acc_type, S> accumulator0_;
+
+  /// cell `ig0` of `x` in the diagonal grid of `idim`
+  [[nodiscard]] S diag_cell(S idim, T x) const {
+    const T* row = &grid0_(idim, 0);
+    const auto ig0 = static_cast<S>(std::lower_bound(row, row + ndiv0_, x) - row);
+    assert(ig0 < ndiv0_ && x >= (ig0 > 0 ? row[ig0 - 1] : T(0)) && x <= row[ig0]);
+    return ig0;
+  }
 
   /*!
    * @brief Validates and sorts a sampling order, and builds the matching ordered grid.

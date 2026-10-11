@@ -29,8 +29,10 @@ struct Options {
 
   std::optional<count_type> neval;  //!< Number of evaluations for an integration step.
   std::optional<count_type> niter;  //!< Number of iterations for an integration run.
-  std::optional<bool> adapt;        //!< Whether to run adaptation after integration.
-  std::optional<bool> frozen;  //!< Whether to freeze grids (disable adaptation + data collection).
+  std::optional<bool> adapt;        //!< Whether to run adaptation after integration; `false` still
+                                    //!< collects adaptation data, use `frozen` for production runs.
+  std::optional<bool> frozen;  //!< Whether to freeze grids (disable adaptation + data collection);
+                               //!< the setting for production runs.
   std::optional<seed_type> seed;                   //!< Seed of the random number generator.
   std::optional<value_type> rel_tol;               //!< Relative precision goal for convergence.
   std::optional<value_type> abs_tol;               //!< Absolute precision goal for convergence.

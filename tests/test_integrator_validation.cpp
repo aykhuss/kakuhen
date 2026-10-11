@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <limits>
+#include <random>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -18,6 +19,7 @@ template <typename Integrator>
 struct ValidationFixture : Integrator {
   using Integrator::grid_;
   using Integrator::Integrator;
+  using Integrator::uniform_distribution_;
   using S = typename Integrator::size_type;
   using U = typename Integrator::count_type;
   static constexpr bool is_vegas = requires(const Integrator& i) { i.ndiv(); };
@@ -71,6 +73,30 @@ static std::string snapshot(const auto& integrator) {
   integrator.write_state_stream(out);
   integrator.write_data_stream(out);
   return out.str();
+}
+
+TEST_CASE("Basin collection uses the first containing fine bin", "[basin][validation]") {
+  for (unsigned fine : {16u, 32u, 33u, 128u}) {  // both sides of `Basin::MAX_SCAN`
+    for (double x : {0.0, 0.5}) {
+      CAPTURE(fine, x);
+      ValidationFixture<Basin<>> actual(2, 2, fine), expected(2, 2, fine);
+      actual.uniform_distribution_ = std::uniform_real_distribution<double>(x, x);
+      actual.integrate([](const Point<>& p) { return 1.0 / p.weight; },
+                       {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0});
+      expected.sums.reset(2.0, 2.0, 2);
+      expected.count = 2;
+      const unsigned row = x == 0.0 ? 0 : 1;
+      const unsigned bin = x == 0.0 ? 0 : (fine - 1) / 2;
+      for (unsigned d = 0; d < 2; ++d) {
+        expected.cells(d, d, row, 0).reset(2.0, 2);
+        expected.cells(d, 1 - d, row, bin).reset(2.0, 2);
+      }
+      std::stringstream observed, reference;
+      actual.Basin<>::write_data_stream(observed);
+      expected.write_data_stream(reference);
+      REQUIRE(observed.str() == reference.str());
+    }
+  }
 }
 
 TEMPLATE_TEST_CASE("Failed state reads leave integrators unchanged", "[validation]", Vegas<>,

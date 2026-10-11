@@ -126,8 +126,11 @@ int main() {
 }
 ```
 
-`frozen = true` is the recommended option for production phases: it disables
-further grid adaptation and skips collecting adaptation data.
+Freeze the grid for production runs: `.frozen = true` disables grid adaptation
+and also skips collecting adaptation data. `.adapt = false` alone keeps
+collecting data for later adaptation, including distributed collection (see
+below). Skipping collection is especially useful for cheap integrands with
+`Basin`, whose collection cost grows quadratically with the number of dimensions.
 
 ## Advanced Usage
 

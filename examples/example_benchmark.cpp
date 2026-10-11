@@ -41,7 +41,8 @@ int main() {
   std::cout << "Basin Warmup time: " << diff.count() << " s\n";
 
   start = std::chrono::high_resolution_clock::now();
-  auto result_basin = integrator_basin.integrate(func, {.neval = 100000, .niter = 20, .adapt = true});
+  auto result_basin =
+      integrator_basin.integrate(func, {.neval = 100000, .niter = 20, .frozen = true});
   end = std::chrono::high_resolution_clock::now();
   diff = end - start;
   std::cout << "Basin Production time: " << diff.count() << " s\n";
@@ -57,7 +58,8 @@ int main() {
   std::cout << "Vegas Warmup time: " << diff.count() << " s\n";
 
   start = std::chrono::high_resolution_clock::now();
-  auto result_vegas = integrator_vegas.integrate(func, {.neval = 100000, .niter = 20, .adapt = true});
+  auto result_vegas =
+      integrator_vegas.integrate(func, {.neval = 100000, .niter = 20, .frozen = true});
   end = std::chrono::high_resolution_clock::now();
   diff = end - start;
   std::cout << "Vegas Production time: " << diff.count() << " s\n";

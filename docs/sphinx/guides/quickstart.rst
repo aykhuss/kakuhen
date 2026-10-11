@@ -48,8 +48,9 @@ The usual pattern is:
   and ``chi2/dof``
 
 For exploratory runs, small values such as ``neval = 10000`` and ``niter = 5``
-are often enough. For production runs, it is common to warm up an adaptive
-integrator first and then perform a larger frozen run.
+are often enough. For production runs, warm up an adaptive integrator first and
+then perform a larger run on the frozen grid (``.frozen = true``). Freezing also
+skips collecting adaptation data, which ``.adapt = false`` alone does not.
 
 Reading per-iteration entries
 -----------------------------
