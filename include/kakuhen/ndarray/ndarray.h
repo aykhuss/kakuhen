@@ -315,23 +315,7 @@ class NDArray {
    */
   template <typename... Indices>
   T& operator()(Indices... indices) noexcept {
-    static_assert(sizeof...(Indices) > 0,
-                  "NDArray index operator must be called with at least one index");
-    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
-    constexpr std::size_t N = sizeof...(Indices);
-    constexpr std::size_t LAST = N == 0 ? 0 : N - 1;  // keep zero-index diagnostics well-formed
-    assert(N == ndim_);
-    assert(((indices >= 0) && ...));
-    const auto idx = std::make_tuple(static_cast<S>(indices)...);
-#ifndef NDEBUG
-    S idx_arr[] = {static_cast<S>(indices)...};
-    assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
-           detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
-#endif
-    //> owned arrays have a final stride of one => save one multiplication
-    const auto prefix =
-        detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<LAST>{});
-    return (data_ + prefix)[std::get<LAST>(idx)];
+    return *locate(indices...);
   }
 
   /*!
@@ -343,23 +327,7 @@ class NDArray {
    */
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
-    static_assert(sizeof...(Indices) > 0,
-                  "NDArray index operator must be called with at least one index");
-    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
-    constexpr std::size_t N = sizeof...(Indices);
-    constexpr std::size_t LAST = N == 0 ? 0 : N - 1;  // keep zero-index diagnostics well-formed
-    assert(N == ndim_);
-    assert(((indices >= 0) && ...));
-    const auto idx = std::make_tuple(static_cast<S>(indices)...);
-#ifndef NDEBUG
-    S idx_arr[] = {static_cast<S>(indices)...};
-    assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
-           detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
-#endif
-    //> owned arrays have a final stride of one => save one multiplication
-    const auto prefix =
-        detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<LAST>{});
-    return (data_ + prefix)[std::get<LAST>(idx)];
+    return *locate(indices...);
   }
 
   /*!
@@ -505,6 +473,30 @@ class NDArray {
   S* shape_ = nullptr;
   S* strides_ = nullptr;
   T* data_ = nullptr;
+
+  /// address of an element; `const` only to serve both index operators, which restore constness
+  template <typename... Indices>
+  [[nodiscard]] T* locate(Indices... indices) const noexcept {
+    static_assert(sizeof...(Indices) > 0,
+                  "NDArray index operator must be called with at least one index");
+    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
+    constexpr std::size_t N = sizeof...(Indices);
+    constexpr std::size_t LAST = N == 0 ? 0 : N - 1;  // keep zero-index diagnostics well-formed
+    assert(N == ndim_);
+    assert(strides_[LAST] == 1);
+    assert(((indices >= 0) && ...));
+    const auto idx = std::make_tuple(static_cast<S>(indices)...);
+#ifndef NDEBUG
+    S idx_arr[] = {static_cast<S>(indices)...};
+    assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
+           detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
+#endif
+    //> owned arrays have a final stride of one: add the last index as a pointer offset so the
+    //> row base doesn't wait on a wrapping 32-bit flat index
+    const auto prefix =
+        detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<LAST>{});
+    return data_ + prefix + std::get<LAST>(idx);
+  }
 
   // Keep the old storage alive: `shape` may refer to it, and reading may throw.
   void load(std::istream& in, std::span<const S> shape) {
