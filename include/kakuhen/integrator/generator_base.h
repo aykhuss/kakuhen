@@ -176,26 +176,17 @@ struct GenerationResult {
    * @param other the result to merge in
    * @throws std::invalid_argument if both results are non-empty but have
    *         different envelope volumes
-   * @throws std::overflow_error if the merged sums overflow
    */
   void accumulate(const GenerationResult<T, U>& other) {
-    // validate volume and sums before touching anything
     if (n_trials() > U(0) && other.n_trials() > U(0) &&
         envelope_volume_ != other.envelope_volume_) {
-      throw std::invalid_argument(
-          "cannot merge runs generated against different envelopes");
-    }
-    int_acc_type merged_acc = acc_;
-    merged_acc.accumulate(other.acc_);
-    if (!merged_acc.is_finite()) {
-      throw std::overflow_error("merged contributions overflow");
+      throw std::invalid_argument("cannot merge runs generated against different envelopes");
     }
     // an empty run may still have stopped early
-    status_ = static_cast<GenerationStatus>(
-        util::math::max(static_cast<uint8_t>(status_), static_cast<uint8_t>(other.status_)));
+    status_ = std::max(status_, other.status_);
     if (other.n_trials() == U(0)) return;
     if (n_trials() == U(0)) envelope_volume_ = other.envelope_volume_;
-    acc_ = merged_acc;
+    acc_.accumulate(other.acc_);
     n_events_ += other.n_events_;
     n_overweight_ += other.n_overweight_;
     n_negative_ += other.n_negative_;
@@ -331,7 +322,11 @@ CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
   // stay strictly below the total, else upper_bound returns end() (cell out of range)
   if (target >= cdf.back()) [[unlikely]]
     target = std::nextafter(cdf.back(), T(0));
-  const auto cell = static_cast<S>(std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
+  // Scan short rows, counting ties to preserve upper_bound semantics.
+  const auto cell = static_cast<S>(
+      cdf.size() <= 32
+          ? std::count_if(cdf.begin(), cdf.end(), [target](T edge) { return edge <= target; })
+          : std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
   const T low = cell == 0 ? T(0) : cdf[cell - 1];
   const T width = cdf[cell] - low;
   return {cell, (target - low) / width, width};
@@ -358,6 +353,9 @@ CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
  * Throughout, f is the integrand times the weight of the grid mapping.
  * A non-finite f counts as zero, or throws with
  * `Options::strict_finite_integrand`.
+ *
+ * The count type must hold all evaluations accumulated by local sampling.
+ * File imports check that merged counts fit before changing the generator.
  *
  * This class owns the envelope factors, statistics and pending observations.
  * The derived generator defines the table layout and proposal sampling.
@@ -412,6 +410,8 @@ class GeneratorBase : public Integrator {
    * large cancellations, better use `initialize_envelope(integrand, ncall)`
    * to estimate the absolute integral directly.
    *
+   * An invalid seed leaves the existing envelope and diagnostics unchanged.
+   *
    * @param abs_integral the seed, usually A or a lower bound on it; must be
    *        finite and positive
    * @throws std::invalid_argument if the grid is not frozen or the seed is
@@ -421,6 +421,9 @@ class GeneratorBase : public Integrator {
   void initialize_envelope(T abs_integral) {
     require_frozen();
     require_no_envelope_data();
+    if (!(abs_integral > T(0)) || !std::isfinite(abs_integral)) {
+      throw std::invalid_argument("initialize_envelope requires a finite seed > 0");
+    }
     reset_envelope_state();
     seed_envelope(abs_integral);
   }
@@ -435,8 +438,8 @@ class GeneratorBase : public Integrator {
    * @param ncall number of samples, must be > 0
    * @throws std::invalid_argument if the grid is not frozen or ncall == 0
    * @throws std::runtime_error if envelope data are pending, the estimated
-   *         absolute integral is zero, or f is non-finite in strict mode
-   * @throws std::overflow_error if the accumulated sums overflow
+   *         absolute integral is zero or not finite, or f is non-finite in
+   *         strict mode
    */
   template <typename I>
   void initialize_envelope(I&& integrand, U ncall) {
@@ -447,13 +450,12 @@ class GeneratorBase : public Integrator {
     }
     reset_envelope_state();
     for_each_abs_sample(integrand, ncall, [&](T abs_fval, bool, auto) {
-      accumulate_checked(abs_acc_, abs_fval);
+      abs_acc_.accumulate(abs_fval);
       return true;
     });
-    require_finite_sums(abs_acc_);
-    if (!(abs_acc_.value() > T(0))) {
+    if (!(abs_acc_.value() > T(0)) || !std::isfinite(abs_acc_.value())) {
       throw std::runtime_error(
-          "sampled abs-integral is zero; cannot seed an envelope");
+          "sampled abs-integral is zero or not finite; cannot seed an envelope");
     }
     seed_envelope(abs_acc_.value());
   }
@@ -477,7 +479,6 @@ class GeneratorBase : public Integrator {
    * @throws std::invalid_argument if the grid is not frozen or neval == 0
    * @throws std::runtime_error if the envelope is not initialized or does not
    *         match the current grid, or f is non-finite in strict mode
-   * @throws std::overflow_error if the evaluation count or sums overflow
    */
   template <typename I>
   env_result_type raise_envelope(I&& integrand, U neval) {
@@ -486,7 +487,6 @@ class GeneratorBase : public Integrator {
       throw std::invalid_argument("raise_envelope requires neval > 0");
     }
     require_envelope_ready();
-    require_count_capacity(neval);
 
     // each violation raises R by (1 + 1 / (10 * ndim))^ndim, about 10%
     const T gamma = envelope_raising_factor();
@@ -496,7 +496,7 @@ class GeneratorBase : public Integrator {
     std::ranges::copy(envelope_, candidate.begin());
     auto next_abs = abs_acc_;
     for_each_abs_sample(integrand, neval, [&](T abs_fval, bool finite, auto indices) {
-      accumulate_checked(next_abs, abs_fval);
+      next_abs.accumulate(abs_fval);
       count_evaluation(result, finite);
       // a non-finite sample has `abs_fval = 0` and never raises
       if (detail::raise_envelope_record(candidate, indices, abs_fval, gamma))
@@ -504,7 +504,6 @@ class GeneratorBase : public Integrator {
       return true;
     });
     result.n_raised_ = result.n_violations_;  // every violation raises once
-    require_finite_sums(next_abs);
     seal_envelope(candidate, derived().env_grid_hash());
     abs_acc_ = next_abs;
     result.abs_acc_ = abs_acc_;
@@ -520,8 +519,7 @@ class GeneratorBase : public Integrator {
    * the pending batch. All samples go into the batch statistics and
    * `abs_integral_estimate()`. Apply the batch locally with `adapt_envelope()`,
    * or save it with `save_envelope()` to be merged elsewhere. If an
-   * evaluation throws or its statistics overflow, the batch keeps the samples
-   * before it.
+   * evaluation throws, the batch keeps the samples before it.
    *
    * @param integrand the integrand
    * @param neval maximum number of samples, must be > 0
@@ -532,7 +530,6 @@ class GeneratorBase : public Integrator {
    * @throws std::invalid_argument if the grid is not frozen or neval == 0
    * @throws std::runtime_error if the envelope is not initialized or does not
    *         match the current grid, or f is non-finite in strict mode
-   * @throws std::overflow_error if the evaluation count or sums overflow
    */
   template <typename I>
   env_result_type collect_envelope(I&& integrand, U neval,
@@ -542,26 +539,19 @@ class GeneratorBase : public Integrator {
       throw std::invalid_argument("collect_envelope requires neval > 0");
     }
     require_envelope_ready();
-    require_count_capacity(neval);
 
     const auto below_limit = [&] { return n_envelope_records() < max_records; };
     env_result_type result;
     if (below_limit()) {
       for_each_abs_sample(integrand, neval, [&](T abs_fval, bool finite, auto indices) {
-        // check before appending so a failed sample leaves the batch intact
-        const T square = checked_square(abs_fval);
-        auto next_abs = abs_acc_;
-        auto next_batch = envelope_data_.acc;
-        next_abs.accumulate(abs_fval, square);
-        next_batch.accumulate(abs_fval, square);
-        require_finite_sums(next_abs);
-        require_finite_sums(next_batch);
+        // append first: it is the only step that can throw
         if (abs_fval > detail::envelope_bound(envelope_, indices)) {
           envelope_data_.append(abs_fval, indices);
           ++result.n_violations_;
         }
-        abs_acc_ = next_abs;  // nothing from here on throws
-        envelope_data_.acc = next_batch;
+        const T square = abs_fval * abs_fval;
+        abs_acc_.accumulate(abs_fval, square);
+        envelope_data_.acc.accumulate(abs_fval, square);
         count_evaluation(result, finite);
         return below_limit();
       });
@@ -591,7 +581,6 @@ class GeneratorBase : public Integrator {
    *         max_passes == 0, or target_rate is not in [0, 1] (or NaN)
    * @throws std::runtime_error if the envelope is not initialized or does not
    *         match the current grid, or f is non-finite in strict mode
-   * @throws std::overflow_error if the evaluation count or sums overflow
    */
   template <typename I>
   env_result_type optimize_envelope(I&& integrand, U neval, U max_passes = U(8),
@@ -688,6 +677,8 @@ class GeneratorBase : public Integrator {
    *
    * Trials with a non-finite integrand are rejected and contribute zero;
    * with `Options::strict_finite_integrand` they throw instead.
+   * A non-positive or non-finite proposal value R throws before the integrand
+   * is evaluated.
    *
    * `point.sample_index` is the zero-based trial index within this call.
    * With verbosity on and `progress_bar` unset or true, a progress bar over
@@ -701,8 +692,8 @@ class GeneratorBase : public Integrator {
    * @throws std::invalid_argument if the grid is not frozen, ntrials == 0, or
    *         `progress_step` is invalid while the progress bar is shown
    * @throws std::runtime_error if the envelope is not ready or does not match
-   *         the current grid, or f is non-finite in strict mode
-   * @throws std::overflow_error if the weights or their sums overflow
+   *         the current grid, a proposal value is not finite and positive,
+   *         or f is non-finite in strict mode
    */
   template <typename I, typename ECB>
   gen_result_type generate_trials(I&& integrand, U ntrials, ECB&& event_callback) {
@@ -710,6 +701,7 @@ class GeneratorBase : public Integrator {
     require_frozen();
     require_envelope_ready();
 
+    using cb_result_t = std::invoke_result_t<ECB&, const point_type&, T>;
     point_type point{derived().ndim(), derived().user_data()};
 
     gen_result_type res;
@@ -744,7 +736,6 @@ class GeneratorBase : public Integrator {
         update_bar();
       }
       const T envelope_value = derived().env_propose(point);
-      // check R before a non-finite integrand can skip the trial
       if (!(envelope_value > T(0)) || !std::isfinite(envelope_value)) {
         throw std::runtime_error("envelope value is not finite and positive");
       }
@@ -766,22 +757,20 @@ class GeneratorBase : public Integrator {
         res.n_overweight_++;
         res.max_overweight_ = util::math::max(res.max_overweight_, w_over);
         event_weight = T(util::math::sgn(fval)) * w_over;
-        accumulate_checked(res.acc_, event_weight);
+        res.acc_.accumulate(event_weight);
         if (event_weight < T(0)) n_negative_overweight++;
       } else {
         // rejection sampling: accept with probability |f|/R
         const T r = derived().ran();
-        if (r * envelope_value < abs_fval) {
-          event_weight = T(util::math::sgn(fval));
-        } else {
+        if (!(r * envelope_value < abs_fval)) {
           continue;  // rejected: contributes 0, counted after the loop
         }
+        event_weight = T(util::math::sgn(fval));
       }
       if (event_weight < T(0)) res.n_negative_++;
       res.n_events_++;
       // pass on the event (read only); the callback can stop the run
       const point_type& event_point = point;
-      using cb_result_t = std::invoke_result_t<ECB&, const point_type&, T>;
       if constexpr (std::is_same_v<std::remove_cvref_t<cb_result_t>, EventSignal>) {
         if (has_signal(event_callback(event_point, event_weight), EventSignal::STOP)) {
           res.status_ = GenerationStatus::STOPPED;
@@ -801,7 +790,6 @@ class GeneratorBase : public Integrator {
     res.acc_.accumulate(unit_acc);
     // rejected trials add 0 to the sums, only the count changes
     res.acc_.accumulate_zeros(ntrials_done - res.n_events_);
-    require_finite_sums(res.acc_);
     return res;
   }
 
@@ -974,7 +962,7 @@ class GeneratorBase : public Integrator {
    * @throws std::runtime_error if the file or envelope is invalid or
    *         incompatible, a pending batch belongs to an envelope that is not
    *         ready, or the merged proposal has no finite volume
-   * @throws std::overflow_error if the merged statistics overflow
+   * @throws std::overflow_error if the merged evaluation count overflows
    */
   env_result_type merge_envelope(const std::filesystem::path& filepath) {
     require_frozen();
@@ -1002,21 +990,17 @@ class GeneratorBase : public Integrator {
       }
       incoming = envelope_data_type::deserialize(in, derived().ndim(), merged.size());
     });
+    if (incoming.acc.count() > std::numeric_limits<U>::max() - abs_acc_.count()) {
+      throw std::overflow_error("merged evaluation count overflows");
+    }
     if (merge_existing) {
       std::ranges::transform(merged, envelope_, merged.begin(),
                              [](T a, T b) { return std::max(a, b); });
     }
 
-    auto merged_acc = abs_acc_;
-    U n_raised = 0;
-    if (incoming.present()) {
-      require_count_capacity(incoming.acc.count());
-      merged_acc.accumulate(incoming.acc);
-      require_finite_sums(merged_acc);
-      n_raised = apply_envelope_records(merged, incoming);
-    }
+    const U n_raised = apply_envelope_records(merged, incoming);
     seal_envelope(merged, derived().env_grid_hash());
-    abs_acc_ = merged_acc;
+    abs_acc_.accumulate(incoming.acc);
     if (!merge_existing) envelope_seed_ = T(0);
     return {.abs_acc_ = abs_acc_,
             .n_violations_ = static_cast<U>(incoming.values.size()),
@@ -1094,10 +1078,11 @@ class GeneratorBase : public Integrator {
   }
 
   /// @brief read the integrator state and, if present, the envelope block
+  /// Invalid grid input leaves the generator unchanged; envelope-loading failures
+  /// leave the loaded grid with an unready envelope.
   void read_state_stream(std::istream& in) {
-    // reset first so a failed read does not leave a ready envelope behind
-    reset_envelope_state();
     IntBase::read_state_stream(in);
+    reset_envelope_state();
     read_envelope_stream(in);
   }
 
@@ -1174,9 +1159,6 @@ class GeneratorBase : public Integrator {
    * Calls `visit(abs_fval, finite, indices)` for each sample, with the
    * envelope factor indices at the point; a non-finite sample has
    * `abs_fval = 0`. Stops when `visit` returns false.
-   *
-   * The caller must make sure the sample count fits before changing state
-   * (initialization starts from an empty accumulator, so it's fine there).
    */
   template <typename I, typename V>
   void for_each_abs_sample(I& integrand, U neval, V&& visit) {
@@ -1194,14 +1176,6 @@ class GeneratorBase : public Integrator {
       const bool finite = eval_abs(integrand, point, abs_fval);
       derived().env_indices(cell, indices);
       if (!visit(abs_fval, finite, std::span<const S>(indices))) break;
-    }
-  }
-
-  /// @brief throw if `neval` more evaluations would overflow the A count;
-  ///        the pending batch is a subset of `abs_acc_`, so this covers its count too
-  void require_count_capacity(U neval) const {
-    if (neval > std::numeric_limits<U>::max() - abs_acc_.count()) {
-      throw std::overflow_error("evaluation count overflows");
     }
   }
 
@@ -1233,29 +1207,6 @@ class GeneratorBase : public Integrator {
     return derived().opts_.strict_finite_integrand.value_or(false);
   }
 
-  /// @brief square `value`, throw if the result is not finite
-  static T checked_square(T value) {
-    const T square = value * value;
-    if (!std::isfinite(square)) {  // also catches a non-finite value
-      throw std::overflow_error(
-          "contribution or square overflows; rebuild the envelope "
-          "from an absolute-integral estimate or rescale the integrand");
-    }
-    return square;
-  }
-
-  /// @brief accumulate a value with finite square; caller must check the sums
-  static void accumulate_checked(int_acc_type& acc, T value) {
-    acc.accumulate(value, checked_square(value));
-  }
-
-  /// @brief throw if either accumulated sum is not finite
-  static void require_finite_sums(const int_acc_type& acc) {
-    if (!acc.is_finite()) {
-      throw std::overflow_error("accumulated contributions overflow");
-    }
-  }
-
   /// @brief reset readiness, statistics and pending data before initializing or loading
   void reset_envelope_state() {
     envelope_ready_ = false;
@@ -1267,10 +1218,8 @@ class GeneratorBase : public Integrator {
   }
 
   /// @brief seed a flat envelope R(u) = seed and seal it
+  /// @pre seed is finite and positive, checked by the initialization entry points
   void seed_envelope(T seed) {
-    if (!(seed > T(0)) || !std::isfinite(seed)) {
-      throw std::invalid_argument("initialize_envelope requires a finite seed > 0");
-    }
     // equal factors whose product is the seed
     const T factor = std::pow(seed, T(1) / T(derived().ndim()));
     envelope_ = ndarray::NDArray<T, S>(derived().env_shape());
@@ -1419,11 +1368,7 @@ class GeneratorBase : public Integrator {
         throw std::runtime_error("envelope table dimensions do not match the integrator state");
       }
     }
-    envelope_.deserialize(in);
-    // NDArray stores its own shape; check it against the dimensions read above
-    if (!std::ranges::equal(envelope_.shape(), shape)) {
-      throw std::runtime_error("corrupt envelope block: unexpected table shape");
-    }
+    envelope_.deserialize_expected_shape(in, shape);
   }
 
   /// raw envelope table; the `ndim` factors at a point multiply to R(u)

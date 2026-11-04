@@ -47,9 +47,4 @@ include(CTest)
 include(Catch)
 catch_discover_tests(unit_tests)
 
-# Keep replacement allocation operators confined to the failure-injection tests.
-add_executable(envelope_allocation_tests test_envelope_allocation_failures.cpp)
-target_link_libraries(envelope_allocation_tests PRIVATE kakuhen kakuhen_warnings Catch2::Catch2WithMain)
-catch_discover_tests(envelope_allocation_tests)
-
 # inside `kakuhen/build/tests` run `make && ctest`

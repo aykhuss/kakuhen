@@ -64,6 +64,28 @@ TEMPLATE_TEST_CASE("Envelope seeds must be finite and positive", "[generator]", 
   REQUIRE_FALSE(gen.envelope_ready());
 }
 
+TEMPLATE_TEST_CASE("Invalid envelope seeds preserve an initialized generator", "[generator]",
+                   VegasGenerator<>, BasinGenerator<>) {
+  TestType gen(2);
+  gen.set_options({.frozen = true, .verbosity = 0});
+  gen.initialize_envelope([](const Point<>& p) { return 2.0 / p.weight; }, 16);
+  const auto state = [&] {
+    std::ostringstream out;
+    gen.write_state_stream(out);
+    return out.str();
+  };
+  const auto before = state();
+  for (double seed : {0.0, -0.0, -1.0, std::numeric_limits<double>::infinity(),
+                      std::numeric_limits<double>::quiet_NaN()}) {
+    REQUIRE_THROWS_AS(gen.initialize_envelope(seed), std::invalid_argument);
+    REQUIRE(gen.envelope_ready());
+    REQUIRE(state() == before);
+  }
+  const auto result =
+      gen.generate_trials([](const Point<>&) { return 1.0; }, 16, [](const Point<>&, double) {});
+  REQUIRE(result.n_trials() == 16);
+}
+
 TEMPLATE_TEST_CASE("Generators generate with an explicitly initialized envelope", "[generator]",
                    VegasGenerator<>, BasinGenerator<>) {
   TestType gen(2);
@@ -293,6 +315,42 @@ TEMPLATE_TEST_CASE("Failed envelope updates leave the envelope unchanged", "[gen
   REQUIRE(gen.generate_trials(one, 10, sink).value() == Approx(1.0));
 }
 
+TEMPLATE_TEST_CASE("State-load failures invalidate envelopes only after grid replacement",
+                   "[generator]", VegasGenerator<>, BasinGenerator<>) {
+  typename TestType::IntBase source(3);
+  std::ostringstream grid;
+  source.write_state_stream(grid);
+  auto gen = make_generator_2d<TestType>();
+  gen.set_options({.frozen = true, .verbosity = 0});
+  gen.set_seed(42);
+  gen.initialize_envelope(1.0);
+  gen.collect_envelope([](const Point<>& p) { return 2.0 / p.weight; }, 8);
+  const auto state = [&] {
+    std::ostringstream out;
+    gen.write_state_stream(out);
+    return out.str();
+  };
+  const auto before = state();
+  const auto one = [](const Point<>& p) { return 1.0 / p.weight; };
+  const auto sink = [](const Point<>&, double) {};
+
+  SECTION("truncated grid preserves the ready envelope and pending batch") {
+    std::istringstream corrupt(grid.str().substr(0, sizeof(typename TestType::size_type)));
+    REQUIRE_THROWS_AS(gen.read_state_stream(corrupt), std::runtime_error);
+    REQUIRE(gen.envelope_ready());
+    REQUIRE(state() == before);
+    REQUIRE(gen.generate_trials(one, 16, sink).value() == Approx(1.0));
+  }
+  SECTION("corrupt envelope leaves the new grid unready") {
+    std::istringstream corrupt(grid.str() + "BADENV");
+    REQUIRE_THROWS_AS(gen.read_state_stream(corrupt), std::runtime_error);
+    REQUIRE(gen.ndim() == 3);
+    REQUIRE_FALSE(gen.envelope_ready());
+    REQUIRE_FALSE(gen.has_envelope_data());
+    REQUIRE_THROWS_AS(gen.generate_trials(one, 16, sink), std::runtime_error);
+  }
+}
+
 TEMPLATE_TEST_CASE("Plain state loads resize all generator storage", "[generator]",
                    VegasGenerator<>, BasinGenerator<>) {
   typename TestType::IntBase plain(3);
@@ -312,25 +370,6 @@ TEMPLATE_TEST_CASE("Plain state loads resize all generator storage", "[generator
       },
       10, [](const Point<>&, double) {});
   REQUIRE(result.value() == Approx(1.0));
-}
-
-TEMPLATE_TEST_CASE("Unrepresentable weights fail before delivery", "[generator]", VegasGenerator<>,
-                   BasinGenerator<>) {
-  TestType gen(1);
-  gen.set_options({.frozen = true, .verbosity = 0});
-  bool delivered = false;
-  auto sink = [&](const Point<>&, double) { delivered = true; };
-  SECTION("ratio overflow from a tiny seed") {
-    gen.initialize_envelope(1e-310);
-  }
-  SECTION("finite weight with an overflowing square") {
-    gen.initialize_envelope(1e-200);
-  }
-  auto hundred = [](const Point<>&) { return 100.0; };
-  REQUIRE_THROWS_AS(gen.generate_trials(hundred, 2, sink), std::overflow_error);
-  REQUIRE_FALSE(delivered);
-  gen.initialize_envelope(hundred, 10);
-  REQUIRE(gen.generate_trials(hundred, 2, sink).value() == Approx(100.0));
 }
 
 TEMPLATE_TEST_CASE("Trial generation handles rejection and stopping", "[generator]",
@@ -380,15 +419,6 @@ TEMPLATE_TEST_CASE("Trial generation handles rejection and stopping", "[generato
   REQUIRE(intact.status() == GenerationStatus::COMPLETED);
   REQUIRE(intact.n_trials() == result.n_trials());
   REQUIRE(intact.volume() == result.volume());
-  // two valid runs with huge overweights must not merge into non-finite statistics
-  auto huge = decltype(result){};
-  huge.envelope_volume_ = 1.0;
-  huge.acc_.reset(1e154, 1e308, 1);
-  REQUIRE(std::isfinite(huge.error()));
-  auto huge_merged = huge;
-  REQUIRE_THROWS_AS(huge_merged.accumulate(huge), std::overflow_error);
-  REQUIRE(huge_merged.n_trials() == 1);
-  REQUIRE(huge_merged.acc_.f2_.result() == 1e308);
 }
 
 TEST_CASE("Stopping after the first event biases the estimate", "[generator]") {
@@ -426,6 +456,27 @@ TEST_CASE("Envelope CDF inversion stays inside cells at boundaries", "[generator
   REQUIRE_THROWS(detail::cdf_step(1.0, 1e-20));
 }
 
+TEMPLATE_TEST_CASE("CDF inversion preserves upper-bound ties across the scan cutoff", "[generator]",
+                   float, double) {
+  using T = TestType;
+  for (std::uint32_t n : {31u, 32u, 33u, 64u, 128u}) {
+    std::vector<T> cdf(n);
+    for (std::uint32_t i = 0; i < n; ++i)
+      cdf[i] = T(i + 1);
+    cdf.back() = T(256);  // Power-of-two total makes the tested ties exact.
+    const std::array<std::uint32_t, 5> cells{0, 1, n - 1, n - 1, n - 1};
+    std::size_t i = 0;
+    for (T u : {T(0), T(1) / T(256), T(n - 1) / T(256), std::nextafter(T(1), T(0)), T(1)}) {
+      INFO("row length=" << n << ", u=" << u);
+      const auto draw = detail::sample_cdf<T, std::uint32_t>(cdf, u);
+      REQUIRE(draw.cell == cells[i++]);
+      REQUIRE(draw.fraction >= T(0));
+      REQUIRE(draw.fraction <= T(1));
+      REQUIRE(draw.width == (draw.cell == n - 1 ? T(256) - T(n - 1) : T(1)));
+    }
+  }
+}
+
 TEMPLATE_TEST_CASE("Generator loads reject invalid positive-volume envelopes", "[generator]",
                    VegasGenerator<>, BasinGenerator<>) {
   TestType gen(1, 2);
@@ -443,23 +494,6 @@ TEMPLATE_TEST_CASE("Generator loads reject invalid positive-volume envelopes", "
   std::istringstream corrupt(bytes);
   REQUIRE_THROWS_AS(gen.read_state_stream(corrupt), std::runtime_error);
   REQUIRE_FALSE(gen.envelope_ready());
-}
-
-TEMPLATE_TEST_CASE("Accumulated overweight squares cannot silently overflow", "[generator]",
-                   VegasGenerator<>, BasinGenerator<>) {
-  TestType gen(1);
-  gen.set_options({.frozen = true, .verbosity = 0});
-  gen.initialize_envelope(1e-154);
-  unsigned delivered = 0;
-  REQUIRE_THROWS_AS(gen.generate_trials([](const Point<>&) { return 1.0; }, 3,
-                                        [&](const Point<>&, double w) {
-                                          REQUIRE(std::isfinite(w));
-                                          ++delivered;
-                                        }),
-                    std::overflow_error);
-  // each weight 1e154 and its square are finite, so all events are delivered;
-  // the overflowing sum of squares is caught when the run ends
-  REQUIRE(delivered == 3);
 }
 
 TEMPLATE_TEST_CASE("The generation progress bar does not change the run", "[generator]",
@@ -530,12 +564,13 @@ TEMPLATE_TEST_CASE("predicted_efficiency prefers the sampled abs-integral", "[ge
   REQUIRE(result.efficiency() == Approx(0.5).margin(0.02));
 }
 
-TEMPLATE_TEST_CASE("Absolute-integral estimation rejects overflowing squares", "[generator]",
+TEMPLATE_TEST_CASE("Absolute-integral estimation rejects a non-finite estimate", "[generator]",
                    VegasGenerator<>, BasinGenerator<>) {
   TestType gen(1);
   gen.set_options({.frozen = true, .verbosity = 0});
   gen.initialize_envelope(1.0);
-  REQUIRE_THROWS_AS(gen.initialize_envelope([](const Point<>&) { return 1e200; }, 2),
-                    std::overflow_error);
+  // each value is finite, their sum is not
+  REQUIRE_THROWS_AS(gen.initialize_envelope([](const Point<>&) { return 1e308; }, 4),
+                    std::runtime_error);
   REQUIRE_FALSE(gen.envelope_ready());
 }

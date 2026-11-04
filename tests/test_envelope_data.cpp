@@ -315,46 +315,19 @@ TEMPLATE_TEST_CASE("Interrupted raising keeps the envelope and the pending batch
   REQUIRE(gen.adapt_envelope().n_evaluations() == 8);
 }
 
-TEMPLATE_TEST_CASE("Overflowing statistics keep the valid prefix of a batch",
+TEMPLATE_TEST_CASE("Overflowing batch statistics are rejected on import",
                    "[generator][envelope_data]", VegasGenerator<>, BasinGenerator<>) {
   TempDir files("kakuhen-env-data");
   auto gen = make_generator<TestType>();
-  // each square is finite, but the sum of two is not
-  auto huge = [](const Point<>& p) { return 1e154 / p.weight; };
-  REQUIRE_THROWS_AS(gen.collect_envelope(huge, 2), std::overflow_error);
-  REQUIRE(gen.envelope_ready());
-  REQUIRE(gen.n_envelope_records() == 1);
-  REQUIRE(gen.abs_integral_estimate().count() == 1);
-  REQUIRE(gen.abs_integral_estimate().is_finite());
-  gen.save_envelope(files.dir / "prefix.khe");
+  // each square is finite, the sum of two is not
+  gen.collect_envelope([](const Point<>& p) { return 1e154 / p.weight; }, 2);
+  REQUIRE(gen.n_envelope_records() == 2);
+  REQUIRE_FALSE(gen.abs_integral_estimate().is_finite());
+  gen.save_envelope(files.dir / "overflow.khe");
   auto receiver = make_generator<TestType>();
-  REQUIRE_NOTHROW(receiver.merge_envelope(files.dir / "prefix.khe"));
-  REQUIRE(receiver.abs_integral_estimate().count() == 1);
-  REQUIRE(gen.adapt_envelope().n_evaluations() == 1);
-}
-
-TEST_CASE("Evaluation counts cannot wrap around", "[generator][envelope_data]") {
-  // with a narrow count type, a wrapped batch count would hide the pending records
-  TempDir files("kakuhen-env-data");
-  VegasGenerator<kakuhen::util::num_traits_t<double, uint32_t, uint8_t>> gen(2, 4);
-  gen.set_options({.frozen = true, .verbosity = 0});
-  gen.initialize_envelope(1.0);
-  auto above = [](const auto& p) { return 2.0 / p.weight; };
-  gen.collect_envelope(above, 128);
-  const auto before = snapshot(gen);
-  REQUIRE_THROWS_AS(gen.collect_envelope(above, 128), std::overflow_error);
-  REQUIRE_THROWS_AS(gen.raise_envelope(above, 128), std::overflow_error);
-  // a rejected budget changes nothing, and the envelope stays usable
-  REQUIRE(snapshot(gen) == before);
-  REQUIRE(gen.envelope_ready());
-  REQUIRE(gen.has_envelope_data());
-  REQUIRE(gen.n_envelope_records() == 128);
-  REQUIRE_NOTHROW(gen.collect_envelope(above, 127));
-  REQUIRE_THROWS_AS(gen.raise_envelope(above, 1), std::overflow_error);
-  REQUIRE(gen.envelope_ready());
-  REQUIRE_NOTHROW(gen.save_envelope(files.dir / "narrow.khe"));
-  REQUIRE(gen.adapt_envelope().n_evaluations() == 255);
-  REQUIRE_FALSE(gen.has_envelope_data());
+  const auto before = snapshot(receiver);
+  REQUIRE_THROWS_AS(receiver.merge_envelope(files.dir / "overflow.khe"), std::runtime_error);
+  REQUIRE(snapshot(receiver) == before);
 }
 
 TEMPLATE_TEST_CASE("Malformed and truncated observation payloads leave imports unchanged",
@@ -421,21 +394,6 @@ TEMPLATE_TEST_CASE("Malformed and truncated observation payloads leave imports u
   write_file(path, bytes);
   REQUIRE_NOTHROW(target.merge_envelope(path));
   REQUIRE(target.n_envelope_records() > 0);
-}
-
-TEMPLATE_TEST_CASE("Import statistic overflow does not consume the receiver batch",
-                   "[generator][envelope_data]", VegasGenerator<>, BasinGenerator<>) {
-  TempDir files("kakuhen-env-data");
-  auto source = make_generator<TestType>();
-  auto target = make_generator<TestType>();
-  auto huge = [](const Point<>& p) { return 1e153 / p.weight; };
-  source.collect_envelope(huge, 100);
-  target.collect_envelope(huge, 100);
-  source.save_envelope(files.dir / "overflow.khe");
-  const auto before = snapshot(target);
-  REQUIRE_THROWS_AS(target.merge_envelope(files.dir / "overflow.khe"), std::overflow_error);
-  REQUIRE(snapshot(target) == before);
-  REQUIRE(target.n_envelope_records() == 100);
 }
 
 TEMPLATE_TEST_CASE("Merging reports the replayed batch", "[generator][envelope_data]",

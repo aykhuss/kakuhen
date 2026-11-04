@@ -1,9 +1,10 @@
 #include "kakuhen/util/algorithm.h"
 #include <algorithm>
+#include <array>
+#include <catch2/catch_test_macros.hpp>
+#include <functional>
 #include <random>
 #include <vector>
-
-#include <catch2/catch_test_macros.hpp>
 
 namespace {
 
@@ -44,6 +45,50 @@ std::vector<Case> make_cases() {
 
 }  // namespace
 
+TEST_CASE("algorithm::partition_point_index finds every partition across the scan cutoff",
+          "[algorithm]") {
+  for (std::size_t n : {0u, 1u, 31u, 32u, 33u, 64u, 128u}) {
+    std::vector<int> data(n);
+    for (std::size_t split = 0; split <= n; ++split) {
+      // Partitioned by sign; neither group needs to be sorted.
+      for (std::size_t i = 0; i < n; ++i)
+        data[i] = (i < split ? 1 : -1) * (static_cast<int>(i % 3) + 1);
+      const auto positive = [](int value) { return value > 0; };
+      INFO("length=" << n << ", split=" << split);
+      REQUIRE(kakuhen::util::algorithm::partition_point_index(data.begin(), data.end(), positive) ==
+              std::partition_point(data.begin(), data.end(), positive) - data.begin());
+    }
+  }
+}
+
+TEST_CASE("algorithm::partition_point_index preserves lower and upper bound ties", "[algorithm]") {
+  constexpr auto values = [] {
+    std::array<int, 65> data{};
+    for (std::size_t i = 0; i < data.size(); ++i)
+      data[i] = static_cast<int>(i / 3);
+    return data;
+  }();
+  static_assert(kakuhen::util::algorithm::partition_point_index(
+                    values.begin(), values.end(), [](int edge) { return edge < 11; }) == 33);
+  static_assert(kakuhen::util::algorithm::partition_point_index(
+                    values.begin(), values.end(), [](int edge) { return edge <= 11; }) == 36);
+  static_assert(kakuhen::util::algorithm::partition_point_index(
+                    values.begin(), values.begin() + 32, [](int edge) { return edge < 11; }) == 32);
+
+  for (const auto& c : make_cases()) {
+    const auto check = [&](auto first, auto last, auto comp) {
+      REQUIRE(kakuhen::util::algorithm::partition_point_index(first, last, [&](int edge) {
+                return comp(edge, c.value);
+              }) == std::lower_bound(first, last, c.value, comp) - first);
+      REQUIRE(kakuhen::util::algorithm::partition_point_index(first, last, [&](int edge) {
+                return !comp(c.value, edge);
+              }) == std::upper_bound(first, last, c.value, comp) - first);
+    };
+    check(c.data.begin(), c.data.end(), std::less<>{});
+    check(c.data.rbegin(), c.data.rend(), std::greater<>{});
+  }
+}
+
 TEST_CASE("algorithm::lower_bound agrees with std::lower_bound", "[algorithm]") {
   auto cases = make_cases();
   for (const auto& c : cases) {
@@ -77,8 +122,8 @@ TEST_CASE("algorithm::lower_bound_with_hint agrees with std::lower_bound", "[alg
     // exercise hints: before, after, and mid
     auto it_kh_first = kakuhen::util::algorithm::lower_bound_with_hint(
         c.data.begin(), c.data.end(), c.data.begin(), c.value, comp);
-    auto it_kh_last = kakuhen::util::algorithm::lower_bound_with_hint(
-        c.data.begin(), c.data.end(), c.data.end(), c.value, comp);
+    auto it_kh_last = kakuhen::util::algorithm::lower_bound_with_hint(c.data.begin(), c.data.end(),
+                                                                      c.data.end(), c.value, comp);
     auto it_kh_mid = kakuhen::util::algorithm::lower_bound_with_hint(
         c.data.begin(), c.data.end(), c.data.begin() + c.data.size() / 2, c.value, comp);
 

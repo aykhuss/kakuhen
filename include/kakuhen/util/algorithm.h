@@ -10,6 +10,27 @@ namespace kakuhen::util::algorithm {
  */
 
 /**
+ * @brief Index of the first element for which `before` is false.
+ *
+ * Scans ranges of at most 32 elements; uses staircase search for longer ranges.
+ * Requires random-access iterators and a range partitioned with predicate-true
+ * elements before predicate-false elements. Returns `last - first` if all pass.
+ */
+template <class RandomIt, class Predicate>
+[[nodiscard]] constexpr auto partition_point_index(RandomIt first, RandomIt last,
+                                                   Predicate before) {
+  auto length = last - first;
+  if (length <= 32) return std::count_if(first, last, before);
+  const auto begin = first;
+  while (length > 0) {
+    const auto half = length / 2;
+    if (before(first[half])) first += length - half;
+    length = half;
+  }
+  return first - begin;
+}
+
+/**
  * @brief Branch-friendly lower_bound variant using a "staircase" search.
  *
  * This is an alternative to `std::lower_bound` that can reduce branch
@@ -29,7 +50,7 @@ namespace kakuhen::util::algorithm {
  */
 template <class RandomIt, class T, class Compare>
 [[nodiscard]] constexpr RandomIt lower_bound(RandomIt first, RandomIt last, const T& value,
-                                              Compare comp) {
+                                             Compare comp) {
   auto length = last - first;
   while (length > 0) {
     auto half = length / 2;
@@ -59,7 +80,7 @@ template <class RandomIt, class T, class Compare>
  */
 template <class RandomIt, class T, class Compare>
 [[nodiscard]] constexpr RandomIt upper_bound(RandomIt first, RandomIt last, const T& value,
-                                              Compare comp) {
+                                             Compare comp) {
   auto length = last - first;
   while (length > 0) {
     auto half = length / 2;

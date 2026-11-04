@@ -41,7 +41,7 @@ namespace kakuhen::integrator::detail {
  * Invariants (checked by `deserialize`):
  *  - `indices.size() == values.size() * ndim`
  *  - `values.size() <= acc.count()`
- *  - every value is positive with a finite square
+ *  - every value is positive and finite
  *
  * @tparam T value type (e.g. double)
  * @tparam U count type (e.g. uint64_t)
@@ -77,9 +77,8 @@ struct EnvelopeData {
   /*!
    * @brief append one violating observation
    *
-   * Strong exception guarantee: if an allocation fails, both arrays are
-   * unchanged. Doesn't touch `acc`; the caller accounts for the evaluation
-   * separately.
+   * If an allocation fails, both arrays are unchanged, so they stay in step.
+   * Doesn't touch `acc`; the caller accounts for the evaluation separately.
    *
    * @param value the violating |f|
    * @param cells the `ndim` flat factor indices of the observation
@@ -162,8 +161,8 @@ struct EnvelopeData {
     for (U i = 0; i < count; ++i) {
       T value{};
       deserialize_one<T>(in, value);
-      // negated so that NaN is rejected; collection rejects values with an overflowing square
-      if (!(value > T(0)) || !std::isfinite(value * value)) {
+      // negated so that NaN is rejected
+      if (!(value > T(0)) || !std::isfinite(value)) {
         throw std::runtime_error("invalid envelope observation value");
       }
       for (S j = 0; j < ndim; ++j) {

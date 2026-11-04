@@ -6,6 +6,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -22,6 +24,8 @@ using test_support::write_file;
 using Catch::Approx;
 
 namespace {
+using SmallCountTraits = kakuhen::util::num_traits_t<double, uint32_t, uint8_t>;
+
 /// stream buffer that can only be read forward, like a pipe
 struct ForwardOnlyBuffer : std::streambuf {
   explicit ForwardOnlyBuffer(std::string bytes) : data(std::move(bytes)) {
@@ -48,6 +52,7 @@ struct EnvelopeFixture : G {
   using G::envelope_;
   using G::G;
   using G::grid_;
+  using G::uniform_distribution_;
   using G::write_header;
   using S = typename G::size_type;
   using IntBase = typename G::IntBase;
@@ -100,8 +105,9 @@ std::string snapshot(const auto& gen) {
   return out.str();
 }
 
-std::vector<double> proposals(auto& gen) {
-  Point<> point(gen.ndim());
+template <typename G>
+std::vector<double> proposals(G& gen) {
+  typename G::point_type point(gen.ndim());
   std::vector<double> result;
   for (unsigned i = 0; i < 16; ++i) {
     result.push_back(gen.env_propose(point));
@@ -112,6 +118,42 @@ std::vector<double> proposals(auto& gen) {
 }
 
 }  // namespace
+
+TEMPLATE_TEST_CASE("Generation rejects out-of-range proposals before evaluating the integrand",
+                   "[generator]", VegasGenerator<>, BasinGenerator<>) {
+  auto gen = make_generator<TestType>();
+  gen.initialize_envelope(1.0);
+  std::array<double, 2> factors{1.5e154, 0.5e154};
+  SECTION("overflow") {}
+  SECTION("underflow") {
+    factors = {1e-162, 8e-162};
+  }
+  for (decltype(gen.ndim()) i = 0; i < gen.envelope_.size(); ++i)
+    gen.envelope_[i] = factors[i % factors.size()];
+  gen.scale_envelope(1.0);
+  REQUIRE(gen.envelope_volume() > 0);
+  REQUIRE(std::isfinite(gen.envelope_volume()));
+
+  // Force the first cell in each row while retaining the real proposal path.
+  gen.uniform_distribution_.param(
+      std::uniform_real_distribution<double>::param_type(0, std::numeric_limits<double>::min()));
+  Point<> point(gen.ndim());
+  const double r = gen.env_propose(point);
+  REQUIRE((r == 0 || r == std::numeric_limits<double>::infinity()));
+
+  for (const double value : {1.0, std::numeric_limits<double>::infinity()}) {
+    unsigned evaluations = 0, events = 0;
+    REQUIRE_THROWS_AS(gen.generate_trials(
+                          [&](const Point<>&) {
+                            ++evaluations;
+                            return value;
+                          },
+                          1, [&](const Point<>&, double) { ++events; }),
+                      std::runtime_error);
+    REQUIRE(evaluations == 0);
+    REQUIRE(events == 0);
+  }
+}
 
 TEMPLATE_TEST_CASE("Envelope files merge factors without importing worker diagnostics",
                    "[generator][envelope_files]", VegasGenerator<>, BasinGenerator<>) {
@@ -158,6 +200,44 @@ TEMPLATE_TEST_CASE("Envelope files merge factors without importing worker diagno
   merged.merge_envelope(files.dir / "first.khe");
   REQUIRE(snapshot(merged) == before_duplicate);
   REQUIRE(proposals(merged) == proposals(reversed));
+}
+
+TEMPLATE_TEST_CASE("Envelope imports reject count overflow", "[generator][envelope_files]",
+                   VegasGenerator<SmallCountTraits>, BasinGenerator<SmallCountTraits>) {
+  TempDir files("kakuhen-envelope");
+  EnvelopeFixture<TestType> source(1), target(1);
+  source.set_options({.frozen = true, .verbosity = 0});
+  target.set_options({.frozen = true, .verbosity = 0});
+  auto unit = [](const auto& p) { return 1.0 / p.weight; };
+  target.initialize_envelope(unit, 253);
+  target.collect_envelope(unit, 1);
+  target.set_seed(19);
+  const auto expected_proposals = proposals(target);
+  target.set_seed(19);
+  const auto before = snapshot(target);
+
+  uint8_t n = 1;
+  SECTION("the maximum count fits") {}
+  SECTION("one beyond the maximum is rejected") {
+    n = 2;
+  }
+  source.initialize_envelope(1.0);
+  source.collect_envelope([](const auto& p) { return 2.0 / p.weight; }, n);
+  const auto path = files.dir / "worker.khe";
+  source.save_envelope(path);
+
+  if (n == 1) {
+    const auto result = target.merge_envelope(path);
+    REQUIRE(target.abs_integral_estimate().count() == 255);
+    REQUIRE(target.abs_integral_estimate().value() == Approx(256.0 / 255.0));
+    REQUIRE(result.n_evaluations() == 1);
+    REQUIRE(result.n_raised() == 1);
+    REQUIRE(target.has_envelope_data());
+  } else {
+    REQUIRE_THROWS_AS(target.merge_envelope(path), std::overflow_error);
+    REQUIRE(snapshot(target) == before);
+    REQUIRE(proposals(target) == expected_proposals);
+  }
 }
 
 TEMPLATE_TEST_CASE("An imported envelope works without a local seed or estimate",

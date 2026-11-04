@@ -3,9 +3,9 @@
 #include "kakuhen/integrator/generator_base.h"
 #include "kakuhen/integrator/vegas.h"
 #include "kakuhen/ndarray/ndarray.h"
+#include <array>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace kakuhen::integrator {
 
@@ -64,7 +64,7 @@ class VegasGenerator : public GeneratorBase<VegasGenerator<NT, RNG, DIST>, Vegas
   }
 
   /// @brief one row of `ndiv` cell factors per dimension
-  [[nodiscard]] std::vector<S> env_shape() const {
+  [[nodiscard]] std::array<S, 2> env_shape() const {
     return {ndim_, ndiv_};
   }
 

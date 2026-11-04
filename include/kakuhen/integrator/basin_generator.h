@@ -4,7 +4,7 @@
 #include "kakuhen/integrator/generator_base.h"
 #include "kakuhen/ndarray/ndarray.h"
 #include <algorithm>
-#include <cstdint>
+#include <array>
 #include <span>
 #include <utility>
 #include <vector>
@@ -93,7 +93,7 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
   }
 
   /// @brief one `{ndiv1, ndiv2}` block per order entry (see the class description)
-  [[nodiscard]] std::vector<S> env_shape() const {
+  [[nodiscard]] std::array<S, 3> env_shape() const {
     return {ndim_, ndiv1_, ndiv2_};
   }
 
@@ -114,7 +114,7 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
 
   /// @brief the envelope layout depends on the sampling order as well as the grid edges
   [[nodiscard]] util::HashValue_t env_grid_hash() const {
-    return this->hash().add(order_.data(), order_.size()).value();
+    return this->map_hash();
   }
 
   /*!
@@ -153,13 +153,13 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
   ///
   /// @return the integral V of the envelope R and the proposal caches
   auto env_prepare(const ndarray::NDArray<T, S>& table) const {
-    EnvelopeCache cache{
-        .root_cdf = ndarray::NDArray<T, S>({ndim_, ndiv0_}),
-        .conditional_rows = std::vector<ConditionalRow>(static_cast<std::size_t>(ndim_) * ndiv1_),
-        .child_integrals = ndarray::NDArray<T, S>({ndim_, ndiv1_}),
-        .has_children = std::vector<uint8_t>(ndim_, 0),
-        .walk_ig1 = std::vector<S>(ndim_, 0)};
+    EnvelopeCache cache{.root_cdf = ndarray::NDArray<T, S>({ndim_, ndiv0_}),
+                        .conditional_rows = ndarray::NDArray<ConditionalRow, S>({ndim_, ndiv1_}),
+                        .child_integrals = ndarray::NDArray<T, S>({ndim_, ndiv1_}),
+                        .has_children = ndarray::NDArray<bool, S>({ndim_}),
+                        .walk_ig1 = std::vector<S>(ndim_, 0)};
     cache.child_integrals.fill(T(1));
+    cache.has_children.fill(false);
     const auto max_segments = static_cast<std::size_t>(ndiv1_) + ndiv2_ - 1;
     // naming: `ig1` is the coarse cell of the parent `idim1` (the row), `ig2` the
     // conditional cell of `idim2` and `ig1_idim2` the coarse cell of `idim2` itself
@@ -169,7 +169,7 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
       const S idim1 = order_(iord, 0);
       const S idim2 = order_(iord, 1);
       for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-        auto& row = cache.conditional_rows[row_index(iord, ig1)];
+        auto& row = cache.conditional_rows(iord, ig1);
         row.cdf.reserve(max_segments);
         row.segments.reserve(max_segments);
         S ig1_idim2 = 0;
@@ -203,7 +203,7 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
         }
         cache.child_integrals(idim1, ig1) *= row.cdf.back();
       }
-      cache.has_children[idim1] = 1;
+      cache.has_children[idim1] = true;
     }
     T volume = T(1);
     for (S iord = 0; iord < nblocks_; ++iord) {
@@ -239,25 +239,17 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
   // everything the proposal needs, rebuilt from the raw table whenever it is sealed
   struct EnvelopeCache {
     ndarray::NDArray<T, S> root_cdf;
-    std::vector<ConditionalRow> conditional_rows;
+    // one conditional row per (order entry, coarse cell of the parent)
+    ndarray::NDArray<ConditionalRow, S> conditional_rows;
     // F_j(ig1): product of the subtree integrals of the children for coarse cell ig1 of j (x-space)
     ndarray::NDArray<T, S> child_integrals;
-    std::vector<uint8_t> has_children;
+    ndarray::NDArray<bool, S> has_children;
     // scratch: coarse cell of each dimension drawn in the walk; the children read it as their `ig1`
     std::vector<S> walk_ig1;
   };
 
   void env_commit_cache(EnvelopeCache&& cache) noexcept {
     envelope_cache_ = std::move(cache);
-  }
-
-  // one conditional row per (order entry, coarse cell of the parent)
-  [[nodiscard]] std::size_t row_index(S iord, S ig1) const noexcept {
-    return static_cast<std::size_t>(iord) * ndiv1_ + ig1;
-  }
-
-  ConditionalRow& conditional_row(S iord, S ig1) {
-    return envelope_cache_.conditional_rows[row_index(iord, ig1)];
   }
 
   // upper edge in x-space of the coarse cell `ig1` of dimension `idim`
@@ -291,7 +283,7 @@ class BasinGenerator : public GeneratorBase<BasinGenerator<NT, RNG, DIST>, Basin
       const S idim1 = order_(iord, 0);
       const S idim2 = order_(iord, 1);
       const S ig1 = envelope_cache_.walk_ig1[idim1];
-      const auto& row = conditional_row(iord, ig1);
+      const auto& row = envelope_cache_.conditional_rows(iord, ig1);
       const auto draw = detail::sample_cdf<T, S>(row.cdf, IntBase::ran());
       const Segment& segment = row.segments[draw.cell];
       point.x[idim2] = segment.x_low + draw.fraction * segment.x_width;
