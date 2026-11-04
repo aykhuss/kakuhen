@@ -38,8 +38,7 @@ void validate_grid_row(std::span<const T> row) {
  * Everything is validated before any state changes (strong exception
  * guarantee). The cells form contiguous rows of `row_size` that each
  * partition the adaptation samples, so the counts of every row must add up to
- * the adaptation count. Together with the checked total count, this also
- * rules out an overflow of the merged cell counts.
+ * the adaptation count. Merged counts and sums are checked before commit.
  *
  * @pre the destination already satisfies the row-count invariant; `row_size`
  *      is positive and divides `cells.size()`; assigning the result and
@@ -52,14 +51,11 @@ void validate_grid_row(std::span<const T> row) {
  * @param cells grid accumulators to merge into
  * @param row_size number of cells per row
  * @throws std::runtime_error if the stream is truncated, corrupt or sampled on a different grid
- * @throws std::overflow_error if the merged sums or counts overflow
+ * @throws std::overflow_error if the merged counts or sums overflow
  */
 template <typename IntAcc, std::unsigned_integral U, typename Cells>
 void merge_data_stream(std::istream& in, util::HashValue_t hash, IntAcc& result, U& count,
                        Cells& cells, typename Cells::size_type row_size) {
-  static_assert(std::same_as<typename IntAcc::count_type, U> &&
-                    std::same_as<typename Cells::value_type::count_type, U>,
-                "all counts must share the type the overflow checks are performed in");
   using util::serialize::deserialize_one;
   util::HashValue_t hash_in;
   deserialize_one(in, hash_in);
@@ -72,13 +68,12 @@ void merge_data_stream(std::istream& in, util::HashValue_t hash, IntAcc& result,
       (result_in.count() == 0 && (sum != 0 || sum_squares != 0))) {
     throw std::runtime_error("corrupt data (invalid integral accumulator)");
   }
-  U count_in;
-  deserialize_one(in, count_in);
-
   constexpr U MAX_COUNT = std::numeric_limits<U>::max();
   if (result_in.count() > MAX_COUNT - result.count()) {
     throw std::overflow_error("merged sample count overflows");
   }
+  U count_in;
+  deserialize_one(in, count_in);
   if (count_in > MAX_COUNT - count) {
     throw std::overflow_error("merged adaptation count overflows");
   }

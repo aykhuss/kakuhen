@@ -191,7 +191,7 @@ TEST_CASE("Adaptive map_point is deterministic for fixed input", "[map_point]") 
 
   SECTION("Basin") {
     Basin<> basin(2, 2, 4);
-    basin.set_min_score(0.0);
+    basin.set_min_gain(0.0);
     basin.integrate(integrand, {.neval = 512, .niter = 2, .adapt = true, .verbosity = 0});
 
     const std::array<double, 2> u{0.13, 0.77};

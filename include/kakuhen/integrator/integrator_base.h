@@ -613,7 +613,7 @@ class IntegratorBase {
    *
    * @param filepath The path to the file from which to append the data.
    * @throws std::runtime_error if the file is corrupt or incompatible with the grid.
-   * @throws std::overflow_error if the merged sums or counts overflow.
+   * @throws std::overflow_error if the merged counts or sums overflow.
    */
   template <typename D = Derived>
   void append_data(const std::filesystem::path& filepath)

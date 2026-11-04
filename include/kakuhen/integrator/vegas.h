@@ -167,7 +167,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   template <typename I, typename ProgressCb = std::nullptr_t>
   int_acc_type integrate_impl(I& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
                               [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
-    result_.reset();
+    int_acc_type result;
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<T> u_buf(ndim_);
@@ -186,7 +186,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
         throw std::runtime_error("integrate: non-finite integrand contribution");
       }
       const T fval2 = fval * fval;
-      result_.accumulate(fval, fval2);
+      result.accumulate(fval, fval2);
+      // pending stats keep every sample in step with the grid, so snapshots stay consistent
+      if (!skip_accum) result_.accumulate(fval, fval2);
       // a non-finite sample shows up in the result but must not corrupt the grid
       if (!skip_accum && std::isfinite(fval2)) {
         /// accumulator for the grid
@@ -202,7 +204,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }
 
-    return result_;
+    return result;
   }
 
   /*!
@@ -366,7 +368,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Clears accumulated grid statistics and the current iteration result.
+   * @brief Clears the pending grid data and their integral statistics.
+   *
+   * May be called between samples, including from a progress callback. The
+   * result returned by the current `integrate()` call still includes all samples.
    */
   void clear_data() {
     accumulator_count_ = U(0);
@@ -400,12 +405,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     prt.template begin<C::ARRAY>("grid1d");
     prt.break_line();
     {
-      std::vector<S> dims(1);
       for (S idim = 0; idim < ndim_; ++idim) {
-        dims = {idim};
         prt.template begin<C::OBJECT>();
         {
-          prt.print_array("dims", dims);
+          prt.print_array("dims", std::array{idim});
           prt.print_array("grid", &grid_(idim, 0), ndiv_, {T(0)});
         }
         prt.template end<C::OBJECT>(true);
@@ -461,7 +464,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   /// Reads accumulated data into an integrator without data.
   /// @throws std::runtime_error if the integrator already holds data, or if the stream is
   ///         truncated, corrupt, or incompatible with the current grid.
-  /// @throws std::overflow_error if the sums or counts overflow.
+  /// @throws std::overflow_error if the sums overflow.
   void read_data_stream(std::istream& in) {
     // a zero adaptation count implies empty grid accumulators
     if (accumulator_count_ != 0 || result_.count() != 0) {
@@ -473,7 +476,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   /// @throws std::runtime_error if the stream is truncated, corrupt, or
   ///         incompatible with the current grid; grid accumulators must be
   ///         finite and non-negative.
-  /// @throws std::overflow_error if the merged sums or counts overflow.
+  /// @throws std::overflow_error if the merged counts or sums overflow.
   /// On a throw, the accumulated data is left unchanged.
   void accumulate_data_stream(std::istream& in) {
     using namespace kakuhen::util::serialize;
@@ -490,6 +493,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
  protected:
   S ndiv_;  // number of divisions of the grid along each dimension
+  /// integral statistics of the pending data, in step with the grid accumulators
   int_acc_type result_;
   ndarray::NDArray<T, S> grid_;
 

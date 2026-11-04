@@ -39,7 +39,7 @@ int main() {
   // set up the integrator
   //auto integrator = Vegas(2);
   auto integrator = Basin(2);
-  //integrator.set_min_score(0.0);
+  //integrator.set_min_gain(0.0);
 
   std::cout << "\n----------------------------\n";
   std::cout << "///   NAIVE ";

@@ -30,6 +30,10 @@ Distributed envelope training
 every violating observation, in evaluation order, as the complete tuple of
 factor indices and the absolute transformed contribution ``|J f(x)|``.
 
+``generate_trials()`` checks that the sampled product of envelope factors
+``R`` is finite and positive. Otherwise it throws ``std::runtime_error``
+before evaluating the integrand.
+
 For distributed collection, first adapt an integration grid, freeze it,
 initialize an envelope, and save a common ``.khs`` checkpoint. Each worker
 loads that checkpoint and uses its own RNG seed:
@@ -113,7 +117,9 @@ flag. A pending batch adds ordered observations and statistics for all its
 evaluations, including those below the bound and non-finite values counted as
 zero. Initialization history and immediate-training statistics are not exported.
 Imports add these batch statistics once to the receiver's absolute-integral
-estimate. Envelope-only imports leave that estimate unchanged. Merging into a
+estimate. If the merged evaluation count does not fit ``count_type``, the import
+throws ``std::overflow_error`` and leaves the generator unchanged.
+Envelope-only imports leave that estimate unchanged. Merging into a
 ready envelope preserves the local seed; an import that replaces the envelope
 sets ``envelope_seed()`` to zero. ``predicted_efficiency()`` needs a positive
 seed or absolute-integral estimate.
@@ -152,7 +158,41 @@ the combined ``.khs`` to production workers and explicitly enable frozen mode.
 Generator checkpoints and standalone ``.khe`` payloads keep version 1, with
 the new batch fields always present. Earlier development layouts are not
 supported. Fingerprints cover the full sampling map, including BASIN's order.
-Integrator ``.khd`` files and their grid hashes are unchanged.
+BASIN ``.khd`` fingerprints cover the sampling map, rejecting data from a
+different grid or sampling order; VEGAS ``.khd`` files keep the grid hash.
+Data-file layouts may change during development; files must use the current
+layout.
+BASIN collects raw ``G`` without reversal reweighting or per-sample range bounds. Before
+refinement, ``adapt()`` checks all grid-cell sums and throws
+``std::overflow_error`` if any is non-finite. This failure leaves the grids,
+sampling order and pending data unchanged; call ``clear_data()`` to discard
+the invalid batch. Importing data with non-finite cell sums is also rejected.
+Data imports check both the integral and adaptation counts, throwing
+``std::overflow_error`` before changing the integrator if either merged count
+does not fit ``count_type``. Local sampling requires the configured count type to
+hold all cumulative evaluation counts.
+VEGAS and BASIN data include cumulative integral statistics for all pending
+collection batches. Snapshots saved during an iteration include all completed
+samples. Callbacks may save data or call ``clear_data()`` between samples.
+Clearing discards the pending grid data and their integral statistics; later
+collection starts fresh, while the result returned by ``integrate()`` still
+includes all samples evaluated in that call. Callbacks must not adapt or
+reload the integrator while it collects. A non-finite sample in any pending
+batch carries over into these statistics, so merging the file fails. Calls with
+``adapt = false`` continue collecting, while ``frozen = true`` leaves pending
+data unchanged. BASIN ranks candidate parent choices by local factor gains
+strictly above ``min_gain`` (default ``0.03``). It assembles an acyclic temporary
+forest, then restores compatible original parents for unselected dimensions.
+Parents can themselves acquire a parent later in the same adaptation; reversed
+choices do not force them to remain roots. After each accepted choice, BASIN
+scores the completed forest using every changed factor, including any negative
+gain for a fallback root. It keeps the best completed forest whose summed gain
+exceeds ``min_gain``. Equal local gains retain dimension scan order.
+
+The sum is a first-order variance model: it omits interactions between factor
+changes and uses the grids before refinement. It does not guarantee lower
+variance on the next iteration or a globally best forest. Selection uses the
+existing grid sums without extra aggregate dimensions or retained samples.
 
 Common support types
 --------------------

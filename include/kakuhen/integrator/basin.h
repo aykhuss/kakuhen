@@ -12,11 +12,13 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <format>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -32,11 +34,11 @@ namespace kakuhen::integrator {
  * grid structure where each dimension's grid is conditioned on the value of
  * another, allowing it to adapt to complex integrand shapes.
  *
- * The algorithm first adapts one-dimensional marginal grids and then uses the
- * Earth Mover's Distance (EMD) to score the correlations between dimensions,
- * determining an optimal sampling order for subsequent iterations. This can
- * significantly improve efficiency for integrands with strong inter-dimensional
- * dependencies.
+ * Grid data provide local factor contributions to a first-order variance model.
+ * Each adaptation can change several parents, ranked by local gain, while keeping
+ * an acyclic sampling forest. All changed factors, including fallback roots,
+ * contribute to its score. The model omits interactions between changes and uses
+ * the grids before refinement, so it does not guarantee lower variance.
  *
  * @tparam NT The numeric traits for the integrator.
  * @tparam RNG The random number generator to use.
@@ -177,13 +179,16 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief Set the weight for smoothing the grid adaptation.
    *
+   * Below 2 the smoothing kernel `[1, w, 1]` flips an odd-even pattern of the
+   * bin widths, so the adaptation amplifies it instead of damping it.
+   *
    * @param weight_smooth The new value for the weight smoothing parameter;
-   *        must be finite and >= 1.
-   * @throws std::invalid_argument if `weight_smooth` is below 1 or not finite.
+   *        must be finite and >= 2.
+   * @throws std::invalid_argument if `weight_smooth` is below 2 or not finite.
    */
   inline void set_weight_smooth(const T& weight_smooth) {
-    if (!std::isfinite(weight_smooth) || weight_smooth < T(1)) {
-      throw std::invalid_argument("weight_smooth must be finite and >= 1");
+    if (!std::isfinite(weight_smooth) || weight_smooth < T(2)) {
+      throw std::invalid_argument("weight_smooth must be finite and >= 2");
     }
     weight_smooth_ = weight_smooth;
   }
@@ -197,24 +202,19 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Set the minimum score for dimension correlation.
+   * @brief set the minimum gain in the local first-order variance model
    *
-   * @param min_score The new value for the minimum score; must be in [0, 1).
-   * @throws std::invalid_argument if `min_score` is not in [0, 1) or not finite.
+   * @param min_gain fraction of current variance, required for candidate moves and the
+   *                 completed forest; >= 0, infinity keeps the order fixed
+   * @throws std::invalid_argument if `min_gain` is negative or NaN
    */
-  inline void set_min_score(const T& min_score) {
-    if (!std::isfinite(min_score) || min_score < T(0) || min_score >= T(1)) {
-      throw std::invalid_argument("min_score must be in [0, 1)");
-    }
-    min_score_ = min_score;
+  inline void set_min_gain(const T& min_gain) {
+    if (!(min_gain >= T(0))) throw std::invalid_argument("min_gain must be >= 0");
+    min_gain_ = min_gain;
   }
-  /*!
-   * @brief Get the minimum score for dimension correlation.
-   *
-   * @return The current value of the minimum score.
-   */
-  [[nodiscard]] inline T min_score() const noexcept {
-    return min_score_;
+  /// @brief minimum gain in the local first-order variance model
+  [[nodiscard]] inline T min_gain() const noexcept {
+    return min_gain_;
   }
 
   /*!
@@ -224,6 +224,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    */
   [[nodiscard]] inline kakuhen::util::Hash hash() const {
     return kakuhen::util::Hash().add(ndim_).add(ndiv1_).add(ndiv2_).add(grid_.data(), grid_.size());
+  }
+
+  /// @brief fingerprint of the sampling map (grid and order)
+  [[nodiscard]] inline kakuhen::util::HashValue_t map_hash() const {
+    return hash().add(order_.data(), order_.size()).value();
   }
 
   /*!
@@ -255,11 +260,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   template <typename I, typename ProgressCb = std::nullptr_t>
   int_acc_type integrate_impl(I& integrand, U neval, [[maybe_unused]] ProgressTracker& tracker,
                               [[maybe_unused]] ProgressCb&& progress_cb = nullptr) {
-    result_.reset();
+    int_acc_type result;
 
     Point<num_traits> point{ndim_, opts_.user_data.value_or(nullptr)};
     std::vector<T> u_buf(ndim_);
     cell_ctx_type cell({ndim_, 3});
+    // per dimension b: grid data G = (f w)^2 / w_b
+    std::vector<T> g(ndim_);
 
     const bool skip_accum = opts_.frozen.value_or(false);
     const bool strict_finite = opts_.strict_finite_integrand.value_or(false);
@@ -274,42 +281,18 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         throw std::runtime_error("integrate: non-finite integrand contribution");
       }
       const T fval2 = fval * fval;
-      result_.accumulate(fval, fval2);
+      result.accumulate(fval, fval2);
+      // pending stats keep every sample in step with the grid, so snapshots stay consistent
+      if (!skip_accum) result_.accumulate(fval, fval2);
       // a non-finite sample shows up in the result but must not corrupt the grid
       if (!skip_accum && std::isfinite(fval2)) {
-        /// accumulators for the grid
-        const T acc = fval2;
-        accumulator_count_++;
-        for (S idim = 0; idim < ndim_; ++idim) {
-          const S ig0 = cell(idim, 0);
-          accumulator0_(idim, ig0).accumulate(acc);
-          const S ig1 = ig0 / ndiv2_;
-          for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-            if (idim2 == idim) continue;
-            const T* row = &grid_(idim, idim2, ig1, 0);
-            const T x = point.x[idim2];
-            //> old implementations
-            // const T* it = std::lower_bound(row, row + ndiv2_, x);
-            // /// custom binary search
-            // // const auto comp = [](const T& a, const T& b) { return a < b; };
-            // // const T* it = kakuhen::util::algorithm::lower_bound(row, row + ndiv2_, x, comp);
-            // /// custom binary search with hint
-            // // const S ig2_hint = grid_vec[idim] / ndiv1_;
-            // // const T* it = kakuhen::util::algorithm::lower_bound_with_hint(row, row + ndiv2_,
-            // // row + ig2_hint, x, comp);
-            // const S ig2 = static_cast<S>(it - row);
-            //> new implementation for performance
-            // both give lower_bound on the sorted row; scan short rows, else branchless bisection
-            const auto ig2 = static_cast<S>(
-                ndiv2_ <= MAX_SCAN
-                    ? std::count_if(row, row + ndiv2_, [x](T edge) { return edge < x; })
-                    : util::algorithm::lower_bound(row, row + ndiv2_, x, std::less<>{}) - row);
-            assert(ig2 >= 0 && ig2 < ndiv2_);
-            assert(point.x[idim2] >= (ig2 > 0 ? grid_(idim, idim2, ig1, ig2 - 1) : T(0)));
-            assert(point.x[idim2] <= grid_(idim, idim2, ig1, ig2));
-            accumulator_(idim, idim2, ig1, ig2).accumulate(acc);
-          }
+        // Divide out b's actual factor for local candidate-factor comparisons.
+        for (S b = 0; b < ndim_; ++b) {
+          const T w = sampled_weight(b, cell);
+          g[b] = fval2 > T(0) ? fval2 / w : T(0);  // w = 0 implies f w = 0
         }
+        accumulator_count_++;
+        collect_grid(point, cell, g);
       }
 
       if constexpr (is_progress_callback_v<ProgressCb>) {
@@ -317,7 +300,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       }
     }  // for i
 
-    return result_;
+    return result;
   }
 
   /*!
@@ -351,17 +334,17 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       const S idim0 = order_(iord, 0);
       T rand = u[idim0];
       //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
-      const S ig0 = S(rand * ndiv0_);
+      const S ig0 = S(rand * T(ndiv0_));
       assert(ig0 >= 0 && ig0 < ndiv0_);
-      assert(rand * ndiv0_ >= T(ig0) && rand * ndiv0_ <= T(ig0 + 1));
+      assert(rand * T(ndiv0_) >= T(ig0) && rand * T(ndiv0_) <= T(ig0 + 1));
       //> map rand back to [ 0, 1 ]
-      rand = rand * ndiv0_ - T(ig0);
+      rand = rand * T(ndiv0_) - T(ig0);
       assert(rand >= T(0) && rand <= T(1));
       const T x_low = ig0 > 0 ? ordered_grid0_(iord, ig0 - 1) : T(0);
       const T x_upp = ordered_grid0_(iord, ig0);
       point.x[idim0] = x_low + rand * (x_upp - x_low);
       // point.x[idim0] = x_low * (T(1) - rand) + x_upp * rand;
-      point.weight *= ndiv0_ * (x_upp - x_low);
+      point.weight *= T(ndiv0_) * (x_upp - x_low);
       cell(idim0, 0) = ig0;
       cell(idim0, 1) = idim0;
       cell(idim0, 2) = ndiv2_;
@@ -381,19 +364,19 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       assert(ig1 >= 0 && ig1 < ndiv1_);
       T rand = u[idim2];
       //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
-      const S ig2 = S(rand * ndiv2_);
+      const S ig2 = S(rand * T(ndiv2_));
       assert(ig2 >= 0 && ig2 < ndiv2_);
-      assert(rand * ndiv2_ >= T(ig2) && rand * ndiv2_ <= T(ig2 + 1));
+      assert(rand * T(ndiv2_) >= T(ig2) && rand * T(ndiv2_) <= T(ig2 + 1));
       //> map rand back to [ 0, 1 ]
-      rand = rand * ndiv2_ - T(ig2);
+      rand = rand * T(ndiv2_) - T(ig2);
       assert(rand >= T(0) && rand <= T(1));
       const T x_low = ig2 > 0 ? ordered_grid_(iord, ig1, ig2 - 1) : T(0);
       const T x_upp = ordered_grid_(iord, ig1, ig2);
       const T x = x_low + rand * (x_upp - x_low);
       point.x[idim2] = x;
       // point.x[idim2] = x_low * (T(1) - rand) + x_upp * rand;
-      point.weight *= ndiv2_ * (x_upp - x_low);
-      cell(idim2, 0) = ndiv0_;  // looked up on demand
+      point.weight *= T(ndiv2_) * (x_upp - x_low);
+      cell(idim2, 0) = ndiv0_;  // looked up on demand (save compute)
       cell(idim2, 1) = idim1;
       cell(idim2, 2) = ig2;
     }  // for iord
@@ -440,6 +423,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       order_(idim, 1) = idim;
     }
     nblocks_ = sort_order(grid_, order_, ordered_grid_);
+    assert(nblocks_ == ndim_);
     /// also clear the accumulators
     clear_data();
   }
@@ -449,8 +433,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * This method performs the core BASIN update. It refines the diagonal
    * one-dimensional grids and the off-diagonal conditional grids from the
-   * accumulated squared weights, then recomputes the preferred dimension
-   * sampling order from the inferred correlations.
+   * accumulated squared weights, then selects a sampling forest from ranked local
+   * factor gains above `min_gain`. Completed forests include the costs of fallback
+   * roots. Scores use the original order, grids before refinement and all pending
+   * batches; their sum is a first-order model, not an exact variance prediction.
+   *
+   * @throws std::overflow_error if an accumulated grid-cell sum is non-finite.
+   *         In that case the grids, sampling order and pending data are unchanged;
+   *         call `clear_data()` to discard the invalid batch.
    */
   void adapt() {
     using kakuhen::ndarray::NDArray;
@@ -459,6 +449,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     if (accumulator_count_ <= U(0)) {
       std::cout << "no data collected for adaptation" << std::endl;
       return;
+    }
+
+    if (std::ranges::any_of(accumulator_,
+                            [](const auto& cell) { return !std::isfinite(cell.value()); })) {
+      throw std::overflow_error("adapt: non-finite grid-cell sum");
     }
 
     const T eps = T(10) * std::numeric_limits<T>::min();
@@ -478,6 +473,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     // merged grids for ndim2_ PDFs
     NDArray<T, S> grid_mrg({ndiv0_});
     S grid_mrg_size;
+    // local factor moment E[h^2 w_candidate/w_actual] / N for each block
+    NDArray<T, S> moment({ndim_, ndim_});
+    moment.fill(T(0));
 
     for (S idim1 = 0; idim1 < ndim_; ++idim1) {
       ///------------
@@ -493,7 +491,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         U nsum{0};
         for (S ig0 = 0; ig0 < ndiv0_; ++ig0) {
           nsum += accumulator0_(idim1, ig0).count();
-          d0val(ig0) = nrm * accumulator0_(idim1, ig0).value();
+          // d = G w with the weight w of this cell (before it is refined)
+          d0val(ig0) =
+              accumulator0_(idim1, ig0).value() * nrm * (T(ndiv0_) * width(&grid0_(idim1, 0), ig0));
+          moment(idim1, idim1) += d0val(ig0);
         }
         assert(nsum == accumulator_count_);
       }
@@ -550,10 +551,12 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           grid0_new(ig0_new) = T(1);
           ig0_new++;
         }
+      } else {
+        std::copy_n(&grid0_(idim1, 0), ndiv0_, grid0_new.data());
       }
       grid0_new(ndiv0_ - 1) = T(1);
 
-      assert(grid0_new(0) > T(0));
+      assert(grid0_new(0) >= T(0));
       for (S ig0 = 1; ig0 < ndiv0_; ++ig0)
         assert(grid0_new(ig0) >= grid0_new(ig0 - 1));
 
@@ -565,13 +568,14 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
           const T x1_low = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
           const T x1_upp = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
+          if (x1_low == x1_upp) continue;  // a rounded zero-width coarse cell has no overlap
           if (x1_low > x1_upp_new) break;
           if (x1_upp < x1_low_new) continue;
           /// new & old have non-vanishing overlap
           const T rat =
               (util::math::min(x1_upp_new, x1_upp) - util::math::max(x1_low_new, x1_low)) /
               (x1_upp - x1_low);
-          assert(rat >= 0. && rat <= 1.);
+          assert(rat >= T(0) && rat <= T(1));
           wgt11(ig1_new, ig1) = rat;
         }
       }  // for ig1_new
@@ -600,8 +604,11 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
         ///------------
         for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
           /// initialize raw sub-grid weights
+          const T* row = &grid_(idim1, idim2, ig1, 0);
           for (S ig2 = 0; ig2 < ndiv2_; ++ig2) {
-            d12val(ig1, ig2) = nrm * accumulator_(idim1, idim2, ig1, ig2).value();
+            d12val(ig1, ig2) =
+                accumulator_(idim1, idim2, ig1, ig2).value() * nrm * (T(ndiv2_) * width(row, ig2));
+            moment(idim1, idim2) += d12val(ig1, ig2);
           }  // for ig2
 
           /// smooth the raw weights
@@ -653,7 +660,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
           std::sort(grid_mrg.data(), grid_mrg.data() + grid_mrg_size);
           /// consistency checks
           if (grid_mrg_size > 0) {
-            assert(grid_mrg(0) > T(0));
+            assert(grid_mrg(0) >= T(0));
             assert(grid_mrg(grid_mrg_size - 1) == T(1));
             for (S ig_mrg = 1; ig_mrg < grid_mrg_size; ++ig_mrg)
               assert(grid_mrg(ig_mrg - 1) <= grid_mrg(ig_mrg));
@@ -716,10 +723,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
               grid12_new(ig1_new, ig2_new) = T(1);
               ig2_new++;
             }
+          } else {
+            // Tiny/empty overlaps or underflowed damping give no usable refinement weights.
+            std::copy_n(&grid_(idim1, idim2, ig1_new, 0), ndiv2_, &grid12_new(ig1_new, 0));
           }
           grid12_new(ig1_new, ndiv2_ - 1) = T(1);
 
-          assert(grid12_new(ig1_new, 0) > T(0));
+          assert(grid12_new(ig1_new, 0) >= T(0));
           for (S ig2 = 1; ig2 < ndiv2_; ++ig2)
             assert(grid12_new(ig1_new, ig2) >= grid12_new(ig1_new, ig2 - 1));
 
@@ -733,102 +743,20 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }  // for idim1
 
     ///------------
-    /// (3)  determine the sampling order
+    /// (3)  apply compatible sampling-order steps ranked by local gain
     ///------------
-    NDArray<T, S> scores({ndim_, ndim_});
-
-    /// (a)  find the scores for each pair of dimensions
-    scores.fill(T(0));
-    for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-      scores(idim1, idim1) = T(1);  // positive number to signal that this dimension is still active
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        if (idim1 == idim2) continue;
-        for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-          scores(idim1, idim2) += emd(grid_.slice({{idim2}, {idim2}, {}, {}}).reshape({ndiv0_}),
-                                      grid_.slice({{idim1}, {idim2}, {ig1}, {}}).reshape({ndiv2_}));
-        }
-        scores(idim1, idim2) /= T(ndiv1_);
-      }  // for idim2
-    }  // for idim1
-
-    /// (b)  determine the order from the scores
-    for (S iord = 0; iord < ndim_; ++iord) {
-      T max_score = T(-1);
-      S max_idim1 = ndim_;  // invalid value for init (-1: not allowed as unsigned)
-      S max_idim2 = ndim_;
-
-      /// find highest avg score
-      for (S idim1 = 0; idim1 < ndim_; ++idim1) {
-        if (scores(idim1, idim1) <= T(0)) continue;  // already selected
-        T avg_score = T(0);
-        S count = 0;
-        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-          if (idim1 == idim2) continue;
-          if (scores(idim1, idim2) <= T(0)) continue;
-          avg_score += scores(idim1, idim2);
-          count++;
-        }
-        /// we need to penalize sampling of new dimensions
-        if (count > 0) avg_score /= penalty_fac_score_ * T(count);
-        if (avg_score > max_score) {
-          max_score = avg_score;
-          max_idim1 = idim1;
-          max_idim2 = idim1;
-        }
-      }  // for idim1
-
-      /// find highest score w.r.t. already sampled dimensions
-      for (S ichk = 0; ichk < iord; ++ichk) {
-        const S idim1 = order_(ichk, 1);  // idim1 is an idim2 of a previous step
-        for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-          if (idim1 == idim2) continue;
-          if (scores(idim1, idim2) < min_score_) {
-            continue;
-          }
-          if (scores(idim1, idim2) > max_score) {
-            max_score = scores(idim1, idim2);
-            max_idim1 = idim1;
-            max_idim2 = idim2;
-          }
-        }
-      }
-
-      /// register the order and invalidate the scores
-      order_(iord, 0) = max_idim1;
-      order_(iord, 1) = max_idim2;
-      scores(max_idim2, max_idim2) = T(-1);
-      for (S idim = 0; idim < ndim_; ++idim) {
-        scores(idim, max_idim2) = T(-1);
-      }
-
-    }  // for iord
-
+    update_order(moment);
     nblocks_ = sort_order(grid_, order_, ordered_grid_);
 
-#ifndef NDEBUG
-    /// verify that the order covers every dimension
-    bool all_dimensions_covered = true;
-    for (S idim = 0; idim < ndim_; ++idim) {
-      bool covered = false;
-      for (S iord = 0; iord < ndim_; ++iord) {
-        if (order_(iord, 1) == idim) {
-          covered = true;
-          break;
-        }
-      }
-      if (!covered) {
-        all_dimensions_covered = false;
-        std::cout << "Dimension " << idim << " not covered in order\n";
-      }
-    }
-    assert(all_dimensions_covered);
-#endif
     /// clear the accumulators to prepare for the next iteration
     clear_data();
   }  // adpat
 
   /*!
-   * @brief Clears accumulated grid statistics and the current iteration result.
+   * @brief Clears the pending grid data and their integral statistics.
+   *
+   * May be called between samples, including from a progress callback. The
+   * result returned by the current `integrate()` call still includes all samples.
    */
   void clear_data() {
     accumulator_count_ = U(0);
@@ -955,12 +883,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     prt.template begin<C::ARRAY>("grid1d");
     prt.break_line();
     {
-      std::vector<S> dims(1);
       for (S idim = 0; idim < ndim_; ++idim) {
-        dims = {idim};
         prt.template begin<C::OBJECT>();
         {
-          prt.print_array("dims", dims);
+          prt.print_array("dims", std::array{idim});
           prt.print_array("grid", &grid0_(idim, 0), ndiv0_, {T(0)});
         }
         prt.template end<C::OBJECT>(true);
@@ -971,19 +897,16 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     prt.template begin<C::ARRAY>("grid2d");
     prt.break_line();
     {
-      std::vector<S> dims(2);
-      std::vector<T> bin1(2);
       for (S idim1 = 0; idim1 < ndim_; ++idim1) {
         for (S idim2 = 0; idim2 < ndim_; ++idim2) {
           if (idim1 == idim2) continue;
-          dims = {idim1, idim2};
           prt.template begin<C::OBJECT>();
           {
-            prt.print_array("dims", dims);
+            prt.print_array("dims", std::array{idim1, idim2});
             prt.template begin<C::ARRAY>("grid");
             for (S ig1 = 0; ig1 < ndiv1_; ++ig1) {
-              bin1.at(0) = ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0);
-              bin1.at(1) = grid0_(idim1, (ig1 + 1) * ndiv2_ - 1);
+              const std::array bin1{ig1 > 0 ? grid0_(idim1, ig1 * ndiv2_ - 1) : T(0),
+                                    grid0_(idim1, (ig1 + 1) * ndiv2_ - 1)};
               prt.template begin<C::ARRAY>();
               prt.print_array({}, bin1);
               prt.print_array({}, &grid_(idim1, idim2, ig1, 0), ndiv2_, {T(0)});
@@ -999,13 +922,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     /// dimension sampling information
     prt.template begin<C::ARRAY>("order");
     prt.break_line();
-    {
-      std::vector<S> dep(2);
-      for (S iord = 0; iord < ndim_; ++iord) {
-        dep = {order_(iord, 0), order_(iord, 1)};
-        prt.print_array({}, &order_(iord, 0), 2);
-      }  // end for iord
-    }
+    for (S iord = 0; iord < ndim_; ++iord) {
+      prt.print_array({}, &order_(iord, 0), 2);
+    }  // end for iord
     prt.template end<C::ARRAY>(true);
   }
 
@@ -1078,7 +997,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief Writes accumulated data to a stream.
+   * @brief Writes pending grid data and their cumulative integral statistics to a stream.
    * @param out The output stream.
    */
   void write_data_stream(std::ostream& out) const {
@@ -1087,7 +1006,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     serialize_one<S>(out, ndim_);
     serialize_one<S>(out, ndiv1_);
     serialize_one<S>(out, ndiv2_);
-    serialize_one<kakuhen::util::HashValue_t>(out, hash().value());
+    serialize_one<kakuhen::util::HashValue_t>(out, map_hash());
     result_.serialize(out);
     serialize_one<U>(out, accumulator_count_);
     accumulator_.serialize(out);
@@ -1097,8 +1016,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Reads accumulated data from a stream into an integrator without data.
    * @param in The input stream.
    * @throws std::runtime_error if the integrator already holds data, or if the stream is
-   *         truncated, corrupt, or incompatible with the current grid.
-   * @throws std::overflow_error if the sums or counts overflow.
+   *         truncated, corrupt, or incompatible with the current sampling map.
+   * @throws std::overflow_error if the sums overflow.
    */
   void read_data_stream(std::istream& in) {
     // a zero adaptation count implies empty grid accumulators
@@ -1112,9 +1031,9 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Accumulates data from a stream into the current integrator.
    * @param in The input stream.
    * @throws std::runtime_error if the stream is truncated, corrupt, or
-   *         incompatible with the current grid; grid accumulators must be
+   *         incompatible with the current sampling map; grid accumulators must be
    *         finite and non-negative.
-   * @throws std::overflow_error if the merged sums or counts overflow.
+   * @throws std::overflow_error if the merged counts or sums overflow.
    * On a throw, the accumulated data is left unchanged.
    */
   void accumulate_data_stream(std::istream& in) {
@@ -1127,13 +1046,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       throw std::runtime_error("incompatible data (grid dimensions mismatch)");
     }
     // every (idim1, idim2) block of ndiv1 * ndiv2 cells holds one entry per adaptation sample
-    detail::merge_data_stream(in, hash().value(), result_, accumulator_count_, accumulator_,
-                              ndiv0_);
+    detail::merge_data_stream(in, map_hash(), result_, accumulator_count_, accumulator_, ndiv0_);
   }
 
   /// @}
 
  protected:
+  /// integral statistics of the pending data, in step with the grid accumulators
   int_acc_type result_;
 
   /// division for conditional PDF:  P(x2|x1)
@@ -1152,16 +1071,153 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
  private:
   /// parameters that controls the grid refinement
   T alpha_{0.75};
-  T weight_smooth_{3};
-  T min_score_{0.05};
-  T penalty_fac_score_{2};
+  T weight_smooth_{6};  // default of the Vegas implementation
+  T min_gain_{T(0.03)};
 
-  /// longest row searched by a (vectorized) linear scan; crossover vs bisection ~32-48 on M1
+  /// longest row searched by a (vectorized) linear scan; crossover vs bisection ~32-48 on my M1pro
   static constexpr S MAX_SCAN = 32;
 
   U accumulator_count_{0};
+  /// per cell sum of G = (f w)^2 / w_b, with w_b the weight of the cell's dimension b as sampled
   ndarray::NDArray<grid_acc_type, S> accumulator_;
   ndarray::NDView<grid_acc_type, S> accumulator0_;
+
+  void collect_grid(const point_type& point, const cell_ctx_type& cell, std::span<const T> g) {
+    for (S idim = 0; idim < ndim_; ++idim) {
+      const S ig0 = cell(idim, 0);
+      accumulator0_(idim, ig0).accumulate(g[idim]);
+      const S ig1 = ig0 / ndiv2_;
+      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
+        if (idim2 == idim) continue;
+        const T* row = &grid_(idim, idim2, ig1, 0);
+        const T x = point.x[idim2];
+        //> reuse the sampled bin on active rows, even when x rounds to its lower edge.
+        //> for passive rows, scan short rows and bisect longer ones.
+        const S ig2 =
+            cell(idim2, 1) == idim
+                ? cell(idim2, 2)
+                : static_cast<S>(
+                      ndiv2_ <= MAX_SCAN
+                          ? std::count_if(row, row + ndiv2_, [x](T edge) { return edge < x; })
+                          : util::algorithm::lower_bound(row, row + ndiv2_, x, std::less<>{}) -
+                                row);
+        assert(ig2 < ndiv2_);
+        assert(x >= (ig2 > 0 ? row[ig2 - 1] : T(0)) && x <= row[ig2]);
+        accumulator_(idim, idim2, ig1, ig2).accumulate(g[idim2]);
+      }
+    }
+  }
+
+  /// width of bin `i` of a grid row
+  [[nodiscard]] static T width(const T* row, S i) noexcept {
+    return row[i] - (i > 0 ? row[i - 1] : T(0));
+  }
+
+  [[nodiscard]] T sampled_weight(S b, const cell_ctx_type& cell) const noexcept {
+    const S a = cell(b, 1);
+    return a == b ? T(ndiv0_) * width(&grid0_(b, 0), cell(b, 0))
+                  : T(ndiv2_) * width(&grid_(a, b, cell(a, 0) / ndiv2_, 0), cell(b, 2));
+  }
+
+  /// parent of each dimension in the sampling forest (roots are their own parent)
+  [[nodiscard]] std::vector<S> parents() const {
+    std::vector<S> parent(ndim_);
+    for (S i = 0; i < ndim_; ++i)
+      parent[order_(i, 1)] = order_(i, 0);
+    return parent;
+  }
+
+  /*!
+   * @brief choose a forest from ranked local factor gains
+   *
+   * `moment(a, b)` estimates E[h^2 w_ab/w_b] / N under the original sampling map.
+   * Its difference from the active block is b's contribution to a first-order
+   * model. Reversed pairs use the same raw G, without assuming a becomes a root.
+   * Build an acyclic forest from qualifying moves, then restore compatible old
+   * parents for unselected dimensions. Keep the best completed forest encountered,
+   * including every changed factor's score, rather than treating forced roots as
+   * free. Equal gains retain dimension scan order. The model omits interactions
+   * between factor changes and uses pre-refinement grids.
+   */
+  void update_order(const ndarray::NDArray<T, S>& moment) {
+    //> non-finite samples are excluded from the grids; their batches cannot predict an order.
+    if (result_.count() != accumulator_count_ || !result_.is_finite()) return;
+    const auto original = parents();
+    const T mean = result_.value();
+    //> every active block reconstructs the same current second moment: pick 0
+    const T var = moment(original[0], 0) - mean * mean / T(accumulator_count_);
+    if (!(var > T(0))) return;  // nothing to gain (or no finite estimate)
+
+    //> the *relative* gain in switching the local sampling from
+    //> `original[chld] -> chld` to `prnt -> chld`
+    const auto local_gain = [&](S prnt, S chld) {
+      return (moment(original[chld], chld) - moment(prnt, chld)) / var;
+    };
+
+    //> collect all possible moves that give me a positive gain (above threshold)
+    struct Move {
+      S prnt, chld;
+      T gain;
+    };
+    std::vector<Move> moves;
+    for (S chld = 0; chld < ndim_; ++chld) {
+      for (S prnt = 0; prnt < ndim_; ++prnt) {
+        if (prnt == original[chld]) continue;
+        const T gain = local_gain(prnt, chld);
+        if (gain > min_gain_) moves.push_back({prnt, chld, gain});
+      }
+    }
+    if (moves.empty()) return;
+    std::ranges::stable_sort(moves, std::greater{}, &Move::gain);
+
+    //> function to check whether adding `prnt -> chld` would create a cycle
+    //> orderings are forests so cycles are invalid
+    const auto creates_cycle = [](std::span<const S> forest, S prnt, S chld) {
+      if (prnt == chld) return false;  // diagonal sampling: always ok
+      //> if prnt is a descendant of chld, we have a cycle
+      S ancestor = prnt;
+      while (ancestor != chld && forest[ancestor] != ancestor)
+        ancestor = forest[ancestor];
+      return ancestor == chld;
+    };
+
+    std::vector<S> partial(ndim_);
+    std::iota(partial.begin(), partial.end(), S{0});  // start with only roots
+    std::vector<bool> chosen(ndim_, false);  // track already picked dimensions
+    std::vector<S> candidate(ndim_);
+    std::vector<S> best;
+    T best_gain = min_gain_;
+    for (const auto& move : moves) {
+      if (chosen[move.chld] || creates_cycle(partial, move.prnt, move.chld)) continue;
+      partial[move.chld] = move.prnt;
+      chosen[move.chld] = true;
+      candidate = partial;
+      //> complete this prefix with old edges in their original root-to-leaf order.
+      for (S i = 0; i < ndim_; ++i) {
+        const S dim = order_(i, 1), prnt = original[dim];
+        if (!chosen[dim] && !creates_cycle(candidate, prnt, dim)) candidate[dim] = prnt;
+      }
+      T gain = T(0);
+      for (S dim = 0; dim < ndim_; ++dim) {
+        if (candidate[dim] != original[dim]) gain += local_gain(candidate[dim], dim);
+      }
+      if (gain > best_gain) {
+        best_gain = gain;
+        best = candidate;
+      }
+    }
+    if (best.empty()) return;
+    for (S dim = 0; dim < ndim_; ++dim) {
+      order_(dim, 0) = best[dim];
+      order_(dim, 1) = dim;
+      if (best[dim] != original[dim] && opts_.verbosity.value_or(0) > 0) {
+        const auto sampling =
+            best[dim] == dim ? std::string("diagonal") : std::format("given {}", best[dim]);
+        std::cout << std::format("Sampling order: dimension {} {}, local variance score {:+.1f}%\n",
+                                 dim, sampling, -100 * local_gain(best[dim], dim));
+      }
+    }
+  }
 
   /// cell `ig0` of `x` in the diagonal grid of `idim`
   [[nodiscard]] S diag_cell(S idim, T x) const {
@@ -1175,7 +1231,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @brief Validates and sorts a sampling order, and builds the matching ordered grid.
    *
    * The order is a forest: every dimension has exactly one parent, and the roots
-   * (`from == to`) are the diagonal samplings. They come first, sorted by
+   * (`prnt == chld`) are the diagonal samplings. They come first, sorted by
    * dimension, followed by the conditional samplings in breadth-first order with
    * children sorted by dimension. All validation completes before the output
    * arrays are modified.
@@ -1190,29 +1246,29 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
                       ndarray::NDArray<T, S>& ordered_grid) {
     const S ndim = grid.shape()[0];
     const S ndiv0 = grid.shape()[2] * grid.shape()[3];
-    std::vector<S> parent(ndim, ndim);  // `ndim` marks a missing parent
+    std::vector<S> prnts(ndim, ndim);  // `ndim` marks a missing parent
     for (S i = 0; i < ndim; ++i) {
-      const S from = order(i, 0), to = order(i, 1);
-      if (from >= ndim || to >= ndim || parent[to] != ndim) {
+      const S prnt = order(i, 0), chld = order(i, 1);
+      if (prnt >= ndim || chld >= ndim || prnts[chld] != ndim) {
         throw std::runtime_error("invalid sampling order");
       }
-      parent[to] = from;
+      prnts[chld] = prnt;
     }
     ndarray::NDArray<S, S> sorted(order.shape());
     S size = 0;
-    const auto push = [&](S from, S to) {
-      sorted(size, 0) = from;
-      sorted(size, 1) = to;
+    const auto push = [&](S prnt, S chld) {
+      sorted(size, 0) = prnt;
+      sorted(size, 1) = chld;
       ++size;
     };
     for (S dim = 0; dim < ndim; ++dim) {
-      if (parent[dim] == dim) push(dim, dim);
+      if (prnts[dim] == dim) push(dim, dim);
     }
     const S nblocks = size;
-    for (S i = 0; i < size; ++i) {  // `size` grows while the forest is traversed
-      const S from = sorted(i, 1);
-      for (S to = 0; to < ndim; ++to) {
-        if (to != from && parent[to] == from) push(from, to);
+    for (S i = 0; i < size; ++i) {  // `size` grows while the trees grow
+      const S prnt = sorted(i, 1);
+      for (S chld = 0; chld < ndim; ++chld) {
+        if (chld != prnt && prnts[chld] == prnt) push(prnt, chld);
       }
     }
     if (size != ndim) {
@@ -1223,96 +1279,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     }
     order = std::move(sorted);
     return nblocks;
-  }
-
-  /*!
-   * @brief Computes the Earth Mover's Distance (EMD) between two 1D grids.
-   *
-   * This function calculates the Wasserstein-1 distance between two probability
-   * distributions represented by their cumulative grid boundaries. The grids
-   * are assumed to span [0, 1] and be monotonically increasing.
-   *
-   * @param grid1 The first grid view (must be 1D).
-   * @param grid2 The second grid view (must be 1D).
-   * @return The Earth Mover's Distance between the two distributions.
-   */
-  [[nodiscard]] T emd(const kakuhen::ndarray::NDView<T, S>& grid1,
-                      const kakuhen::ndarray::NDView<T, S>& grid2) const {
-    assert(grid1.ndim() == 1 && grid2.ndim() == 1);
-
-    T emd_val = 0;
-
-    S ig1 = 0;
-    S ig2 = 0;
-    T cdf1 = 0;
-    T cdf2 = 0;
-    T x = 0;
-
-    //> nested
-    while (ig1 < grid1.size() && ig2 < grid2.size()) {
-      assert(ig1 > 0 ? grid1(ig1) >= grid1(ig1 - 1) : grid1(ig1) >= 0);
-      assert(ig2 > 0 ? grid2(ig2) >= grid2(ig2 - 1) : grid2(ig2) >= 0);
-
-      T x_nxt = 0;
-      T cdf1_nxt = 0;
-      T cdf2_nxt = 0;
-      bool advance_ig1 = false;
-      bool advance_ig2 = false;
-
-      if (grid1(ig1) < grid2(ig2)) {
-        x_nxt = grid1(ig1);
-        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
-        const T x2_low = ig2 > 0 ? grid2(ig2 - 1) : T(0);
-        const T x2_upp = grid2(ig2);
-        assert(x_nxt >= x2_low && x_nxt <= x2_upp);
-        cdf2_nxt = (ig2 + (x_nxt - x2_low) / (x2_upp - x2_low)) / T(grid2.size());
-        advance_ig1 = true;
-      } else if (grid1(ig1) > grid2(ig2)) {
-        x_nxt = grid2(ig2);
-        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
-        const T x1_low = ig1 > 0 ? grid1(ig1 - 1) : T(0);
-        const T x1_upp = grid1(ig1);
-        assert(x_nxt >= x1_low && x_nxt <= x1_upp);
-        cdf1_nxt = (ig1 + (x_nxt - x1_low) / (x1_upp - x1_low)) / T(grid1.size());
-        advance_ig2 = true;
-      } else {
-        // equal
-        x_nxt = grid1(ig1);
-        cdf1_nxt = T(ig1 + 1) / T(grid1.size());
-        cdf2_nxt = T(ig2 + 1) / T(grid2.size());
-        advance_ig1 = true;
-        advance_ig2 = true;
-      }
-      assert(x_nxt >= x);
-
-      //> accumulate EMD; need to check for sign flips
-      const T dcdf = cdf1 - cdf2;
-      const T dcdf_nxt = cdf1_nxt - cdf2_nxt;
-      bool sign_flip = dcdf * dcdf_nxt < T(0);
-      if (!sign_flip) {
-        /// no sign flip; just accumulate
-        emd_val += 0.5 * util::math::abs(dcdf + dcdf_nxt) * (x_nxt - x);
-      } else {
-        /// sign flip; need to find the crossing point
-        const T x_cross = (dcdf * x_nxt - dcdf_nxt * x) / (dcdf - dcdf_nxt);
-        assert(x_cross >= x && x_cross <= x_nxt);
-        // accumulate two triangles
-        emd_val += 0.5 * util::math::abs(dcdf) * (x_cross - x) +
-                   0.5 * util::math::abs(dcdf_nxt) * (x_nxt - x_cross);
-      }
-
-      x = x_nxt;
-      cdf1 = cdf1_nxt;
-      cdf2 = cdf2_nxt;
-      if (advance_ig1) ig1++;
-      if (advance_ig2) ig2++;
-    }  // while
-
-    //> since both grids must end with a `1`, better not have any remainders
-    assert(ig1 == grid1.size() && grid1(ig1 - 1) == T(1));
-    assert(ig2 == grid2.size() && grid2(ig2 - 1) == T(1));
-
-    return emd_val;
   }
 };
 
