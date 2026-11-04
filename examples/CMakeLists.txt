@@ -7,6 +7,7 @@ set(EXAMPLES
   example_generator_benchmark
   example_generate_n_events
   example_benchmark
+  example_integration_benchmark
   example_live_progress
   # example_mapping
   # plot_data
