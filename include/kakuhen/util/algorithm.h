@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
+#include <utility>
 
 namespace kakuhen::util::algorithm {
 
@@ -9,10 +11,13 @@ namespace kakuhen::util::algorithm {
  * @brief Algorithms and utilities.
  */
 
+/// longest range searched by a (vectorized) linear scan; crossover vs bisection ~32-48 on my M1pro
+inline constexpr std::size_t MAX_SCAN = 32;
+
 /**
  * @brief Index of the first element for which `before` is false.
  *
- * Scans ranges of at most 32 elements; uses staircase search for longer ranges.
+ * Scans ranges of at most `MAX_SCAN` elements; uses staircase search for longer ranges.
  * Requires random-access iterators and a range partitioned with predicate-true
  * elements before predicate-false elements. Returns `last - first` if all pass.
  */
@@ -20,7 +25,7 @@ template <class RandomIt, class Predicate>
 [[nodiscard]] constexpr auto partition_point_index(RandomIt first, RandomIt last,
                                                    Predicate before) {
   auto length = last - first;
-  if (length <= 32) return std::count_if(first, last, before);
+  if (std::cmp_less_equal(length, MAX_SCAN)) return std::count_if(first, last, before);
   const auto begin = first;
   while (length > 0) {
     const auto half = length / 2;

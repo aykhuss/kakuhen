@@ -12,7 +12,6 @@
 #include <array>
 #include <cassert>
 #include <cmath>
-#include <concepts>
 #include <cstddef>
 #include <format>
 #include <functional>
@@ -34,11 +33,8 @@ namespace kakuhen::integrator {
  * grid structure where each dimension's grid is conditioned on the value of
  * another, allowing it to adapt to complex integrand shapes.
  *
- * Grid data provide local factor contributions to a first-order variance model.
- * Each adaptation can change several parents, ranked by local gain, while keeping
- * an acyclic sampling forest. All changed factors, including fallback roots,
- * contribute to its score. The model omits interactions between changes and uses
- * the grids before refinement, so it does not guarantee lower variance.
+ * Each adaptation also updates the sampling order, a forest of dimension
+ * dependencies, from local variance gains predicted by the grid data.
  *
  * @tparam NT The numeric traits for the integrator.
  * @tparam RNG The random number generator to use.
@@ -202,7 +198,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   }
 
   /*!
-   * @brief set the minimum gain in the local first-order variance model
+   * @brief set the minimum local variance gain to change the sampling order
    *
    * @param min_gain fraction of current variance, required for candidate moves and the
    *                 completed forest; >= 0, infinity keeps the order fixed
@@ -212,7 +208,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     if (!(min_gain >= T(0))) throw std::invalid_argument("min_gain must be >= 0");
     min_gain_ = min_gain;
   }
-  /// @brief minimum gain in the local first-order variance model
+  /// @brief minimum local variance gain to change the sampling order
   [[nodiscard]] inline T min_gain() const noexcept {
     return min_gain_;
   }
@@ -286,7 +282,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       if (!skip_accum) result_.accumulate(fval, fval2);
       // a non-finite sample shows up in the result but must not corrupt the grid
       if (!skip_accum && std::isfinite(fval2)) {
-        // Divide out b's actual factor for local candidate-factor comparisons.
+        // divide out b's sampled factor to compare candidate factors locally
         for (S b = 0; b < ndim_; ++b) {
           const T w = sampled_weight(b, cell);
           g[b] = fval2 > T(0) ? fval2 / w : T(0);  // w = 0 implies f w = 0
@@ -433,10 +429,8 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    *
    * This method performs the core BASIN update. It refines the diagonal
    * one-dimensional grids and the off-diagonal conditional grids from the
-   * accumulated squared weights, then selects a sampling forest from ranked local
-   * factor gains above `min_gain`. Completed forests include the costs of fallback
-   * roots. Scores use the original order, grids before refinement and all pending
-   * batches; their sum is a first-order model, not an exact variance prediction.
+   * accumulated squared weights, then updates the sampling order from the local
+   * variance gains above `min_gain`.
    *
    * @throws std::overflow_error if an accumulated grid-cell sum is non-finite.
    *         In that case the grids, sampling order and pending data are unchanged;
@@ -724,7 +718,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
               ig2_new++;
             }
           } else {
-            // Tiny/empty overlaps or underflowed damping give no usable refinement weights.
+            // tiny/empty overlaps or underflowed damping leave no usable weights; keep the row
             std::copy_n(&grid_(idim1, idim2, ig1_new, 0), ndiv2_, &grid12_new(ig1_new, 0));
           }
           grid12_new(ig1_new, ndiv2_ - 1) = T(1);
@@ -1074,9 +1068,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   T weight_smooth_{6};  // default of the Vegas implementation
   T min_gain_{T(0.03)};
 
-  /// longest row searched by a (vectorized) linear scan; crossover vs bisection ~32-48 on my M1pro
-  static constexpr S MAX_SCAN = 32;
-
   U accumulator_count_{0};
   /// per cell sum of G = (f w)^2 / w_b, with w_b the weight of the cell's dimension b as sampled
   ndarray::NDArray<grid_acc_type, S> accumulator_;
@@ -1097,7 +1088,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
             cell(idim2, 1) == idim
                 ? cell(idim2, 2)
                 : static_cast<S>(
-                      ndiv2_ <= MAX_SCAN
+                      ndiv2_ <= util::algorithm::MAX_SCAN
                           ? std::count_if(row, row + ndiv2_, [x](T edge) { return edge < x; })
                           : util::algorithm::lower_bound(row, row + ndiv2_, x, std::less<>{}) -
                                 row);
@@ -1130,14 +1121,17 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   /*!
    * @brief choose a forest from ranked local factor gains
    *
-   * `moment(a, b)` estimates E[h^2 w_ab/w_b] / N under the original sampling map.
-   * Its difference from the active block is b's contribution to a first-order
-   * model. Reversed pairs use the same raw G, without assuming a becomes a root.
-   * Build an acyclic forest from qualifying moves, then restore compatible old
-   * parents for unselected dimensions. Keep the best completed forest encountered,
-   * including every changed factor's score, rather than treating forced roots as
-   * free. Equal gains retain dimension scan order. The model omits interactions
-   * between factor changes and uses pre-refinement grids.
+   * `moment(a, b)` estimates E[h^2 w_ab/w_b] / N under the original sampling map,
+   * from all pending batches. Its difference from the active block is b's
+   * contribution to a first-order variance model. Reversed pairs use the same raw
+   * G, without assuming a becomes a root. Build an acyclic forest from qualifying
+   * moves, then restore compatible old parents for unselected dimensions. Keep the
+   * best completed forest encountered, including every changed factor's score,
+   * rather than treating forced roots as free. Equal gains retain dimension scan
+   * order.
+   *
+   * The model omits interactions between factor changes and uses the grids before
+   * refinement, so the chosen order does not guarantee a lower variance.
    */
   void update_order(const ndarray::NDArray<T, S>& moment) {
     //> non-finite samples are excluded from the grids; their batches cannot predict an order.

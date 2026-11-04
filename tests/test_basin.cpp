@@ -221,11 +221,10 @@ TEST_CASE("Basin order decisions use all collected batches", "[basin]") {
   REQUIRE(batched.map_hash() == whole.map_hash());
 }
 
-TEMPLATE_TEST_CASE("Basin collects finite grid data beyond the former range bounds", "[basin]",
-                   double, float) {
+TEMPLATE_TEST_CASE("Basin collects large finite grid data", "[basin]", double, float) {
   using T = TestType;
   OrderedBasin<T> bas(1, 2, 2), loaded(1, 2, 2);
-  // Uniform weights are 1. The square fits T, but exceeds max(T) / 2^(max_exponent/4).
+  // uniform weights are 1; a large contribution whose square still fits T
   const T contribution = std::ldexp(T(1), std::numeric_limits<T>::max_exponent * 25 / 64);
   const auto result = bas.integrate([=](const auto&) { return contribution; },
                                     {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0});
@@ -294,8 +293,7 @@ TEMPLATE_TEST_CASE("Basin rejects overflowing cell sums at adaptation", "[basin]
   REQUIRE_THROWS_AS(bas.adapt(), std::overflow_error);
 }
 
-TEST_CASE("Basin collects finite local data when the former reversal ratio would overflow",
-          "[basin]") {
+TEST_CASE("Basin collects finite local data with subnormal conditional weights", "[basin]") {
   OrderedBasin bas(2, 2, 2);
   const int min_subnormal_exponent =
       std::numeric_limits<double>::min_exponent - std::numeric_limits<double>::digits;
@@ -309,7 +307,7 @@ TEST_CASE("Basin collects finite local data when the former reversal ratio would
   bas.integrate([=](const Point<>& p) { return contribution / p.weight; },
                 {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0});
 
-  // Raw G stays finite even though the former correction would form 0 * infinity.
+  // G_x underflows to zero, G_y stays finite
   REQUIRE(bas.result_.is_finite());
   REQUIRE(std::isfinite(bas.predicted_moment(0, 1)));
   REQUIRE(bas.predicted_moment(1, 0) == 0);

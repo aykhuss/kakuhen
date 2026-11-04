@@ -215,7 +215,8 @@ void measure(Integrator& integrator, Integrand& integrand, const Config& config,
             << ',' << config.bins << ',' << config.coarse << ',' << config.fine << ',' << seed
             << ',' << config.warmup_evals << ',' << config.warmup_iters << ',' << config.evals
             << ',' << config.iters << ',' << setup_s << ',' << warm_sample_s << ',' << warm_adapt_s
-            << ',' << sample_s << ',' << adapt_s << ',' << value << ',' << error << ',' << 1.0
+            << ',' << sample_s << ',' << adapt_s << ',' << value << ',' << error << ','
+            << 1.0  // exact: every case is normalized to one
             << ',' << blocks << ',' << pooled.value() << ',' << pooled.error() << '\n';
   std::cout.flush();
 }
@@ -224,22 +225,25 @@ template <typename Integrand>
 void run_case(const Config& config, const std::string& name, Size dimensions, Integrand integrand,
               Count repeat) {
   if (config.case_name != "all" && config.case_name != name) return;
-  const auto run = [&](bool basin) {
-    if (basin && config.algorithm != "vegas") {
-      const auto start = Clock::now();
-      Basin<> integrator(dimensions, config.coarse, config.fine);
-      const double setup_s = seconds_since(start);
-      measure(integrator, integrand, config, name, "basin", repeat, setup_s);
-    } else if (!basin && config.algorithm != "basin") {
-      const auto start = Clock::now();
-      Vegas<> integrator(dimensions, config.bins);
-      const double setup_s = seconds_since(start);
-      measure(integrator, integrand, config, name, "vegas", repeat, setup_s);
-    }
+  const auto run = [&](const char* algorithm, auto make_integrator) {
+    if (config.algorithm != "both" && config.algorithm != algorithm) return;
+    const auto start = Clock::now();
+    auto integrator = make_integrator();
+    const double setup_s = seconds_since(start);
+    measure(integrator, integrand, config, name, algorithm, repeat, setup_s);
+  };
+  const auto vegas = [&] { run("vegas", [&] { return Vegas<>(dimensions, config.bins); }); };
+  const auto basin = [&] {
+    run("basin", [&] { return Basin<>(dimensions, config.coarse, config.fine); });
   };
   // Alternate paired order to reduce systematic clock/temperature/order effects.
-  run(repeat % 2 != 0);
-  run(repeat % 2 == 0);
+  if (repeat % 2 == 0) {
+    vegas();
+    basin();
+  } else {
+    basin();
+    vegas();
+  }
 }
 
 Config parse_args(int argc, char** argv) {
@@ -249,7 +253,7 @@ Config parse_args(int argc, char** argv) {
     if (key == "--help") {
       std::cout << "Options (each takes one value):\n"
                    "  --case all|constant|smooth_8d|gaussian_8d|ridge_4d|multimodal_8d|"
-                   "discontinuous_4d|expensive_8d\n"
+                   "discontinuous_4d|expensive_8d (all excludes constant)\n"
                    "  --algorithm both|vegas|basin  --mode frozen|collect|adaptive\n"
                    "  --repeats 12  --seed 101  --warmup-evals 50000  --warmup-iters 6\n"
                    "  --evals 100000  --iters 4  --bins 128  --coarse 8  --fine 16\n"
@@ -302,7 +306,7 @@ Config parse_args(int argc, char** argv) {
   const std::vector<std::string> names{
       "all",      "constant",      "smooth_8d",        "gaussian_8d",
       "ridge_4d", "multimodal_8d", "discontinuous_4d", "expensive_8d"};
-  if (std::find(names.begin(), names.end(), config.case_name) == names.end() ||
+  if (std::ranges::find(names, config.case_name) == names.end() ||
       (config.algorithm != "both" && config.algorithm != "vegas" && config.algorithm != "basin") ||
       (config.mode != "frozen" && config.mode != "collect" && config.mode != "adaptive") ||
       config.repeats == 0 || config.iters == 0 || config.evals < 2 || config.warmup_evals < 2 ||

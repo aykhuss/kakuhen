@@ -6,6 +6,7 @@
 #include "kakuhen/integrator/point.h"
 #include "kakuhen/integrator/progress.h"
 #include "kakuhen/ndarray/ndarray.h"
+#include "kakuhen/util/algorithm.h"
 #include "kakuhen/util/hash.h"
 #include "kakuhen/util/math.h"
 #include "kakuhen/util/numeric_traits.h"
@@ -322,9 +323,9 @@ CDFDraw<T, S> sample_cdf(std::span<const T> cdf, T u) {
   // stay strictly below the total, else upper_bound returns end() (cell out of range)
   if (target >= cdf.back()) [[unlikely]]
     target = std::nextafter(cdf.back(), T(0));
-  // Scan short rows, counting ties to preserve upper_bound semantics.
+  // scan short rows; counting ties keeps upper_bound semantics
   const auto cell = static_cast<S>(
-      cdf.size() <= 32
+      cdf.size() <= util::algorithm::MAX_SCAN
           ? std::count_if(cdf.begin(), cdf.end(), [target](T edge) { return edge <= target; })
           : std::upper_bound(cdf.begin(), cdf.end(), target) - cdf.begin());
   const T low = cell == 0 ? T(0) : cdf[cell - 1];
@@ -762,7 +763,7 @@ class GeneratorBase : public Integrator {
       } else {
         // rejection sampling: accept with probability |f|/R
         const T r = derived().ran();
-        if (!(r * envelope_value < abs_fval)) {
+        if (r * envelope_value >= abs_fval) {
           continue;  // rejected: contributes 0, counted after the loop
         }
         event_weight = T(util::math::sgn(fval));

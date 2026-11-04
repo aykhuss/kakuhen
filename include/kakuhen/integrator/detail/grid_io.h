@@ -56,6 +56,9 @@ void validate_grid_row(std::span<const T> row) {
 template <typename IntAcc, std::unsigned_integral U, typename Cells>
 void merge_data_stream(std::istream& in, util::HashValue_t hash, IntAcc& result, U& count,
                        Cells& cells, typename Cells::size_type row_size) {
+  static_assert(std::same_as<typename IntAcc::count_type, U> &&
+                    std::same_as<typename Cells::value_type::count_type, U>,
+                "all counts must share the type the overflow checks are performed in");
   using util::serialize::deserialize_one;
   util::HashValue_t hash_in;
   deserialize_one(in, hash_in);
