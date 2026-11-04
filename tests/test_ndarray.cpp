@@ -28,6 +28,18 @@ TEST_CASE("NDArray fill and access", "[ndarray]") {
   REQUIRE(arr(1, 2, 0) == 23);
 }
 
+TEST_CASE("One-dimensional NDArray indexing agrees with contiguous storage", "[ndarray]") {
+  const std::array<std::string, 3> expected{"first", "middle", "last"};
+  kakuhen::ndarray::NDArray<std::string> arr({3});
+  for (std::uint32_t i = 0; i < arr.size(); ++i)
+    arr(i) = expected[i];
+  REQUIRE_THAT(arr, RangeEquals(expected));
+
+  const auto& const_arr = arr;
+  for (std::uint32_t i = 0; i < arr.size(); ++i)
+    REQUIRE(const_arr(i) == expected[i]);
+}
+
 TEST_CASE("NDView consistency", "[ndarray]") {
   using kakuhen::ndarray::_;
 

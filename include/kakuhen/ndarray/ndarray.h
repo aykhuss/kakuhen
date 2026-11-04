@@ -319,6 +319,7 @@ class NDArray {
                   "NDArray index operator must be called with at least one index");
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     constexpr std::size_t N = sizeof...(Indices);
+    constexpr std::size_t LAST = N == 0 ? 0 : N - 1;  // keep zero-index diagnostics well-formed
     assert(N == ndim_);
     assert(((indices >= 0) && ...));
     const auto idx = std::make_tuple(static_cast<S>(indices)...);
@@ -327,7 +328,10 @@ class NDArray {
     assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
            detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
 #endif
-    return data_[detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{})];
+    //> owned arrays have a final stride of one => save one multiplication
+    const auto prefix =
+        detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<LAST>{});
+    return (data_ + prefix)[std::get<LAST>(idx)];
   }
 
   /*!
@@ -339,8 +343,11 @@ class NDArray {
    */
   template <typename... Indices>
   const T& operator()(Indices... indices) const noexcept {
+    static_assert(sizeof...(Indices) > 0,
+                  "NDArray index operator must be called with at least one index");
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     constexpr std::size_t N = sizeof...(Indices);
+    constexpr std::size_t LAST = N == 0 ? 0 : N - 1;  // keep zero-index diagnostics well-formed
     assert(N == ndim_);
     assert(((indices >= 0) && ...));
     const auto idx = std::make_tuple(static_cast<S>(indices)...);
@@ -349,7 +356,10 @@ class NDArray {
     assert(detail::flat_index<S>(idx_arr, strides_, shape_, ndim_) ==
            detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{}));
 #endif
-    return data_[detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<N>{})];
+    //> owned arrays have a final stride of one => save one multiplication
+    const auto prefix =
+        detail::flat_index_unrolled<S>(idx, strides_, std::make_index_sequence<LAST>{});
+    return (data_ + prefix)[std::get<LAST>(idx)];
   }
 
   /*!
