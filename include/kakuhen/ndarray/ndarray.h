@@ -346,7 +346,6 @@ class NDArray {
    * @return An `NDView` that points to this array's data.
    */
   [[nodiscard]] inline NDView<T, S> view() const {
-    if (ndim_ == 0) return NDView<T, S>();
     return NDView<T, S>(data_, shape_, strides_, ndim_);
   }
 
