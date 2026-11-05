@@ -241,7 +241,7 @@ class HistogramRegistry {
       std::vector<T> errors;
       errors.reserve(nvalues);
       std::vector<BinRange<T>> bin_range;
-      bin_range.reserve(nbins);
+      bin_range.reserve(ndim);
       for (S ibin = 0; ibin < nbins; ++ibin) {
         values.clear();
         errors.clear();
