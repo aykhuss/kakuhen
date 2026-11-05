@@ -10,6 +10,7 @@
 
 #include "kakuhen/kakuhen.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -40,14 +41,14 @@ class MyFunctor {
 
     const auto& x = point.x;  // shorthand
 
-    const std::vector<double> r1 = {0.15, 0.2};
-    const std::vector<double> r2 = {0.65, 0.5};
+    static constexpr std::array<double, 2> R1{0.15, 0.2};
+    static constexpr std::array<double, 2> R2{0.65, 0.5};
 
     double dr1 = 0.;
     double dr2 = 0.;
     for (size_type i = 0; i < 2; ++i) {
-      dr1 += (x[i] - r1[i]) * (x[i] - r1[i]);
-      dr2 += (x[i] - r2[i]) * (x[i] - r2[i]);
+      dr1 += (x[i] - R1[i]) * (x[i] - R1[i]);
+      dr2 += (x[i] - R2[i]) * (x[i] - R2[i]);
     }
 
     double fval = 1e3 * std::exp(-50 * dr1) + 7e2 * std::exp(-20 * dr2);
