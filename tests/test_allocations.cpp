@@ -132,6 +132,12 @@ TEST_CASE("NDView higher ranks fall back to the heap and move without allocation
   REQUIRE(view.empty());
   REQUIRE(moved.empty());
   REQUIRE(converted(7, 0, 0, 0, 0, 0, 0, 0, 0) == 5);
+
+  auto strided = owner.slice({{1, 8, 2}, {}, {}, {}, {}, {}, {}, {}, {}});
+  REQUIRE(count_allocations([&] { strided.fill(9); }) == 0);
+  REQUIRE(owner[1] == 9);
+  REQUIRE(owner[7] == 9);
+  REQUIRE(owner[2] == 5);
 }
 
 TEST_CASE("SmallVector copy assignment keeps its buffer when growing fails",

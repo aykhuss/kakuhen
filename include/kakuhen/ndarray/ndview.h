@@ -159,15 +159,28 @@ class NDView {
   }
 
   /*!
-   * @brief Fills the entire view with a specified value.
+   * @brief Fills the elements of the view with a specified value.
+   *
+   * Only the elements selected by the shape and strides are written.
    *
    * @param value The value to fill the view with.
    */
   void fill(const T& value) const
     requires(!std::is_const_v<T>)
   {
-    if (!data_) return;
-    std::fill(data_, data_ + size(), value);
+    if (empty()) return;
+    // merge the contiguous trailing axes into one run; size-1 axes never move the address
+    const S* shape = shape_ptr();
+    const S* strides = strides_ptr();
+    S outer_rank = ndim();
+    S run_size = 1;
+    while (outer_rank > 0) {
+      const S axis = outer_rank - 1;
+      if (shape[axis] != 1 && strides[axis] != run_size) break;
+      run_size *= shape[axis];
+      --outer_rank;
+    }
+    fill_runs(data_, 0, outer_rank, run_size, value);
   }
 
   /*!
@@ -310,6 +323,18 @@ class NDView {
 
  private:
   NDView(T* data, Metadata metadata) noexcept : metadata_(std::move(metadata)), data_(data) {}
+
+  // write `run_size` elements at every offset spanned by the axes [axis, outer_rank)
+  void fill_runs(T* base, S axis, S outer_rank, S run_size, const T& value) const {
+    if (axis == outer_rank) {
+      std::fill_n(base, run_size, value);
+      return;
+    }
+    const S extent = shape_ptr()[axis];
+    const S stride = strides_ptr()[axis];
+    for (S i = 0; i < extent; ++i)
+      fill_runs(base + i * stride, axis + 1, outer_rank, run_size, value);
+  }
 
   [[nodiscard]] const S* strides_ptr() const noexcept {
     return metadata_.data();

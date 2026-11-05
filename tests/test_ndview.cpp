@@ -141,11 +141,34 @@ void check_lifetimes() {
     check(move_assigned);
     check(converted);
     check(converted_move);
+    copied.fill(12);
+    REQUIRE(owner[1] == 12);
+    REQUIRE(owner[7] == 12);
+    REQUIRE(owner[2] == 2);
+    REQUIRE(converted.data()[0] == 12);
     assigned = scratch.view();  // heap-to-inline assignment
     REQUIRE(assigned(1, 1) == 5);
   }
 }
 
+// enumerate the selected offsets independently of fill's run traversal and check the
+// whole backing buffer, so writes outside the selection cannot pass unnoticed
+void check_fill(std::vector<int>& backing, const NDView<int, std::int32_t>& view) {
+  auto expected = backing;
+  for (std::int32_t flat = 0; flat < view.size(); ++flat) {
+    auto remaining = flat;
+    std::ptrdiff_t offset = view.data() - backing.data();
+    for (std::size_t axis = view.shape().size(); axis-- > 0;) {
+      offset += (remaining % view.shape()[axis]) * view.strides()[axis];
+      remaining /= view.shape()[axis];
+    }
+    REQUIRE(offset >= 0);
+    REQUIRE(static_cast<std::size_t>(offset) < expected.size());
+    expected[static_cast<std::size_t>(offset)] = 42;
+  }
+  view.fill(42);
+  REQUIRE(backing == expected);
+}
 }  // namespace
 
 TEST_CASE("NDView metadata survives copying moving and source reuse", "[ndview]") {
@@ -184,12 +207,15 @@ TEST_CASE("NDArray constness controls elements while NDView constness controls t
   const View handle = owner.view();
   handle(1, 2) = 17;
   handle.data()[0] = 4;
+  handle.diagonal(0, 1).fill(8);
   REQUIRE(owner(1, 2) == 17);
+  REQUIRE(owner(2, 2) == 8);
   const Owner& const_owner = owner;
   Readonly readonly = const_owner;
   REQUIRE(readonly(1, 2) == 17);
   REQUIRE(const_owner.slice({{1, 2}, {2, 3}})(0, 0) == 17);
   REQUIRE(const_owner.reshape({9})(5) == 17);
+  REQUIRE(const_owner.diagonal(0, 1)(2) == 8);
   owner(1, 2) = 19;
   REQUIRE(readonly(1, 2) == 19);
   const Owner empty;
@@ -207,4 +233,60 @@ TEST_CASE("NDView argument ranges preserve vector and braced calls", "[ndview]")
   REQUIRE(owner.slice(slices)(1, 1) == 5);
   REQUIRE(owner.slice(std::span<const Slice<S>>(slices))(1, 1) == 5);
   REQUIRE(owner.view().slice(slices)(1, 1) == 5);
+}
+
+TEST_CASE("NDView fill changes only selected elements", "[ndview][fill]") {
+  using I = std::int32_t;
+  using kakuhen::ndarray::_;
+  NDArray<int, I> owner({4, 4, 3});
+  std::vector<int> backing(static_cast<std::size_t>(owner.size()));
+  std::iota(backing.begin(), backing.end(), -100);
+  NDView<int, I> view(backing.data(), owner.shape().data(), owner.strides().data(), 3);
+  check_fill(backing, view.slice({{1, 4, 2}, {_, _, 2}, {1, 3}}));
+  check_fill(backing, view.diagonal(0, 1));
+  check_fill(backing, view.diagonal(1, 0).slice({{1, 4, 2}, {}}));
+  check_fill(backing, view.slice({{2, 2}, {}, {}}));
+  check_fill(backing, view);
+  NDView<int, I> empty;
+  empty.fill(42);
+  REQUIRE(empty.empty());
+}
+
+TEST_CASE("NDView fill handles raw strided layouts and ranks beyond inline storage",
+          "[ndview][fill]") {
+  using I = std::int32_t;
+  std::vector<int> backing(512);
+  auto raw_case = [&](std::vector<I> shape, std::vector<I> strides, std::size_t origin = 0) {
+    std::iota(backing.begin(), backing.end(), -512);
+    check_fill(backing, NDView<int, I>(backing.data() + origin, shape.data(), strides.data(),
+                                       static_cast<I>(shape.size())));
+  };
+  raw_case({3, 4}, {1, 3});  // column-major
+  raw_case({3, 4}, {-7, -1}, 18);
+  raw_case({3, 4}, {0, 1});  // repeated addresses
+  raw_case({3, 4}, {1, 1});  // overlapping axes
+  raw_case({1, 3, 1, 4}, {99, 8, 77, 1});
+  raw_case({0, 3}, {3, 1});
+  for (I rank = 1; rank <= 9; ++rank) {
+    CAPTURE(rank);
+    std::vector<I> shape(static_cast<std::size_t>(rank), 2);
+    std::vector<I> strides(shape.size());
+    I stride = 1;
+    for (std::size_t axis = shape.size(); axis-- > 0;) {
+      strides[axis] = stride;
+      stride *= 2;
+    }
+    raw_case(shape, strides);
+    shape[0] = 1;
+    raw_case(shape, strides);
+  }
+}
+
+TEST_CASE("NDView strided fill assigns nontrivial elements", "[ndview][fill]") {
+  NDArray<std::string> owner({3, 3});
+  owner.fill("unchanged");
+  owner.diagonal(0, 1).fill(std::string(100, 'x'));
+  for (S i = 0; i < 3; ++i)
+    for (S j = 0; j < 3; ++j)
+      REQUIRE(owner(i, j) == (i == j ? std::string(100, 'x') : "unchanged"));
 }
