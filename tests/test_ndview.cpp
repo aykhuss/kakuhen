@@ -222,6 +222,18 @@ TEST_CASE("NDArray constness controls elements while NDView constness controls t
   REQUIRE(Readonly(empty).empty());
 }
 
+TEST_CASE("NDView reshape counts a rank-0 view as empty like size()", "[ndview]") {
+  const View rank0;
+  REQUIRE(rank0.empty());
+  const auto rank1 = rank0.reshape({0});  // used to trip the size assertion
+  REQUIRE(rank1.ndim() == 1);
+  REQUIRE(rank1.empty());
+  REQUIRE(rank1.data() == nullptr);
+  const auto back = rank1.reshape(std::span<const S>{});
+  REQUIRE(back.ndim() == 0);
+  REQUIRE(back.empty());
+}
+
 TEST_CASE("NDView argument ranges preserve vector and braced calls", "[ndview]") {
   Owner owner({2, 3});
   std::iota(owner.begin(), owner.end(), 0);

@@ -113,11 +113,7 @@ class NDView {
    * @return The total number of elements.
    */
   [[nodiscard]] inline S size() const noexcept {
-    if (ndim() == 0) return 0;  // a rank-0 view holds no elements
-    S total = 1;
-    for (const S extent : shape())
-      total *= extent;
-    return total;
+    return element_count(shape());
   }
   /*!
    * @brief Check if the view is empty.
@@ -232,22 +228,13 @@ class NDView {
    * @pre The view is contiguous and the total size is unchanged (debug assertions).
    */
   [[nodiscard]] NDView reshape(std::span<const S> shape) const {
-    const S rank = ndim();
-    S old_size = 1;
-    for (S i = 0; i < rank; ++i)
-      old_size *= shape_ptr()[i];
-
-    S new_size = 1;
-    for (auto s : shape)
-      new_size *= s;
-
-    assert(old_size == new_size);
+    assert(size() == element_count(shape));
 
 #ifndef NDEBUG
     // check if view is contiguous (row-major layout)
     bool contiguous = true;
     S expected_stride = 1;
-    for (S i = rank; i-- > 0;) {
+    for (S i = ndim(); i-- > 0;) {
       if (shape_ptr()[i] == 1) continue;  // skip size-1 dimensions
       if (strides_ptr()[i] != expected_stride) {
         contiguous = false;
@@ -323,6 +310,15 @@ class NDView {
 
  private:
   NDView(T* data, Metadata metadata) noexcept : metadata_(std::move(metadata)), data_(data) {}
+
+  // product of the extents; a rank-0 shape holds no elements
+  [[nodiscard]] static S element_count(std::span<const S> extents) noexcept {
+    if (extents.empty()) return 0;
+    S total = 1;
+    for (const S extent : extents)
+      total *= extent;
+    return total;
+  }
 
   // write `run_size` elements at every offset spanned by the axes [axis, outer_rank)
   void fill_runs(T* base, S axis, S outer_rank, S run_size, const T& value) const {
