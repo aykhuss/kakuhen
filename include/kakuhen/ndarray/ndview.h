@@ -4,11 +4,11 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <initializer_list>
 #include <memory>
 #include <span>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 namespace kakuhen::ndarray {
 
@@ -242,12 +242,12 @@ class NDView {
   /*!
    * @brief Creates a new `NDView` representing a slice of the current view.
    *
-   * @param slices A vector of `Slice` objects, one for each dimension,
+   * @param slices A range of `Slice` objects, one for each dimension,
    * defining the slicing parameters.
    * @return A new `NDView` representing the specified slice.
    */
-  [[nodiscard]] NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
-    assert(slices.size() == ndim_);
+  [[nodiscard]] NDView<T, S> slice(std::span<const Slice<S>> slices) const {
+    assert(slices.size() == static_cast<std::size_t>(ndim_));
 
     // Allocate single block for new metadata
     auto metadata = std::make_unique<S[]>(2 * ndim_);
@@ -257,7 +257,7 @@ class NDView {
     S base_offset = 0;
 
     for (S i = 0; i < ndim_; ++i) {
-      const auto& s = slices[i];
+      const auto& s = slices[static_cast<std::size_t>(i)];
 
       S begin = s.start.value_or(0);
       S end = s.stop.value_or(shape_[i]);
@@ -279,11 +279,11 @@ class NDView {
    * This operation requires the total number of elements to remain the same.
    * Currently, it only works on contiguous views.
    *
-   * @param shape A vector specifying the new shape of the view.
+   * @param shape A range specifying the new shape of the view.
    * @return A new `NDView` with the reshaped dimensions.
    * @throws std::runtime_error if the view is not contiguous or total size changes.
    */
-  [[nodiscard]] NDView<T, S> reshape(const std::vector<S>& shape) const {
+  [[nodiscard]] NDView<T, S> reshape(std::span<const S> shape) const {
     S old_size = 1;
     for (S i = 0; i < ndim_; ++i)
       old_size *= shape_[i];
@@ -317,9 +317,9 @@ class NDView {
     // Compute row-major strides for the new shape
     S stride = 1;
     for (S i = new_ndim; i-- > 0;) {
-      new_shape[i] = shape[i];
+      new_shape[i] = shape[static_cast<std::size_t>(i)];
       new_strides[i] = stride;
-      stride *= shape[i];
+      stride *= shape[static_cast<std::size_t>(i)];
     }
 
     return NDView<T, S>(data_, std::move(metadata), new_ndim);
@@ -365,6 +365,13 @@ class NDView {
     }
 
     return NDView<T, S>(data_, std::move(metadata), new_ndim);
+  }
+
+  [[nodiscard]] NDView slice(std::initializer_list<Slice<S>> slices) const {
+    return slice(std::span(slices));
+  }
+  [[nodiscard]] NDView reshape(std::initializer_list<S> shape) const {
+    return reshape(std::span(shape));
   }
 
  private:

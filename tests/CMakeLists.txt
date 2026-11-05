@@ -29,6 +29,7 @@ set(TEST_SOURCES
   test_math.cpp
   test_map_point.cpp
   test_ndarray.cpp
+  test_ndview.cpp
   test_printer.cpp
   test_progress_callback.cpp
   test_result.cpp

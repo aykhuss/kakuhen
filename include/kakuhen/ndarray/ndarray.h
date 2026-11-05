@@ -353,20 +353,26 @@ class NDArray {
   /*!
    * @brief Creates a non-owning view representing a slice of the array.
    *
-   * @param slices A vector of `Slice` objects defining the slicing parameters.
+   * @param slices A range of `Slice` objects defining the slicing parameters.
    * @return An `NDView` representing the specified slice.
    */
-  [[nodiscard]] inline NDView<T, S> slice(const std::vector<Slice<S>>& slices) const {
+  [[nodiscard]] NDView<T, S> slice(std::span<const Slice<S>> slices) const {
+    return view().slice(slices);
+  }
+  [[nodiscard]] NDView<T, S> slice(std::initializer_list<Slice<S>> slices) const {
     return view().slice(slices);
   }
 
   /*!
    * @brief Creates a non-owning view with a reshaped view of the array data.
    *
-   * @param shape A vector specifying the new shape of the view.
+   * @param shape A range specifying the new shape of the view.
    * @return An `NDView` with the reshaped dimensions.
    */
-  [[nodiscard]] inline NDView<T, S> reshape(const std::vector<S>& shape) const {
+  [[nodiscard]] NDView<T, S> reshape(std::span<const S> shape) const {
+    return view().reshape(shape);
+  }
+  [[nodiscard]] NDView<T, S> reshape(std::initializer_list<S> shape) const {
     return view().reshape(shape);
   }
 
