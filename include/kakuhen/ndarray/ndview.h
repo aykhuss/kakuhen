@@ -288,11 +288,11 @@ class NDView {
    * @param dim1 The first dimension to form the diagonal.
    * @param dim2 The second dimension to form the diagonal.
    * @return A new `NDView` representing the diagonal.
-   * @pre The dimensions are in bounds and equally sized.
+   * @pre The dimensions are distinct, in bounds and equally sized.
    */
   [[nodiscard]] NDView diagonal(S dim1, S dim2) const {
     const S rank = ndim();
-    assert(dim1 >= 0 && dim1 < rank && dim2 >= 0 && dim2 < rank);
+    assert(dim1 >= 0 && dim1 < rank && dim2 >= 0 && dim2 < rank && dim1 != dim2);
     assert(shape_ptr()[dim1] == shape_ptr()[dim2]);  // must be square along those axes
 
     const S new_ndim = rank - 1;
