@@ -717,17 +717,12 @@ class HistogramRegistry {
    */
   [[nodiscard]] inline S get_axis_index(AxId ax_id, const T& x) const noexcept {
     assert(ax_id.id() < axes_.size());
-    return std::visit(
-        [&](const auto& ax) -> S {
-          using Type = std::decay_t<decltype(ax)>;
-          if constexpr (std::is_same_v<Type, std::monostate>) {
-            assert(false && "Attempted axis lookup on histogram without axis");
-            return 0;
-          } else {
-            return ax.index(axis_data_, x);
-          }
-        },
-        axes_[ax_id.id()]);
+    //> no std::visit: libc++ dispatches it through a function table, which blocks inlining
+    const AxisVar& ax = axes_[ax_id.id()];
+    if (const auto* u = std::get_if<UniformAxisView<T, S>>(&ax)) return u->index(axis_data_, x);
+    const auto* v = std::get_if<VariableAxisView<T, S>>(&ax);
+    assert(v && "Attempted axis lookup on histogram without axis");
+    return v->index(axis_data_, x);
   }
 
   /**
