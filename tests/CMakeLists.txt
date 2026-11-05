@@ -47,4 +47,9 @@ include(CTest)
 include(Catch)
 catch_discover_tests(unit_tests)
 
+# replaces the global allocation functions, so it can't share a process with unit_tests
+add_executable(allocation_tests test_allocations.cpp)
+target_link_libraries(allocation_tests PRIVATE kakuhen kakuhen_warnings Catch2::Catch2WithMain)
+catch_discover_tests(allocation_tests TEST_PREFIX "allocations: ")
+
 # inside `kakuhen/build/tests` run `make && ctest`

@@ -321,9 +321,11 @@ class SmallVector {
         std::memcpy(inline_ptr(), other.data(), size_ * sizeof(T));
       }
     } else {
-      if (!heap_ || capacity_ < other.size_) {
-        if (heap_) ::operator delete(heap_);
-        heap_ = static_cast<T*>(::operator new(other.size_ * sizeof(T)));
+      if (capacity_ < other.size_) {  // inline capacity N is always too small here
+        // allocate before releasing so a failure leaves this vector intact
+        T* new_heap = static_cast<T*>(::operator new(other.size_ * sizeof(T)));
+        ::operator delete(heap_);
+        heap_ = new_heap;
         capacity_ = other.size_;
       }
       size_ = other.size_;
