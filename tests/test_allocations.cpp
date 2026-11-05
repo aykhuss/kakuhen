@@ -38,6 +38,7 @@ std::size_t count_allocations(F&& action) {
 using S = std::uint32_t;
 using Owner = kakuhen::ndarray::NDArray<int, S>;
 using View = kakuhen::ndarray::NDView<int, S>;
+using Readonly = kakuhen::ndarray::NDView<const int, S>;
 using Slice = kakuhen::ndarray::Slice<S>;
 }  // namespace
 
@@ -73,10 +74,14 @@ TEST_CASE("NDView factories copies and transforms allocate nothing through rank 
     std::vector<Slice> slices(rank);
     Owner owner(shape);
     owner.fill(3);
+    const Owner& const_owner = owner;
     View view, copy, transformed;
+    Readonly readonly;
     auto count = count_allocations([&] {
       view = owner.view();
       copy = view;
+      readonly = const_owner.view();
+      readonly = view;
       transformed = owner.reshape(shape);
       transformed = view.reshape(std::span<const S>(shape));
       transformed = owner.slice(slices);
@@ -85,19 +90,26 @@ TEST_CASE("NDView factories copies and transforms allocate nothing through rank 
     });
     REQUIRE(count == 0);
     REQUIRE(copy.size() == owner.size());
+    REQUIRE(readonly.data()[0] == 7);
     REQUIRE(transformed.strides().back() == 1);
   }
   Owner owner({2, 2, 2, 2});
   View view;
+  Readonly readonly;
+  const Owner& const_owner = owner;
   auto count = count_allocations([&] {
     view = owner.reshape({4, 4});
     view = view.reshape({2, 2, 2, 2});
     view = owner.slice({{}, {}, {}, {}});
     view = view.slice({{}, {}, {}, {}});
     view = owner.diagonal(0, 1);
+    readonly = const_owner.reshape({4, 4});
+    readonly = const_owner.slice({{}, {}, {}, {}});
+    readonly = const_owner.diagonal(0, 1);
   });
   REQUIRE(count == 0);
   REQUIRE(view.size() == 8);
+  REQUIRE(readonly.size() == 8);
 }
 
 TEST_CASE("NDView higher ranks fall back to the heap and move without allocation",
@@ -106,20 +118,20 @@ TEST_CASE("NDView higher ranks fall back to the heap and move without allocation
   owner.fill(5);
   View view;
   REQUIRE(count_allocations([&] { view = owner.view(); }) > 0);
-  View copied;
+  Readonly copied;
   REQUIRE(count_allocations([&] { copied = view; }) > 0);
   REQUIRE(copied.ndim() == 9);
   REQUIRE(copied(7, 0, 0, 0, 0, 0, 0, 0, 0) == 5);
   View moved;
-  View destination;
+  Readonly converted;
   auto count = count_allocations([&] {
     moved = View(std::move(view));
-    destination = View(std::move(moved));
+    converted = Readonly(std::move(moved));
   });
   REQUIRE(count == 0);
   REQUIRE(view.empty());
   REQUIRE(moved.empty());
-  REQUIRE(destination(7, 0, 0, 0, 0, 0, 0, 0, 0) == 5);
+  REQUIRE(converted(7, 0, 0, 0, 0, 0, 0, 0, 0) == 5);
 }
 
 TEST_CASE("SmallVector copy assignment keeps its buffer when growing fails",

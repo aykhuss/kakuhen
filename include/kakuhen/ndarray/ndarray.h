@@ -12,6 +12,7 @@
 #include <span>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -343,10 +344,16 @@ class NDArray {
   /*!
    * @brief Creates a non-owning view of the entire array.
    *
+   * A const array hands out views of const elements; this holds for every
+   * factory below. The array must outlive the view.
+   *
    * @return An `NDView` that points to this array's data.
    */
-  [[nodiscard]] inline NDView<T, S> view() const {
+  [[nodiscard]] NDView<T, S> view() {
     return NDView<T, S>(data_, shape_, strides_, ndim_);
+  }
+  [[nodiscard]] NDView<const T, S> view() const {
+    return NDView<const T, S>(data_, shape_, strides_, ndim_);
   }
 
   /*!
@@ -355,10 +362,16 @@ class NDArray {
    * @param slices A range of `Slice` objects defining the slicing parameters.
    * @return An `NDView` representing the specified slice.
    */
-  [[nodiscard]] NDView<T, S> slice(std::span<const Slice<S>> slices) const {
+  [[nodiscard]] NDView<T, S> slice(std::span<const Slice<S>> slices) {
     return view().slice(slices);
   }
-  [[nodiscard]] NDView<T, S> slice(std::initializer_list<Slice<S>> slices) const {
+  [[nodiscard]] NDView<T, S> slice(std::initializer_list<Slice<S>> slices) {
+    return view().slice(slices);
+  }
+  [[nodiscard]] NDView<const T, S> slice(std::span<const Slice<S>> slices) const {
+    return view().slice(slices);
+  }
+  [[nodiscard]] NDView<const T, S> slice(std::initializer_list<Slice<S>> slices) const {
     return view().slice(slices);
   }
 
@@ -368,10 +381,16 @@ class NDArray {
    * @param shape A range specifying the new shape of the view.
    * @return An `NDView` with the reshaped dimensions.
    */
-  [[nodiscard]] NDView<T, S> reshape(std::span<const S> shape) const {
+  [[nodiscard]] NDView<T, S> reshape(std::span<const S> shape) {
     return view().reshape(shape);
   }
-  [[nodiscard]] NDView<T, S> reshape(std::initializer_list<S> shape) const {
+  [[nodiscard]] NDView<T, S> reshape(std::initializer_list<S> shape) {
+    return view().reshape(shape);
+  }
+  [[nodiscard]] NDView<const T, S> reshape(std::span<const S> shape) const {
+    return view().reshape(shape);
+  }
+  [[nodiscard]] NDView<const T, S> reshape(std::initializer_list<S> shape) const {
     return view().reshape(shape);
   }
 
@@ -382,7 +401,10 @@ class NDArray {
    * @param dim2 The second dimension to form the diagonal.
    * @return An `NDView` representing the diagonal.
    */
-  [[nodiscard]] inline NDView<T, S> diagonal(S dim1, S dim2) const {
+  [[nodiscard]] NDView<T, S> diagonal(S dim1, S dim2) {
+    return view().diagonal(dim1, dim2);
+  }
+  [[nodiscard]] NDView<const T, S> diagonal(S dim1, S dim2) const {
     return view().diagonal(dim1, dim2);
   }
 
@@ -587,6 +609,11 @@ class NDArray {
 };  // class NDArray
 
 template <typename T, typename S>
-NDView<T, S>::NDView(NDArray<T, S>& arr) : NDView(arr.view()) {}
+NDView<T, S>::NDView(NDArray<std::remove_const_t<T>, S>& arr) : NDView(arr.view()) {}
+
+template <typename T, typename S>
+NDView<T, S>::NDView(const NDArray<std::remove_const_t<T>, S>& arr)
+  requires std::is_const_v<T>
+    : NDView(arr.view()) {}
 
 }  // namespace kakuhen::ndarray

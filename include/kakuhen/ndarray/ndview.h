@@ -24,8 +24,9 @@ class NDArray;  // forward declaration
  * and slicing of array data without copying the data itself.
  *
  * Shape and strides live inline up to rank 4 and on the heap above that, so
- * views up to rank 4 never allocate. Copies own their metadata and borrow
- * the same elements. The elements must outlive the view.
+ * views up to rank 4 never allocate. Like `std::span`, the element constness
+ * comes from `T` (use `const T` for read-only views) and the elements must
+ * outlive the view.
  *
  * @tparam T The type of the elements in the array.
  * @tparam S The type of the indices and dimensions.
@@ -34,6 +35,8 @@ template <typename T, typename S>
 class NDView {
   // strides followed by shape
   using Metadata = kakuhen::util::SmallVector<S, 8>;
+  template <typename, typename>
+  friend class NDView;
 
  public:
   using value_type = T;
@@ -64,11 +67,19 @@ class NDView {
    * @brief Implicit conversion constructor from an `NDArray`.
    *
    * This allows an `NDView` to be easily created from an `NDArray` instance,
-   * effectively creating a view of the entire array.
+   * effectively creating a view of the entire array. A const array only
+   * converts to a view of const elements.
    *
    * @param arr The `NDArray` to create a view of.
    */
-  NDView(NDArray<T, S>& arr);  // only declaration; definition after NDArray
+  NDView(NDArray<std::remove_const_t<T>, S>& arr);  // defined after NDArray
+  NDView(const NDArray<std::remove_const_t<T>, S>& arr)
+    requires std::is_const_v<T>;
+
+  /// add element constness; copies or moves the metadata, never the elements
+  template <typename U>
+    requires(std::is_same_v<T, const U> && !std::is_const_v<U>)
+  NDView(NDView<U, S> other) noexcept : metadata_(std::move(other.metadata_)), data_(other.data_) {}
 
   /*!
    * @brief Get the number of dimensions of the view.
@@ -119,16 +130,9 @@ class NDView {
 
   /**
    * @brief Access the raw data pointer.
-   * @return A pointer to the underlying data.
+   * @return A pointer to the underlying data; `const` only if `T` is.
    */
-  [[nodiscard]] inline T* data() noexcept {
-    return data_;
-  }
-  /**
-   * @brief Access the raw data pointer (const).
-   * @return A const pointer to the underlying data.
-   */
-  [[nodiscard]] inline const T* data() const noexcept {
+  [[nodiscard]] inline T* data() const noexcept {
     return data_;
   }
 
@@ -140,29 +144,7 @@ class NDView {
    * @return A reference to the element; `const` only if `T` is.
    */
   template <typename... Indices>
-  T& operator()(Indices... indices) noexcept {
-    static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
-    constexpr std::size_t N = sizeof...(Indices);
-    assert(N == ndim());
-    assert(((indices >= 0) && ...));
-    const auto idx = std::make_tuple(static_cast<S>(indices)...);
-#ifndef NDEBUG
-    S idx_arr[] = {static_cast<S>(indices)...};
-    assert(detail::flat_index<S>(idx_arr, strides_ptr(), shape_ptr(), ndim()) ==
-           detail::flat_index_unrolled<S>(idx, strides_ptr(), std::make_index_sequence<N>{}));
-#endif
-    return data_[detail::flat_index_unrolled<S>(idx, strides_ptr(), std::make_index_sequence<N>{})];
-  }
-
-  /**
-   * @brief Access an element of the view using multi-dimensional indices.
-   *
-   * @tparam Indices The types of the indices.
-   * @param indices The indices of the element to access.
-   * @return A reference to the element; `const` only if `T` is.
-   */
-  template <typename... Indices>
-  const T& operator()(Indices... indices) const noexcept {
+  T& operator()(Indices... indices) const noexcept {
     static_assert((std::is_integral_v<Indices> && ...), "All indices must be integral types");
     constexpr std::size_t N = sizeof...(Indices);
     assert(N == ndim());
@@ -181,7 +163,9 @@ class NDView {
    *
    * @param value The value to fill the view with.
    */
-  void fill(const T& value) {
+  void fill(const T& value) const
+    requires(!std::is_const_v<T>)
+  {
     if (!data_) return;
     std::fill(data_, data_ + size(), value);
   }
@@ -338,5 +322,12 @@ class NDView {
   T* data_ = nullptr;
 
 };  // class NDView
+
+// the owner constructors hide T inside remove_const_t, so deduction needs guides
+template <typename T, typename S>
+NDView(NDArray<T, S>&) -> NDView<T, S>;
+
+template <typename T, typename S>
+NDView(const NDArray<T, S>&) -> NDView<const T, S>;
 
 }  // namespace kakuhen::ndarray
