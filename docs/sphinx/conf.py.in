@@ -57,7 +57,7 @@ breathe_member_order = 'alphabetical'
 
 # html_theme = "alabaster"
 html_theme = "furo"
-html_static_path = ["@CMAKE_CURRENT_SOURCE_DIR@/docs/sphinx/_static"]
+html_static_path = []
 
 
 # -- C++ domain ---------------------------------------------------------
