@@ -1082,28 +1082,30 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   ndarray::NDArray<grid_acc_type, S> accumulator_;
   ndarray::NDView<grid_acc_type, S> accumulator0_;
 
+  /// accumulate one sample into the diagonal and all conditional grid cells
   void collect_grid(const point_type& point, const cell_ctx_type& cell, std::span<const T> g) {
-    for (S idim = 0; idim < ndim_; ++idim) {
-      const S ig0 = cell(idim, 0);
-      accumulator0_(idim, ig0).accumulate(g[idim]);
-      const S ig1 = ig0 / ndiv2_;
-      for (S idim2 = 0; idim2 < ndim_; ++idim2) {
-        if (idim2 == idim) continue;
-        const T* row = &grid_(idim, idim2, ig1, 0);
-        const T x = point.x[idim2];
-        //> reuse the sampled bin on active rows, even when x rounds to its lower edge.
-        //> for passive rows, scan short rows and bisect longer ones.
-        const S ig2 =
-            cell(idim2, 1) == idim
-                ? cell(idim2, 2)
-                : static_cast<S>(
-                      ndiv2_ <= util::algorithm::MAX_SCAN
-                          ? std::count_if(row, row + ndiv2_, [x](T edge) { return edge < x; })
-                          : util::algorithm::lower_bound(row, row + ndiv2_, x, std::less<>{}) -
-                                row);
-        assert(ig2 < ndiv2_);
+    const S nd = ndim_, n2 = ndiv2_, n0 = ndiv0_;
+    for (S a = 0; a < nd; ++a) {
+      const S ig0 = cell(a, 0);
+      accumulator0_(a, ig0).accumulate(g[a]);
+      const S ig1 = ig0 / n2;
+      //> blocks (a, b, ig1) of all children b are n0 cells apart
+      const T* rows = &grid_(a, 0, ig1, 0);
+      grid_acc_type* cells = &accumulator_(a, 0, ig1, 0);
+      for (S b = 0; b < nd; ++b) {
+        if (b == a) continue;
+        const std::size_t offset = std::size_t(b) * n0;
+        const T* row = rows + offset;
+        assert(row == &grid_(a, b, ig1, 0));
+        const T x = point.x[b];
+        //> active row: reuse the sampled bin, even when x lies on its lower edge
+        const S ig2 = cell(b, 1) == a ? cell(b, 2)
+                                      : S(util::algorithm::partition_point_index(
+                                            row, row + n2, [x](T edge) { return edge < x; }));
+        assert(ig2 < n2);
         assert(x >= (ig2 > 0 ? row[ig2 - 1] : T(0)) && x <= row[ig2]);
-        accumulator_(idim, idim2, ig1, ig2).accumulate(g[idim2]);
+        assert(cells + offset + ig2 == &accumulator_(a, b, ig1, ig2));
+        cells[offset + ig2].accumulate(g[b]);
       }
     }
   }
