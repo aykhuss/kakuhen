@@ -7,6 +7,7 @@
 #include <limits>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -81,6 +82,81 @@ struct CollectionFixture : Integrator {
   using Integrator::Integrator;
   using Integrator::result_;
 };
+
+TEMPLATE_TEST_CASE("Grid changes are rejected inside an iteration", "[validation][progress]",
+                   Vegas<>, Basin<>) {
+  TestType source(2), replacement(3);
+  std::stringstream state;
+  replacement.write_state_stream(state);
+  bool frozen = false;
+  SECTION("collecting") {}
+  SECTION("frozen") {
+    frozen = true;
+  }
+  unsigned checked = 0;
+  const auto on_progress = [&](const typename TestType::progress_event_type& event) {
+    if (event.kind != ProgressEventKind::EVAL_MILESTONE) return EventSignal::NONE;
+    const auto before = snapshot(source);
+    const auto rejected = [&](auto change) {
+      bool threw = false;
+      try {
+        change();
+      } catch (const std::logic_error&) {
+        threw = true;
+      }
+      CHECK(threw);
+      CHECK(snapshot(source) == before);
+      return threw;
+    };
+    // Stop after an unexpected mutation so a regression cannot invalidate live buffers.
+    if (!rejected([&] { source.reset(); })) return EventSignal::STOP;
+    if (!rejected([&] { source.adapt(); })) return EventSignal::STOP;
+    if (!rejected([&] { source.read_state_stream(state); })) return EventSignal::STOP;
+    CHECK(state.tellg() == std::streampos(0));
+    ++checked;
+    return EventSignal::NONE;
+  };
+  const auto result = source.integrate([](const Point<>&) { return 1.0; },
+                                       {.neval = 2,
+                                        .niter = 1,
+                                        .adapt = false,
+                                        .frozen = frozen,
+                                        .verbosity = 0,
+                                        .progress_step = 0.5},
+                                       on_progress);
+  REQUIRE(checked == 2);
+  REQUIRE(result.count() == 2);
+  REQUIRE_NOTHROW(source.read_state_stream(state));
+  REQUIRE(source.ndim() == 3);
+  REQUIRE_NOTHROW(source.reset());
+}
+
+TEMPLATE_TEST_CASE("The grid guard is released after an interruption", "[validation][progress]",
+                   Vegas<>, Basin<>) {
+  TestType source(2);
+  SECTION("integrand mutation propagates") {
+    REQUIRE_THROWS_AS(source.integrate(
+                          [&](const Point<>&) {
+                            source.reset();
+                            return 1.0;
+                          },
+                          {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0}),
+                      std::logic_error);
+  }
+  SECTION("uncaught callback mutation stops at the collected prefix") {
+    const auto result = source.integrate(
+        [](const Point<>&) { return 1.0; },
+        {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0, .progress_step = 0.5},
+        [&](const typename TestType::progress_event_type& event) {
+          if (event.kind == ProgressEventKind::EVAL_MILESTONE) source.reset();
+          return EventSignal::NONE;
+        });
+    REQUIRE(result.count() == 1);
+  }
+  REQUIRE_NOTHROW(source.reset());
+  REQUIRE_NOTHROW(source.integrate([](const Point<>& p) { return 1.0 + p.x[0]; },
+                                   {.neval = 8, .niter = 2, .adapt = true, .verbosity = 0}));
+}
 
 TEMPLATE_TEST_CASE("Pending integral statistics include every collected batch", "[validation]",
                    Vegas<>, Basin<>) {
