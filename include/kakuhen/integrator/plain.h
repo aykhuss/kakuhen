@@ -39,7 +39,6 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
-  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -56,6 +55,10 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
   explicit Plain(size_type ndim) : Base(ndim) {
     assert(ndim > 0);
   };
+
+ private:
+  friend Base;  // only integrate() enters an iteration
+  using typename Base::ProgressTracker;
 
   /// @name Integration Implementation
   /// @{
@@ -103,6 +106,7 @@ class Plain : public IntegratorBase<Plain<NT, RNG, DIST>, NT, RNG, DIST> {
     return result_;
   }
 
+ public:
   /*!
    * @brief Maps caller-supplied uniform coordinates to a plain sample point.
    *

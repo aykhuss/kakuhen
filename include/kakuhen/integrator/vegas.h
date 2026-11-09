@@ -52,7 +52,6 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
-  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -149,6 +148,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     return std::format("vegas_{}d", ndim_);
   }
 
+ private:
+  friend Base;  // only integrate() enters an iteration
+  using typename Base::ProgressTracker;
+
   /// @name Integration Implementation
   /// @{
 
@@ -207,6 +210,7 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
     return result;
   }
 
+ public:
   /*!
    * @brief Maps caller-supplied uniform coordinates through the VEGAS grid.
    *
@@ -249,8 +253,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * This method resets the importance-sampling grid so each dimension is
    * divided into `ndiv` equally sized intervals. It also clears all
    * accumulated per-cell statistics and the current iteration result.
+   * @throws std::logic_error if called during an integration iteration.
    */
   void reset() {
+    Base::require_not_sampling("reset");
     grid_.fill(T(0));
     std::vector<T> flat(ndiv_);
     for (S ig = 0; ig < ndiv_; ++ig) {
@@ -268,8 +274,10 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
    * This method refines the one-dimensional importance-sampling grid using the
    * accumulated squared weights from the previous iteration so that subsequent
    * samples are concentrated in regions with larger contribution.
+   * @throws std::logic_error if called during an integration iteration.
    */
   void adapt() {
+    Base::require_not_sampling("adapt");
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
@@ -427,7 +435,9 @@ class Vegas : public IntegratorBase<Vegas<NT, RNG, DIST>, NT, RNG, DIST> {
 
   /// @throws std::runtime_error if the stream is truncated or corrupt; the
   ///         integrator is then left unchanged.
+  /// @throws std::logic_error if called during an integration iteration.
   void read_state_stream(std::istream& in) {
+    Base::require_not_sampling("read_state_stream");
     using namespace kakuhen::util::serialize;
     // read & validate everything before touching any state (the commit below cannot throw)
     S ndim, ndiv;

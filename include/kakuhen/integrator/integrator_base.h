@@ -25,6 +25,7 @@
 #include <random>
 #include <span>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -311,6 +312,8 @@ class IntegratorBase {
    *         checked before any state is touched, so the integrator (incl. its
    *         RNG) is then left unchanged. Exceptions thrown later, e.g. by the
    *         integrand, leave the samples accumulated up to that point.
+   * @note The integrand and milestone callbacks must not reset, adapt or load the
+   *       integrator; those throw `std::logic_error` while an iteration samples.
    */
   template <typename I, typename CB>
   result_type integrate(I&& integrand, const options_type& opts, CB&& progress_cb) {
@@ -368,11 +371,14 @@ class IntegratorBase {
         if (tracker.is_stopped()) break;
       }
 
-      // the integrand is invoked once per iteration, so it is passed as the lvalue it
-      // already is; `integrate_impl` takes it by `I&` so a `std::forward` here would
-      // not compile (forwarding in a loop would offer the same object up for moving
-      // once per iteration)
-      int_acc_type res_it = derived().integrate_impl(integrand, *opts_.neval, tracker, progress_cb);
+      int_acc_type res_it;
+      {
+        // the iteration's buffers match the map, so mutators throw until it returns
+        const bool was_sampling = std::exchange(sampling_, true);
+        const auto restore =
+            kakuhen::util::defer([this, was_sampling] { sampling_ = was_sampling; });
+        res_it = derived().integrate_impl(integrand, *opts_.neval, tracker, progress_cb);
+      }
       result.accumulate(res_it);  // always accumulate, including partial stopped iterations
 
       // compute elapsed time and fire ITER_END event
@@ -822,7 +828,15 @@ class IntegratorBase {
     return static_cast<const Derived&>(*this);
   }
 
+  /// @throws std::logic_error if called while an iteration samples, e.g. from a callback
+  void require_not_sampling(std::string_view caller) const {
+    if (sampling_)
+      throw std::logic_error(std::format("{}: the integrator is sampling an iteration", caller));
+  }
+
  private:
+  bool sampling_{false};  // set while `integrate_impl` runs
+
   /// @throws std::invalid_argument unless `opts` on top of the persistent options is valid for
   ///         `integrate`.
   void validate_integrate_options(const options_type& opts, bool has_callback) const {

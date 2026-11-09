@@ -55,7 +55,6 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
   using typename Base::int_acc_type;
   using typename Base::num_traits;
   using typename Base::point_type;
-  using typename Base::ProgressTracker;
   using typename Base::seed_type;
   using typename Base::size_type;
   using typename Base::value_type;
@@ -93,7 +92,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       : Base(ndim),
         ndiv1_{ndiv1},
         ndiv2_{ndiv2},
-        ndiv0_{ndiv1 * ndiv2},
+        ndiv0_{S(std::uintmax_t(ndiv1) * ndiv2)},  // a narrow S promotes to int, which can overflow
         grid_({ndim, ndim, ndiv1, ndiv2}),
         order_({ndim, 2}),
         ordered_grid_({ndim, ndiv1, ndiv2}),
@@ -238,6 +237,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     return std::format("basin_{}d", ndim_);
   }
 
+ private:
+  friend Base;  // only integrate() enters an iteration
+  using typename Base::ProgressTracker;
+
   /// @name Integration Implementation
   /// @{
 
@@ -299,6 +302,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     return result;
   }
 
+ public:
   /*!
    * @brief Maps caller-supplied uniform coordinates through the BASIN grids.
    *
@@ -386,8 +390,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
   /*!
    * @brief Resets the nested grids, sampling order, and accumulated data.
+   * @throws std::logic_error if called during an integration iteration.
    */
   void reset() {
+    Base::require_not_sampling("reset");
     grid_.fill(T(0));
     /// the diagonal entries (1D grids)
     std::vector<T> flat0(ndiv0_);
@@ -435,8 +441,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @throws std::overflow_error if an accumulated grid-cell sum is non-finite.
    *         In that case the grids, sampling order and pending data are unchanged;
    *         call `clear_data()` to discard the invalid batch.
+   * @throws std::logic_error if called during an integration iteration.
    */
   void adapt() {
+    Base::require_not_sampling("adapt");
     using kakuhen::ndarray::NDArray;
     using kakuhen::ndarray::NDView;
 
@@ -941,8 +949,10 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
    * @param in The input stream.
    * @throws std::runtime_error if the stream is truncated or corrupt; the
    *         integrator is then left unchanged.
+   * @throws std::logic_error if called during an integration iteration.
    */
   void read_state_stream(std::istream& in) {
+    Base::require_not_sampling("read_state_stream");
     using namespace kakuhen::util::serialize;
     // read & validate everything before touching any state (the commit below cannot throw)
     S ndim, ndiv1, ndiv2;
@@ -1177,7 +1187,7 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
 
     std::vector<S> partial(ndim_);
     std::iota(partial.begin(), partial.end(), S{0});  // start with only roots
-    std::vector<bool> chosen(ndim_, false);  // track already picked dimensions
+    std::vector<bool> chosen(ndim_, false);           // track already picked dimensions
     std::vector<S> candidate(ndim_);
     std::vector<S> best;
     T best_gain = min_gain_;
