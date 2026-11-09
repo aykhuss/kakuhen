@@ -4,6 +4,7 @@
 #include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -112,8 +113,7 @@ struct OrderedBasin : Basin<kakuhen::util::num_traits_t<T>> {
     this->read_state_stream(ss);
   }
 
-  /// local factor moment E[h^2 w_ab/w_b], without adapt's additional division by N
-  double predicted_moment(S a, S b) const {
+  auto collected_cells() const {
     using namespace kakuhen::util::serialize;
     std::stringstream ss;
     this->write_data_stream(ss);
@@ -128,6 +128,12 @@ struct OrderedBasin : Basin<kakuhen::util::num_traits_t<T>> {
     deserialize_one(ss, count);
     kakuhen::ndarray::NDArray<grid_acc_type, S> cells;
     cells.deserialize(ss);
+    return std::pair{count, std::move(cells)};
+  }
+
+  /// local factor moment E[h^2 w_ab/w_b], without adapt's additional division by N
+  double predicted_moment(S a, S b) const {
+    const auto [count, cells] = collected_cells();
     // G times the weight of its own cell: ndiv0 bins on the diagonal, ndiv2 per row else
     const S nbin = a == b ? this->ndiv0() : this->ndiv2();
     const T* edge = &grid_(a, b, 0, 0);
@@ -339,6 +345,80 @@ TEST_CASE("Basin active moments use the sampled conditional bin at a boundary", 
       {.neval = n, .niter = 1, .adapt = false, .verbosity = 0});
   REQUIRE(boundary_hits > 0);
   REQUIRE(bas.predicted_moment(0, 1) == Approx(second_moment(result, n)));
+}
+
+TEST_CASE("Basin passive collection selects the first containing bin on nonuniform grids",
+          "[basin]") {
+  OrderedBasin bas(2, 2, 4);
+  const double diagonal[] = {0.125, 0.25, 0.25, 0.75, 0.8125, 0.875, 0.9375, 1.0};
+  const double conditional[][4] = {{0.0, 0.25, 0.25, 1.0}, {0.1, 0.2, 0.3, 1.0}};
+  for (S a = 0; a < 2; ++a)
+    for (S row = 0; row < 2; ++row)
+      for (S k = 0; k < 4; ++k) {
+        bas.grid_(a, a, row, k) = diagonal[row * 4 + k];
+        bas.grid_(a, 1 - a, row, k) = conditional[row][k];
+      }
+  bas.set_parents({0, 1});
+
+  // Cover repeated edges, exact boundaries, zero-width sampled cells and both endpoints.
+  kakuhen::ndarray::NDArray<U, S> expected({2, 2, 2, 4});
+  std::ranges::fill(expected, U(0));
+  const double draws[] = {
+      0.0, 0.125, 0.1875, 0.25, 0.375, 0.4375, 0.5, 0.75, std::nextafter(1.0, 0.0)};
+  for (const double u : draws) {
+    bas.uniform_distribution_ = std::uniform_real_distribution<double>(u, u);
+    const S sampled_bin = S(u * bas.ndiv0());
+    bas.integrate(
+        [&](const Point<>& point) {
+          for (S a = 0; a < 2; ++a) {
+            ++expected(a, a, sampled_bin / 4, sampled_bin % 4);
+            const S b = 1 - a, row = sampled_bin / 4;
+            const double* edges = &bas.grid_(a, b, row, 0);
+            const S bin = S(std::lower_bound(edges, edges + 4, point.x[b]) - edges);
+            ++expected(a, b, row, bin);
+          }
+          return 1.0;
+        },
+        {.neval = 2, .niter = 1, .adapt = false});
+  }
+  const auto [count, cells] = bas.collected_cells();
+  REQUIRE(count == 2 * std::size(draws));
+  for (S a = 0; a < 2; ++a)
+    for (S b = 0; b < 2; ++b)
+      for (S row = 0; row < 2; ++row)
+        for (S k = 0; k < 4; ++k) {
+          CAPTURE(a, b, row, k);
+          REQUIRE(cells(a, b, row, k).count() == expected(a, b, row, k));
+        }
+}
+
+TEST_CASE("Basin collects with a narrow size type", "[basin]") {
+  Basin<kakuhen::util::num_traits_t<double, std::uint16_t>> bas(8, 8, 16);
+  const auto result = bas.integrate([](const auto&) { return 1.0; },
+                                    {.neval = 2, .niter = 1, .adapt = false, .verbosity = 0});
+  REQUIRE(result.value() == Approx(1.0));
+}
+
+TEST_CASE("Basin rejects a grid whose size exceeds its size type", "[basin]") {
+  using SmallBasin = Basin<kakuhen::util::num_traits_t<double, std::uint16_t>>;
+  REQUIRE_THROWS_AS(SmallBasin(1, 65535, 65535), std::runtime_error);
+}
+
+TEST_CASE("Basin maps roots into their sampled cell at a rounding boundary", "[basin]") {
+  OrderedBasin bas(1, 3, 4);
+  // 12 u rounds up to 5: an fma of 12 u - 5 would be negative and put x below the cell
+  const double u = std::nextafter(5.0 / 12.0, 0.0);
+  REQUIRE(S(u * 12.0) == 5);
+  bas.uniform_distribution_ = std::uniform_real_distribution<double>(u, u);
+  double x = -1.0;
+  bas.integrate(
+      [&](const Point<>& point) {
+        x = point.x[0];
+        return 1.0;
+      },
+      {.neval = 1, .niter = 1, .adapt = false});
+  REQUIRE(x >= bas.grid_(0, 0, 1, 0));  // lower edge of cell 5: row 1, edge 0
+  REQUIRE(x <= bas.grid_(0, 0, 1, 1));
 }
 
 TEST_CASE("Basin keeps grid rows when refinement weights underflow", "[basin]") {

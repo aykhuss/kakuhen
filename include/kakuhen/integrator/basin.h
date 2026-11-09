@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <functional>
 #include <iostream>
@@ -332,14 +333,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
     for (S iord = 0; iord < nblocks_; ++iord) {
       assert(order_(iord, 0) == order_(iord, 1));
       const S idim0 = order_(iord, 0);
-      T rand = u[idim0];
-      //> intervals rand in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
-      const S ig0 = S(rand * T(ndiv0_));
+      //> intervals u in [ i/ndiv0_ , (i+1)/ndiv0_ ] mapped to i
+      const T scaled = u[idim0] * T(ndiv0_);
+      const S ig0 = S(scaled);
       assert(ig0 >= 0 && ig0 < ndiv0_);
-      assert(rand * T(ndiv0_) >= T(ig0) && rand * T(ndiv0_) <= T(ig0 + 1));
-      //> map rand back to [ 0, 1 ]
-      rand = rand * T(ndiv0_) - T(ig0);
-      assert(rand >= T(0) && rand <= T(1));
+      //> reuse the rounded product for both the bin and the local coordinate in [0, 1)
+      const T rand = scaled - T(ig0);
+      assert(rand >= T(0) && rand < T(1));
       const T x_low = ig0 > 0 ? ordered_grid0_(iord, ig0 - 1) : T(0);
       const T x_upp = ordered_grid0_(iord, ig0);
       point.x[idim0] = x_low + rand * (x_upp - x_low);
@@ -362,14 +362,13 @@ class Basin : public IntegratorBase<Basin<NT, RNG, DIST>, NT, RNG, DIST> {
       if (ig0_1 == ndiv0_) ig0_1 = diag_cell(idim1, point.x[idim1]);
       const S ig1 = ig0_1 / ndiv2_;
       assert(ig1 >= 0 && ig1 < ndiv1_);
-      T rand = u[idim2];
-      //> intervals rand in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
-      const S ig2 = S(rand * T(ndiv2_));
+      //> intervals u in [ i/ndiv2_ , (i+1)/ndiv2_ ] mapped to i
+      const T scaled = u[idim2] * T(ndiv2_);
+      const S ig2 = S(scaled);
       assert(ig2 >= 0 && ig2 < ndiv2_);
-      assert(rand * T(ndiv2_) >= T(ig2) && rand * T(ndiv2_) <= T(ig2 + 1));
-      //> map rand back to [ 0, 1 ]
-      rand = rand * T(ndiv2_) - T(ig2);
-      assert(rand >= T(0) && rand <= T(1));
+      //> reuse the rounded product for both the bin and the local coordinate in [0, 1)
+      const T rand = scaled - T(ig2);
+      assert(rand >= T(0) && rand < T(1));
       const T x_low = ig2 > 0 ? ordered_grid_(iord, ig1, ig2 - 1) : T(0);
       const T x_upp = ordered_grid_(iord, ig1, ig2);
       const T x = x_low + rand * (x_upp - x_low);
